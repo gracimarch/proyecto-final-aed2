@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Entorno virtual
+venv/
+.venv/
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Flask
+instance/
+.webassets-cache
+flask_session/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
