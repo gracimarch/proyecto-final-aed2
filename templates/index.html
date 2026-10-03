@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,12 +7,191 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <h1>Warehouse Simulator</h1>
+
+    <!-- ═══════════════════════════════════════════════════
+         NAVBAR
+    ════════════════════════════════════════════════════ -->
+    <header class="navbar">
+        <div class="navbar__brand">
+            <span class="navbar__icon">▦</span>
+            <span class="navbar__title">Warehouse Simulator</span>
+        </div>
+        <nav class="navbar__actions">
+            <button class="btn btn--icon btn--ghost" id="btn-toggle-theme" title="Cambiar tema">☀</button>
+            <button class="btn btn--ghost" id="btn-load-scenario">⬆ Cargar escenario</button>
+            <button class="btn btn--ghost" id="btn-save-scenario">⬇ Guardar escenario</button>
+            <button class="btn btn--primary" id="btn-new-scenario">+ Nuevo escenario</button>
+        </nav>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════
+         LAYOUT PRINCIPAL
+    ════════════════════════════════════════════════════ -->
+    <main class="app-layout">
+
+        <!-- ─── SIDEBAR IZQUIERDO ──────────────────────── -->
+        <aside class="sidebar">
+
+            <!-- Warehouse -->
+            <section class="panel">
+                <h2 class="panel__title">Warehouse</h2>
+                <div class="panel__body">
+                    <div class="info-row">
+                        <span class="info-label">ID</span>
+                        <span class="info-value" id="wh-id">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Tamaño</span>
+                        <span class="info-value" id="wh-size">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Pickers</span>
+                        <span class="info-value" id="wh-pickers">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Racks</span>
+                        <span class="info-value" id="wh-racks">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Productos</span>
+                        <span class="info-value" id="wh-products">—</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pedidos -->
+            <section class="panel">
+                <div class="panel__header">
+                    <h2 class="panel__title">Pedidos</h2>
+                    <button class="btn btn--sm btn--ghost" id="btn-add-order">+ Agregar</button>
+                </div>
+                <div class="panel__body panel__body--scroll" id="orders-list">
+                    <p class="empty-msg">Sin pedidos cargados.</p>
+                </div>
+            </section>
+
+            <!-- Waves -->
+            <section class="panel">
+                <div class="panel__header">
+                    <h2 class="panel__title">Waves</h2>
+                    <button class="btn btn--sm btn--primary" id="btn-generate-wave">⚡ Generar</button>
+                </div>
+                <div class="panel__body panel__body--scroll" id="waves-list">
+                    <p class="empty-msg">Sin waves generadas.</p>
+                </div>
+            </section>
+
+        </aside>
+
+        <!-- ─── CANVAS CENTRAL ─────────────────────────── -->
+        <section class="canvas-area">
+            <div class="canvas-toolbar">
+                <div class="canvas-toolbar__left">
+                    <span class="canvas-label" id="canvas-status">Sin escenario cargado</span>
+                </div>
+                <div class="canvas-toolbar__right">
+                    <button class="btn btn--sm btn--ghost" id="btn-zoom-in">＋</button>
+                    <button class="btn btn--sm btn--ghost" id="btn-zoom-out">－</button>
+                    <button class="btn btn--sm btn--ghost" id="btn-zoom-reset">⤢</button>
+                </div>
+            </div>
+            <div class="canvas-wrapper">
+                <canvas id="warehouse-canvas"></canvas>
+                <div class="canvas-placeholder" id="canvas-placeholder">
+                    <span class="canvas-placeholder__icon">▦</span>
+                    <p>Creá o cargá un escenario para comenzar</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── PANEL DERECHO ──────────────────────────── -->
+        <aside class="sidebar sidebar--right">
+
+            <!-- Simulación -->
+            <section class="panel">
+                <h2 class="panel__title">Simulación</h2>
+                <div class="panel__body">
+
+                    <!-- Selector de wave -->
+                    <label class="field-label" for="select-wave">Wave activa</label>
+                    <select class="select" id="select-wave">
+                        <option value="">— Seleccioná una wave —</option>
+                    </select>
+
+                    <!-- Selector de estrategia -->
+                    <label class="field-label" for="select-strategy">Estrategia de recorrido</label>
+                    <select class="select" id="select-strategy">
+                        <option value="order">A — Orden de pedidos</option>
+                        <option value="nearest">B — Cercanía</option>
+                    </select>
+
+                    <!-- Controles de reproducción -->
+                    <div class="sim-controls">
+                        <button class="btn btn--icon" id="btn-restart" title="Reiniciar">⟳</button>
+                        <button class="btn btn--icon btn--primary" id="btn-play" title="Iniciar / Continuar">▶</button>
+                        <button class="btn btn--icon" id="btn-pause" title="Pausar">⏸</button>
+                        <button class="btn btn--icon" id="btn-step" title="Paso a paso">⏭</button>
+                    </div>
+
+                    <!-- Velocidad -->
+                    <label class="field-label" for="range-speed">
+                        Velocidad: <span id="speed-label">1×</span>
+                    </label>
+                    <input type="range" class="range" id="range-speed"
+                           min="1" max="5" step="1" value="1">
+                </div>
+            </section>
+
+            <!-- Métricas -->
+            <section class="panel">
+                <h2 class="panel__title">Métricas</h2>
+                <div class="panel__body">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-card__label">Distancia total</span>
+                            <span class="metric-card__value" id="metric-distance">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Nodos visitados</span>
+                            <span class="metric-card__value" id="metric-nodes">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Aristas recorridas</span>
+                            <span class="metric-card__value" id="metric-edges">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Tiempo de ejec.</span>
+                            <span class="metric-card__value" id="metric-time">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Comparación entre estrategias -->
+                    <div class="compare-header">
+                        <span>Comparar estrategias</span>
+                        <button class="btn btn--sm btn--ghost" id="btn-compare">Ejecutar</button>
+                    </div>
+                    <div id="compare-result" class="compare-result">
+                        <p class="empty-msg">Ejecutá ambas estrategias para comparar.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Productos recogidos -->
+            <section class="panel">
+                <h2 class="panel__title">Productos recogidos</h2>
+                <div class="panel__body panel__body--scroll" id="collected-list">
+                    <p class="empty-msg">Ninguno todavía.</p>
+                </div>
+            </section>
+
+        </aside>
+    </main>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

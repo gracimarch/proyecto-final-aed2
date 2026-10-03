@@ -1,0 +1,62 @@
+/* ================================================================
+   TOKENS / VARIABLES — TEMA OSCURO (default)
+================================================================ */
+:root {
+    /* Colores */
+    --color-bg:          #0f0f0f;
+    --color-surface:     #1a1a1a;
+    --color-surface-2:   #222222;
+    --color-border:      #2e2e2e;
+    --color-border-2:    #3a3a3a;
+
+    --color-text:        #e8e8e8;
+    --color-text-muted:  #888888;
+    --color-text-dim:    #555555;
+
+    --color-primary:     #4f9cf9;
+    --color-primary-hover: #6db0ff;
+    --color-accent:      #f9a84f;
+    --color-success:     #4fc97f;
+    --color-danger:      #f94f4f;
+    --color-warning:     #f9d44f;
+
+    /* Tipografía */
+    --font-mono:         "JetBrains Mono", monospace;
+    --font-size-xs:      0.7rem;
+    --font-size-sm:      0.78rem;
+    --font-size-base:    0.875rem;
+    --font-size-md:      1rem;
+    --font-size-lg:      1.15rem;
+
+    /* Espaciado */
+    --space-xs:   4px;
+    --space-sm:   8px;
+    --space-md:   14px;
+    --space-lg:   20px;
+    --space-xl:   28px;
+
+    /* Layout */
+    --navbar-h:      52px;
+    --sidebar-w:     240px;
+    --sidebar-r-w:   260px;
+    --radius:        6px;
+    --radius-sm:     4px;
+}
+
+/* ================================================================
+   TOKENS / VARIABLES — TEMA CLARO
+================================================================ */
+[data-theme="light"] {
+    --color-bg:          #f0f2f5;
+    --color-surface:     #ffffff;
+    --color-surface-2:   #f5f6f8;
+    --color-border:      #dde1e7;
+    --color-border-2:    #c8cdd6;
+
+    --color-text:        #1a1d23;
+    --color-text-muted:  #6b7280;
+    --color-text-dim:    #adb5c0;
+
+    --color-primary:     #2563eb;
+    --color-primary-hover: #1d4ed8;
+}
