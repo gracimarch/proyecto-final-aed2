@@ -1,4 +1,54 @@
 /* ================================================================
+   MATERIAL SYMBOLS ROUNDED — fuente de iconos (variable font local)
+================================================================ */
+@font-face {
+    font-family: 'Material Symbols Rounded';
+    font-style: normal;
+    font-weight: 100 700;
+    font-display: block;
+    src: url('../fonts/MaterialSymbolsRounded.ttf') format('truetype');
+}
+
+.icon {
+    font-family: 'Material Symbols Rounded';
+    font-weight: normal;
+    font-style: normal;
+    font-size: inherit;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    /* Ejes como custom properties para que se puedan componer independientemente */
+    --icon-fill: 0;
+    --icon-wght: 300;
+    --icon-grad: 0;
+    --icon-opsz: 20;
+    font-variation-settings: 'FILL' var(--icon-fill), 'wght' var(--icon-wght), 'GRAD' var(--icon-grad), 'opsz' var(--icon-opsz);
+    user-select: none;
+    pointer-events: none;
+    flex-shrink: 0;
+}
+
+/* Relleno: solo modifica el eje FILL, sin pisar el resto */
+.icon--filled  { --icon-fill: 1; }
+
+/* Tamaños: solo modifican font-size y opsz */
+.icon--20      { font-size: 20px; --icon-opsz: 20; }
+.icon--18      { font-size: 18px; --icon-opsz: 20; }
+.icon--16      { font-size: 16px; --icon-opsz: 20; }
+.icon--sm      { font-size: 15px; --icon-opsz: 20; }
+.icon--lg      { font-size: 24px; --icon-opsz: 24; }
+.icon--xl      { font-size: 40px; --icon-wght: 200; --icon-opsz: 48; }
+
+/* ================================================================
    TOKENS / VARIABLES — TEMA OSCURO (default)
 ================================================================ */
 :root {

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Warehouse Simulator</title>
+    <meta name="description" content="Simulador interactivo de warehouse con wave picking y visualización de algoritmos de recorrido.">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,6 +12,7 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}">
 </head>
 <body>
 
@@ -19,14 +21,25 @@
     ════════════════════════════════════════════════════ -->
     <header class="navbar">
         <div class="navbar__brand">
-            <span class="navbar__icon">▦</span>
+            <span class="navbar__icon" aria-hidden="true"><span class="icon icon--lg icon--filled">warehouse</span></span>
             <span class="navbar__title">Warehouse Simulator</span>
         </div>
         <nav class="navbar__actions">
-            <button class="btn btn--icon btn--ghost" id="btn-toggle-theme" title="Cambiar tema">☀</button>
-            <button class="btn btn--ghost" id="btn-load-scenario">⬆ <span class="btn-label">Cargar escenario</span></button>
-            <button class="btn btn--ghost" id="btn-save-scenario">⬇ <span class="btn-label">Guardar escenario</span></button>
-            <button class="btn btn--primary" id="btn-new-scenario">+ <span class="btn-label">Nuevo escenario</span></button>
+            <button class="btn btn--icon btn--ghost" id="btn-toggle-theme" title="Cambiar a tema claro" aria-label="Cambiar tema">
+                <span class="icon icon--18 icon--filled" aria-hidden="true">light_mode</span>
+            </button>
+            <button class="btn btn--ghost" id="btn-load-scenario">
+                <span class="icon icon--16 icon--filled" aria-hidden="true">upload</span>
+                <span class="btn-label">Cargar escenario</span>
+            </button>
+            <button class="btn btn--ghost" id="btn-save-scenario">
+                <span class="icon icon--16 icon--filled" aria-hidden="true">download</span>
+                <span class="btn-label">Guardar escenario</span>
+            </button>
+            <button class="btn btn--primary" id="btn-new-scenario">
+                <span class="icon icon--16" aria-hidden="true">add</span>
+                <span class="btn-label">Nuevo escenario</span>
+            </button>
         </nav>
     </header>
 
@@ -43,7 +56,7 @@
                 <h2 class="panel__title">Warehouse</h2>
                 <div class="panel__body">
                     <div class="info-row">
-                        <span class="info-label">ID</span>
+                        <span class="info-label">Escenario</span>
                         <span class="info-value" id="wh-id">—</span>
                     </div>
                     <div class="info-row">
@@ -65,11 +78,19 @@
                 </div>
             </section>
 
+            <!-- Panel de selección (oculto hasta que se seleccione algo) -->
+            <section class="panel selection-panel" id="selection-panel">
+                <h2 class="panel__title">Selección</h2>
+                <div id="selection-body" class="selection-body"></div>
+            </section>
+
             <!-- Pedidos -->
             <section class="panel">
                 <div class="panel__header">
                     <h2 class="panel__title">Pedidos</h2>
-                    <button class="btn btn--sm btn--ghost" id="btn-add-order">+ Agregar</button>
+                    <button class="btn btn--sm btn--ghost" id="btn-add-order">
+                        <span class="icon icon--sm" aria-hidden="true">add</span> Agregar
+                    </button>
                 </div>
                 <div class="panel__body panel__body--scroll" id="orders-list">
                     <p class="empty-msg">Sin pedidos cargados.</p>
@@ -80,7 +101,9 @@
             <section class="panel">
                 <div class="panel__header">
                     <h2 class="panel__title">Waves</h2>
-                    <button class="btn btn--sm btn--primary" id="btn-generate-wave">⚡ Generar</button>
+                    <button class="btn btn--sm btn--primary" id="btn-generate-wave">
+                        <span class="icon icon--sm icon--filled" aria-hidden="true">bolt</span> Generar
+                    </button>
                 </div>
                 <div class="panel__body panel__body--scroll" id="waves-list">
                     <p class="empty-msg">Sin waves generadas.</p>
@@ -92,21 +115,69 @@
         <!-- ─── CANVAS CENTRAL ─────────────────────────── -->
         <section class="canvas-area">
             <div class="canvas-toolbar">
+
+                <!-- Herramientas de edición -->
                 <div class="canvas-toolbar__left">
+                    <div class="tool-group" id="editor-tools" role="toolbar" aria-label="Herramientas de edición">
+                        <button class="btn btn--icon tool-btn active" data-tool="select"
+                                id="tool-select" title="Seleccionar (S)" aria-label="Seleccionar">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">arrow_selector_tool</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="rack"
+                                id="tool-rack" title="Colocar rack (R) — click o arrastrar" aria-label="Colocar rack">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">shelves</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="product"
+                                id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="picker"
+                                id="tool-picker" title="Colocar picker (K)" aria-label="Colocar picker">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">person_pin</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="erase"
+                                id="tool-erase" title="Borrar (E)" aria-label="Borrar">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">ink_eraser</span>
+                        </button>
+                    </div>
+
+                    <div class="toolbar-sep"></div>
                     <span class="canvas-label" id="canvas-status">Sin escenario cargado</span>
                 </div>
+
                 <div class="canvas-toolbar__right">
-                    <button class="btn btn--sm btn--ghost" id="btn-zoom-in">＋</button>
-                    <button class="btn btn--sm btn--ghost" id="btn-zoom-out">－</button>
-                    <button class="btn btn--sm btn--ghost" id="btn-zoom-reset">⤢</button>
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-in"    title="Zoom in"    aria-label="Zoom in">
+                        <span class="icon icon--18 icon--filled" aria-hidden="true">zoom_in</span>
+                    </button>
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-out"   title="Zoom out"   aria-label="Zoom out">
+                        <span class="icon icon--18 icon--filled" aria-hidden="true">zoom_out</span>
+                    </button>
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-reset" title="Reset zoom"  aria-label="Restablecer zoom">
+                        <span class="icon icon--18 icon--filled" aria-hidden="true">fit_screen</span>
+                    </button>
                 </div>
             </div>
+
             <div class="canvas-wrapper">
                 <canvas id="warehouse-canvas"></canvas>
                 <div class="canvas-placeholder" id="canvas-placeholder">
-                    <span class="canvas-placeholder__icon">▦</span>
+                    <span class="canvas-placeholder__icon" aria-hidden="true"><span class="icon icon--xl icon--filled">warehouse</span></span>
                     <p>Creá o cargá un escenario para comenzar</p>
                 </div>
+            </div>
+
+            <!-- Leyenda de shortcuts -->
+            <div class="canvas-legend">
+                <span><kbd>S</kbd> Selec.</span>
+                <span><kbd>R</kbd> Rack</span>
+                <span><kbd>P</kbd> Producto</span>
+                <span><kbd>K</kbd> Picker</span>
+                <span><kbd>E</kbd> Borrar</span>
+                <span><kbd>Del</kbd> Eliminar sel.</span>
+                <span><kbd>Esc</kbd> Cancelar</span>
+                <span class="legend-sep">·</span>
+                <span>Rueda: zoom</span>
+                <span>Clic der.: mover vista</span>
             </div>
         </section>
 
@@ -133,10 +204,18 @@
 
                     <!-- Controles de reproducción -->
                     <div class="sim-controls">
-                        <button class="btn btn--icon" id="btn-restart" title="Reiniciar">⟳</button>
-                        <button class="btn btn--icon btn--primary" id="btn-play" title="Iniciar / Continuar">▶</button>
-                        <button class="btn btn--icon" id="btn-pause" title="Pausar">⏸</button>
-                        <button class="btn btn--icon" id="btn-step" title="Paso a paso">⏭</button>
+                        <button class="btn btn--icon" id="btn-restart" title="Reiniciar" aria-label="Reiniciar">
+                            <span class="icon icon--20 icon--filled" aria-hidden="true">restart_alt</span>
+                        </button>
+                        <button class="btn btn--icon btn--primary" id="btn-play" title="Iniciar / Continuar" aria-label="Iniciar simulación">
+                            <span class="icon icon--20 icon--filled" aria-hidden="true">play_arrow</span>
+                        </button>
+                        <button class="btn btn--icon" id="btn-pause" title="Pausar" aria-label="Pausar simulación">
+                            <span class="icon icon--20 icon--filled" aria-hidden="true">pause</span>
+                        </button>
+                        <button class="btn btn--icon" id="btn-step" title="Paso a paso" aria-label="Avanzar un paso">
+                            <span class="icon icon--20 icon--filled" aria-hidden="true">skip_next</span>
+                        </button>
                     </div>
 
                     <!-- Velocidad -->
@@ -193,6 +272,117 @@
         </aside>
     </main>
 
+    <!-- ═══════════════════════════════════════════════════
+         MODAL: NUEVO ESCENARIO
+    ════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-new-scenario" role="dialog" aria-modal="true" aria-labelledby="modal-new-title">
+        <div class="modal__overlay"></div>
+        <div class="modal__content">
+            <div class="modal__header">
+                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">warehouse</span></span>
+                <h2 class="modal__title" id="modal-new-title">Nuevo Escenario</h2>
+            </div>
+
+            <div class="modal__body">
+                <!-- Nombre -->
+                <div class="form-group">
+                    <label class="form-label" for="input-wh-name">Nombre del escenario</label>
+                    <input class="form-input" type="text" id="input-wh-name"
+                           placeholder="Escenario 1" value="Escenario 1" maxlength="40">
+                </div>
+
+                <!-- Tamaño -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-wh-width">
+                            Ancho (columnas) — <span id="label-wh-width">20</span>
+                        </label>
+                        <input class="form-range" type="range" id="input-wh-width"
+                               min="8" max="50" step="1" value="20">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-wh-height">
+                            Alto (filas) — <span id="label-wh-height">15</span>
+                        </label>
+                        <input class="form-range" type="range" id="input-wh-height"
+                               min="6" max="35" step="1" value="15">
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div class="form-group">
+                    <label class="form-label">Vista previa</label>
+                    <div class="wh-preview">
+                        <div class="wh-preview__grid" id="wh-preview-grid"></div>
+                        <div class="wh-preview__legend">
+                            <span class="legend-dot legend-dot--floor"></span> Pasillo
+                            <span class="legend-dot legend-dot--dispatch"></span> Despacho
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal__footer">
+                <button class="btn btn--ghost" id="btn-cancel-wh">Cancelar</button>
+                <button class="btn btn--primary" id="btn-create-wh">
+                    Crear <span class="icon icon--16" aria-hidden="true">arrow_forward</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
+         MODAL: AGREGAR PRODUCTO
+    ════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-product" role="dialog" aria-modal="true" aria-labelledby="modal-prod-title">
+        <div class="modal__overlay"></div>
+        <div class="modal__content modal__content--sm">
+            <div class="modal__header">
+                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">inventory_2</span></span>
+                <h2 class="modal__title" id="modal-prod-title">Agregar producto</h2>
+            </div>
+
+            <div class="modal__body">
+                <div class="form-group">
+                    <label class="form-label" for="input-prod-name">Nombre del producto <span class="form-required">*</span></label>
+                    <input class="form-input" type="text" id="input-prod-name"
+                           placeholder="ej: Auriculares BT" maxlength="60" autocomplete="off">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-prod-sku">SKU / Código</label>
+                        <input class="form-input" type="text" id="input-prod-sku"
+                               placeholder="ej: SKU-001" maxlength="30" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-prod-qty">Cantidad</label>
+                        <input class="form-input form-input--num" type="number" id="input-prod-qty"
+                               min="1" max="9999" value="1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal__footer">
+                <button class="btn btn--ghost" id="btn-cancel-prod">Cancelar</button>
+                <button class="btn btn--primary" id="btn-add-prod">
+                    Agregar <span class="icon icon--16" aria-hidden="true">arrow_forward</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
+         TOAST
+    ════════════════════════════════════════════════════ -->
+    <div class="editor-toast" id="editor-toast" role="status" aria-live="polite"></div>
+
+    <!-- ═══════════════════════════════════════════════════
+         SCRIPTS
+    ════════════════════════════════════════════════════ -->
+    <script src="{{ url_for('static', filename='js/editor/scenario.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/editor/renderer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/editor/editor.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/editor/ui.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

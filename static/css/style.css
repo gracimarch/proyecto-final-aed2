@@ -46,6 +46,8 @@ body {
 .navbar__icon {
     font-size: 1.3rem;
     color: var(--color-primary);
+    display: inline-flex;
+    align-items: center;
 }
 
 .navbar__title {
@@ -225,6 +227,10 @@ body {
 .canvas-placeholder__icon {
     font-size: 3rem;
     opacity: 0.3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-dim);
 }
 
 .canvas-placeholder p {
@@ -346,6 +352,7 @@ body {
     border: 1px solid var(--color-border-2);
     border-radius: var(--radius-sm);
     flex-shrink: 0;
+    overflow: hidden;
 }
 .btn--icon:hover {
     background: var(--color-border-2);
