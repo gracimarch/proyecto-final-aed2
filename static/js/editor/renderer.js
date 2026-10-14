@@ -152,19 +152,32 @@ class WarehouseRenderer {
 
     // ── Coordenadas ───────────────────────────────────────────────
 
-    /** Celda → píxel pantalla (esquina superior-izquierda de la celda) */
+    /**
+     * Celda lógica → coordenada Y en world-space.
+     * El canvas nativo tiene y creciente hacia abajo, pero el sistema de
+     * coordenadas del warehouse tiene y=0 en la esquina inferior-izquierda
+     * (y crece hacia arriba). Esta función aplica la inversión.
+     */
+    _wy(cy) {
+        if (!this.scenario) return 0;
+        return (this.scenario.height - 1 - cy) * CELL;
+    }
+
+    /** Celda → píxel pantalla (esquina INFERIOR-izquierda de la celda en lógica, superior en pantalla) */
     cellToScreen(cx, cy) {
+        if (!this.scenario) return { x: 0, y: 0 };
         return {
-            x: cx * CELL * this.zoom + this.panX,
-            y: cy * CELL * this.zoom + this.panY
+            x: cx               * CELL * this.zoom + this.panX,
+            y: this._wy(cy)     * this.zoom        + this.panY,
         };
     }
 
-    /** Píxel pantalla → celda */
+    /** Píxel pantalla → celda lógica (con y=0 abajo) */
     screenToCell(sx, sy) {
+        const h = this.scenario ? this.scenario.height : 1;
         return {
             x: Math.floor((sx - this.panX) / (CELL * this.zoom)),
-            y: Math.floor((sy - this.panY) / (CELL * this.zoom))
+            y: h - 1 - Math.floor((sy - this.panY) / (CELL * this.zoom)),
         };
     }
 
@@ -284,14 +297,14 @@ class WarehouseRenderer {
         // Hover cell
         if (this.hoverCell && s.isInBounds(this.hoverCell.x, this.hoverCell.y)) {
             const hx = this.hoverCell.x * CELL;
-            const hy = this.hoverCell.y * CELL;
+            const hy = this._wy(this.hoverCell.y);   // y lógica → world y (invertido)
             ctx.fillStyle = 'rgba(79, 156, 249, 0.12)';
             ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
 
-            // Coordenadas de celda
-            ctx.fillStyle   = 'rgba(79, 156, 249, 0.6)';
-            ctx.font        = `${Math.max(7, 7)}px "JetBrains Mono", monospace`;
-            ctx.textAlign   = 'left';
+            // Coordenadas lógicas (y=0 abajo)
+            ctx.fillStyle    = 'rgba(79, 156, 249, 0.6)';
+            ctx.font         = `${Math.max(7, 7)}px "JetBrains Mono", monospace`;
+            ctx.textAlign    = 'left';
             ctx.textBaseline = 'top';
             ctx.fillText(`${this.hoverCell.x},${this.hoverCell.y}`, hx + 2, hy + 2);
         }
@@ -301,9 +314,11 @@ class WarehouseRenderer {
 
     _drawDispatchZone() {
         const ctx = this.ctx;
-        const dz  = this.scenario.dispatchZone;
+        const s   = this.scenario;
+        const dz  = s.dispatchZone;
         const x   = dz.x * CELL;
-        const y   = dz.y * CELL;
+        // El borde superior en pantalla = celda lógica superior de la zona (dz.y + dz.h - 1)
+        const y   = (s.height - dz.y - dz.h) * CELL;
         const w   = dz.w * CELL;
         const h   = dz.h * CELL;
 
@@ -336,8 +351,10 @@ class WarehouseRenderer {
 
     _drawRack(rack) {
         const ctx = this.ctx;
+        const s   = this.scenario;
         const rx  = rack.x * CELL + 2;
-        const ry  = rack.y * CELL + 2;
+        // El borde superior en pantalla = celda lógica superior del rack (rack.y + rack.height - 1)
+        const ry  = (s.height - rack.y - rack.height) * CELL + 2;
         const rw  = rack.width  * CELL - 4;
         const rh  = rack.height * CELL - 4;
         const r   = 4;
@@ -454,8 +471,11 @@ class WarehouseRenderer {
 
     _drawPicker(picker) {
         const ctx = this.ctx;
-        const cx  = picker.x * CELL + CELL / 2;
-        const cy  = picker.y * CELL + CELL / 2;
+        const s   = this.scenario;
+        // Posición de la celda en world-space (con y=0 abajo)
+        const worldY = this._wy(picker.y);
+        const cx     = picker.x * CELL + CELL / 2;
+        const cy     = worldY + CELL / 2;
 
         const isSelected = this.selectedElement?.type === 'picker' &&
                            this.selectedElement.element.id === picker.id;
@@ -463,89 +483,63 @@ class WarehouseRenderer {
         const FW = WarehouseRenderer.FRAME_W;  // 32
         const FH = WarehouseRenderer.FRAME_H;  // 24
 
-        // Escalar por altura exacta de la celda: spriteH = CELL → sin overflow vertical
-        // scale = CELL/FH = 36/24 = 1.5  →  spriteW=48, spriteH=36
-        const scale = CELL / FH;
-        const spriteW = FW * scale;   // 48px (levemente más ancho que la celda, centrado)
-        const spriteH = FH * scale;   // 36px (exactamente la altura de la celda)
+        const scale   = CELL / FH;
+        const spriteW = FW * scale;
+        const spriteH = FH * scale;
 
-        // Posición: centrado horizontalmente, alineado al borde superior de la celda
         const drawX = cx - spriteW / 2;
-        const drawY = picker.y * CELL;   // empieza en el borde superior → sin overflow abajo
+        const drawY = worldY;
 
-        // Buscar la variante de sprite que corresponde al color del picker
         const variant = this._getPickerVariant(picker.color);
         const sprites = this._pickerSprites[variant];
         const idleImg = sprites?.idle;
 
         if (idleImg && idleImg.complete && idleImg.naturalWidth > 0) {
-            // Dirección: por ahora usamos row 0 (mirando hacia abajo), frame 0
-            const srcX = 0;   // columna 0
-            const srcY = 0;   // fila 0 (DIR_DOWN)
-
             ctx.save();
-            ctx.imageSmoothingEnabled = false;  // escalado nítido pixel art
-
+            ctx.imageSmoothingEnabled = false;
             if (isSelected) {
                 ctx.shadowColor = picker.color;
                 ctx.shadowBlur  = 14;
             }
-
-            ctx.drawImage(
-                idleImg,
-                srcX, srcY, FW, FH,   // source: un frame del spritesheet
-                drawX, drawY, spriteW, spriteH  // destino: centrado en celda
-            );
-
+            ctx.drawImage(idleImg, 0, 0, FW, FH, drawX, drawY, spriteW, spriteH);
             ctx.restore();
-
         } else {
-            // Fallback: figura geométrica
+            // Fallback geométrico
             ctx.save();
             if (isSelected) {
                 ctx.shadowColor = picker.color;
                 ctx.shadowBlur  = 14;
             }
-
-            // Cuerpo
             ctx.fillStyle = picker.color;
             ctx.beginPath();
             ctx.ellipse(cx, cy + CELL * 0.1, CELL * 0.18, CELL * 0.22, 0, 0, Math.PI * 2);
             ctx.fill();
-
-            // Cabeza
             ctx.fillStyle = '#fcd34d';
             ctx.beginPath();
             ctx.arc(cx, cy - CELL * 0.18, CELL * 0.14, 0, Math.PI * 2);
             ctx.fill();
-
-            // Casco
             ctx.fillStyle = picker.color;
             ctx.beginPath();
             ctx.arc(cx, cy - CELL * 0.22, CELL * 0.13, Math.PI, 0, false);
             ctx.fill();
-
             ctx.restore();
         }
 
         // Anillo de selección
         if (isSelected) {
-            ctx.strokeStyle  = picker.color;
-            ctx.lineWidth    = 1.5;
+            ctx.strokeStyle = picker.color;
+            ctx.lineWidth   = 1.5;
             ctx.setLineDash([4, 3]);
-            ctx.strokeRect(
-                picker.x * CELL + 2, picker.y * CELL + 2,
-                CELL - 4, CELL - 4
-            );
+            ctx.strokeRect(picker.x * CELL + 2, worldY + 2, CELL - 4, CELL - 4);
             ctx.setLineDash([]);
         }
 
-        // Nombre debajo
+        // Nombre al pie de la celda
         ctx.fillStyle    = picker.color;
         ctx.font         = `bold 7px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(picker.name, cx, picker.y * CELL + CELL - 2);
+        ctx.fillText(picker.name, cx, worldY + CELL - 2);
     }
 
     // ── Cursor preview (modo rack) ────────────────────────────────
@@ -553,9 +547,11 @@ class WarehouseRenderer {
     _drawCursorPreview() {
         if (!this.cursorRect || this.mode !== 'rack') return;
         const ctx = this.ctx;
+        const s   = this.scenario;
         const { x, y, w, h } = this.cursorRect;
         const px = x * CELL;
-        const py = y * CELL;
+        // Igual que rack: el borde superior en pantalla = celda lógica superior del rect
+        const py = (s.height - y - h) * CELL;
         const pw = w * CELL;
         const ph = h * CELL;
 

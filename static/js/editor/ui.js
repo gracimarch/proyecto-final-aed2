@@ -60,6 +60,13 @@ const DOM = {
     selectionPanel: () => document.getElementById('selection-panel'),
     selectionBody:  () => document.getElementById('selection-body'),
 
+    // Picker controls
+    btnPickerAdd:    () => document.getElementById('btn-picker-add'),
+    btnPickerRemove: () => document.getElementById('btn-picker-remove'),
+    pickersCount:    () => document.getElementById('pickers-count'),
+    pickersList:     () => document.getElementById('pickers-list'),
+    inputPickerCap:  () => document.getElementById('input-picker-capacity'),
+
     // Toast
     toast: () => document.getElementById('editor-toast'),
 };
@@ -118,6 +125,34 @@ function initEditorUI() {
         el.addEventListener('keydown', e => { if (e.key === 'Enter') submitProduct(); });
     });
 
+    // Picker controls
+    DOM.btnPickerAdd().addEventListener('click', () => {
+        if (!_scenario) return;
+        const cap = parseFloat(DOM.inputPickerCap().value) || 100;
+        const picker = _scenario.addPicker(cap);
+        if (picker) {
+            _updateSidebarInfo();
+            _updatePickersList();
+            showToast(`${picker.name} agregado en zona de despacho`, 'info');
+        } else {
+            showToast('Zona de despacho llena. No hay celdas disponibles.', 'warning');
+        }
+    });
+
+    DOM.btnPickerRemove().addEventListener('click', () => {
+        if (!_scenario || _scenario.pickers.length === 0) return;
+        // Quita el último picker agregado
+        const last = _scenario.pickers[_scenario.pickers.length - 1];
+        _scenario.removePicker(last.id);
+        if (_renderer.selectedElement?.element?.id === last.id) {
+            _renderer.selectedElement = null;
+            _hideSelection();
+        }
+        _updateSidebarInfo();
+        _updatePickersList();
+        showToast(`${last.name} eliminado`, 'warning');
+    });
+
     // Guardar / Cargar
     DOM.btnSave().addEventListener('click', saveScenario);
     DOM.btnLoad().addEventListener('click', loadScenario);
@@ -164,12 +199,12 @@ function updateGridPreview() {
     for (let i = 0; i < w * h; i++) {
         const cell = document.createElement('div');
         cell.className = 'preview-cell';
-        // Zona de despacho (esquina inferior-izquierda, 3×2)
+        // La grilla del preview tiene y visual creciente hacia abajo,
+        // pero lógicamente y=0 está abajo → las filas inferiores son y=0,1
         const cx = i % w;
-        const cy = Math.floor(i / w);
-        if (cx < 3 && cy >= h - 3 && cy < h - 1) {
-            cell.className += ' preview-cell--dispatch';
-        }
+        const cy = Math.floor(i / w);         // fila en el preview (0 = arriba en pantalla)
+        const isDispatch = cx < 3 && cy >= h - 2;  // esquina inferior-izquierda (2 filas)
+        if (isDispatch) cell.className += ' preview-cell--dispatch';
         pg.appendChild(cell);
     }
 }
@@ -243,12 +278,6 @@ function _onEditorEvent(event, data) {
             _showSelectionRack(data);
             break;
 
-        case 'add-picker':
-            _updateSidebarInfo();
-            showToast(`${data.name} colocado`, 'info');
-            _showSelectionPicker(data);
-            break;
-
         case 'remove-rack':
             _updateSidebarInfo();
             showToast(`Rack ${data.id} eliminado`, 'warning');
@@ -257,6 +286,7 @@ function _onEditorEvent(event, data) {
 
         case 'remove-picker':
             _updateSidebarInfo();
+            _updatePickersList();
             showToast(`${data.name} eliminado`, 'warning');
             _hideSelection();
             break;
@@ -394,6 +424,32 @@ function _updateSidebarInfo() {
     DOM.whPickers().textContent  = st.pickers;
     DOM.whRacks().textContent    = st.racks;
     DOM.whProducts().textContent = st.products;
+
+    // Habilitar/deshabilitar controles de picker
+    const hasScenario = !!_scenario;
+    DOM.btnPickerAdd().disabled    = !hasScenario;
+    DOM.btnPickerRemove().disabled = !hasScenario || _scenario.pickers.length === 0;
+    DOM.pickersCount().textContent = _scenario.pickers.length;
+    _updatePickersList();
+}
+
+/**
+ * Renderiza la lista compacta de pickers dentro del panel de pickers.
+ */
+function _updatePickersList() {
+    if (!_scenario) return;
+    const list = DOM.pickersList();
+    if (_scenario.pickers.length === 0) {
+        list.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
+        return;
+    }
+    list.innerHTML = _scenario.pickers.map(pk => `
+        <div class="picker-chip">
+            <span class="picker-chip__dot" style="background:${pk.color}"></span>
+            <span class="picker-chip__name">${pk.name}</span>
+            <span class="picker-chip__meta">(${pk.x},${pk.y}) · ${pk.capacidadKg}kg</span>
+        </div>
+    `).join('');
 }
 
 function _updateCanvasStatus() {
@@ -402,6 +458,12 @@ function _updateCanvasStatus() {
         return;
     }
     DOM.canvasStatus().textContent = `${_scenario.name}  ·  ${_scenario.width}×${_scenario.height}`;
+
+    // Habilitar botones de picker al cargar un escenario
+    DOM.btnPickerAdd().disabled    = false;
+    DOM.btnPickerRemove().disabled = _scenario.pickers.length === 0;
+    DOM.pickersCount().textContent = _scenario.pickers.length;
+    _updatePickersList();
 }
 
 // ── Guardar / Cargar ──────────────────────────────────────────────
@@ -454,7 +516,7 @@ function _onKeyDown(e) {
     // No activar si el foco está en un input/textarea
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
 
-    const toolMap = { 's': 'select', 'r': 'rack', 'p': 'product', 'k': 'picker', 'e': 'erase' };
+    const toolMap = { 's': 'select', 'r': 'rack', 'p': 'product', 'e': 'erase' };
     if (toolMap[e.key]) {
         _setActiveTool(toolMap[e.key]);
         return;

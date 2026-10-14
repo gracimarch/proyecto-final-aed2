@@ -64,10 +64,6 @@
                         <span class="info-value" id="wh-size">—</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">Pickers</span>
-                        <span class="info-value" id="wh-pickers">—</span>
-                    </div>
-                    <div class="info-row">
                         <span class="info-label">Racks</span>
                         <span class="info-value" id="wh-racks">—</span>
                     </div>
@@ -75,6 +71,36 @@
                         <span class="info-label">Productos</span>
                         <span class="info-value" id="wh-products">—</span>
                     </div>
+                </div>
+            </section>
+
+            <!-- Pickers -->
+            <section class="panel" id="pickers-panel">
+                <div class="panel__header">
+                    <h2 class="panel__title">
+                        <span class="icon icon--16 icon--filled" aria-hidden="true">person_pin</span>
+                        Pickers
+                    </h2>
+                    <span class="info-value" id="wh-pickers">—</span>
+                </div>
+                <div class="panel__body">
+                    <div class="pickers-counter">
+                        <button class="btn btn--icon btn--sm btn--ghost" id="btn-picker-remove"
+                                title="Quitar un picker" aria-label="Quitar picker" disabled>
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">remove</span>
+                        </button>
+                        <span class="pickers-count" id="pickers-count">0</span>
+                        <button class="btn btn--icon btn--sm btn--primary" id="btn-picker-add"
+                                title="Agregar un picker" aria-label="Agregar picker" disabled>
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">add</span>
+                        </button>
+                    </div>
+                    <div class="pickers-capacity-row">
+                        <label class="form-label" for="input-picker-capacity">Cap. por picker (kg)</label>
+                        <input class="form-input form-input--num" type="number"
+                               id="input-picker-capacity" min="1" max="9999" value="100">
+                    </div>
+                    <div id="pickers-list" class="pickers-list"></div>
                 </div>
             </section>
 
@@ -131,10 +157,6 @@
                                 id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="picker"
-                                id="tool-picker" title="Colocar picker (K)" aria-label="Colocar picker">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">person_pin</span>
-                        </button>
                         <button class="btn btn--icon tool-btn" data-tool="erase"
                                 id="tool-erase" title="Borrar (E)" aria-label="Borrar">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">ink_eraser</span>
@@ -171,7 +193,6 @@
                 <span><kbd>S</kbd> Selec.</span>
                 <span><kbd>R</kbd> Rack</span>
                 <span><kbd>P</kbd> Producto</span>
-                <span><kbd>K</kbd> Picker</span>
                 <span><kbd>E</kbd> Borrar</span>
                 <span><kbd>Del</kbd> Eliminar sel.</span>
                 <span><kbd>Esc</kbd> Cancelar</span>

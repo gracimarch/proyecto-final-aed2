@@ -18,7 +18,7 @@ class WarehouseEditor {
         this.scenario = null;
         this.onEvent  = onEvent || (() => {});
 
-        this.mode = 'select';  // 'select' | 'rack' | 'product' | 'picker' | 'erase'
+        this.mode = 'select';  // 'select' | 'rack' | 'product' | 'erase'
 
         // Estado del drag de rack
         this._rackDragStart = null;
@@ -60,7 +60,6 @@ class WarehouseEditor {
             select:  'default',
             rack:    'crosshair',
             product: 'cell',
-            picker:  'copy',
             erase:   'not-allowed'
         };
         this.canvas.style.cursor = cursors[mode] || 'default';
@@ -123,7 +122,6 @@ class WarehouseEditor {
             case 'select':  this._onSelectDown(cell, e);  break;
             case 'rack':    this._onRackDown(cell);        break;
             case 'product': this._onProductDown(cell);     break;
-            case 'picker':  this._onPickerDown(cell);      break;
             case 'erase':   this._onEraseDown(cell);       break;
         }
     }
@@ -261,26 +259,6 @@ class WarehouseEditor {
             this.onEvent('open-product-form', rack);
         } else {
             this.onEvent('hint', 'Hacé click en un rack para agregarle un producto.');
-        }
-    }
-
-    _onPickerDown(cell) {
-        if (!this.scenario.isInBounds(cell.x, cell.y)) return;
-
-        // Si ya hay un picker, seleccionarlo
-        const existing = this.scenario.getPickerAt(cell.x, cell.y);
-        if (existing) {
-            this.renderer.selectedElement = { type: 'picker', element: existing };
-            this.onEvent('select-picker', existing);
-            return;
-        }
-
-        const picker = this.scenario.addPicker(cell.x, cell.y);
-        if (picker) {
-            this.renderer.selectedElement = { type: 'picker', element: picker };
-            this.onEvent('add-picker', picker);
-        } else {
-            this.onEvent('error', 'No se puede colocar el picker aquí (rack o zona de despacho).');
         }
     }
 

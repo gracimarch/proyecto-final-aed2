@@ -70,16 +70,17 @@ class Product {
 // ── Picker ────────────────────────────────────────────────────────
 
 class Picker {
-    constructor({ id = null, x, y, name = null, color = null } = {}) {
-        this.id    = id || _genId('PK');
-        this.x     = x;
-        this.y     = y;
-        this.name  = name  || this.id;
-        this.color = color || PICKER_COLORS[0];
+    constructor({ id = null, x, y, name = null, color = null, capacidadKg = 100 } = {}) {
+        this.id          = id || _genId('PK');
+        this.x           = x;
+        this.y           = y;
+        this.name        = name  || this.id;
+        this.color       = color || PICKER_COLORS[0];
+        this.capacidadKg = capacidadKg;
     }
 
     toJSON() {
-        return { id: this.id, x: this.x, y: this.y, name: this.name, color: this.color };
+        return { id: this.id, x: this.x, y: this.y, name: this.name, color: this.color, capacidadKg: this.capacidadKg };
     }
 
     static fromJSON(data) { return new Picker(data); }
@@ -96,8 +97,8 @@ class Scenario {
         this.racks   = [];       // Rack[]
         this.pickers = [];       // Picker[]
 
-        // Zona de despacho: esquina inferior-izquierda, 3×2 celdas
-        this.dispatchZone = { x: 0, y: height - 3, w: 3, h: 2 };
+        // Zona de despacho: esquina inferior-izquierda (y=0 abajo), 3×2 celdas
+        this.dispatchZone = { x: 0, y: 0, w: 3, h: 2 };
 
         this._nextPickerColorIdx = 0;
         this._nextPickerNum      = 1;
@@ -157,14 +158,34 @@ class Scenario {
 
     // ── Pickers ───────────────────────────────────────────────────
 
-    addPicker(x, y) {
-        if (!this.isInBounds(x, y))         return null;
-        if (this.getRackAt(x, y))           return null;  // no puede estar sobre un rack
-        if (this.getPickerAt(x, y))         return null;  // ya hay uno
-        if (this._isInDispatchZone(x, y))   return null;
+    /**
+     * Agrega un picker en la primera celda libre de la zona de despacho.
+     * @param {number} capacidadKg - Capacidad de carga en kg (default 100).
+     * @returns {Picker|null} El picker creado, o null si no hay espacio en la zona de despacho.
+     */
+    addPicker(capacidadKg = 100) {
+        const dz  = this.dispatchZone;
+        let pos   = null;
+
+        // Buscar primera celda libre dentro de la zona de despacho
+        outer: for (let cy = dz.y; cy < dz.y + dz.h; cy++) {
+            for (let cx = dz.x; cx < dz.x + dz.w; cx++) {
+                if (!this.getPickerAt(cx, cy)) {
+                    pos = { x: cx, y: cy };
+                    break outer;
+                }
+            }
+        }
+
+        if (!pos) return null;  // zona de despacho llena
 
         const color  = PICKER_COLORS[this._nextPickerColorIdx % PICKER_COLORS.length];
-        const picker = new Picker({ x, y, color, name: `Picker ${this._nextPickerNum}` });
+        const picker = new Picker({
+            x: pos.x, y: pos.y,
+            color,
+            name: `Picker ${this._nextPickerNum}`,
+            capacidadKg
+        });
         this._nextPickerColorIdx++;
         this._nextPickerNum++;
         this.pickers.push(picker);
