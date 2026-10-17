@@ -1,10 +1,9 @@
-/* ================================================================
+﻿/* ================================================================
    SCENARIO MODEL
    Clases de datos para representar el warehouse en memoria.
-   No depende de ninguna librería externa.
 ================================================================ */
 
-// ── Utilidades ───────────────────────────────────────────────────
+// Utilidades
 
 function _genId(prefix = '') {
     return prefix + Math.random().toString(36).substr(2, 8).toUpperCase();
@@ -16,104 +15,325 @@ const PICKER_COLORS = [
     '#B388FF', '#80CBC4'
 ];
 
-// ── Rack ─────────────────────────────────────────────────────────
+// Rack
 
 class Rack {
-    constructor({ id = null, x, y, width = 1, height = 2 } = {}) {
-        this.id       = id || _genId('R');
-        this.x        = x;        // columna (celda)
-        this.y        = y;        // fila (celda)
-        this.width    = width;    // en celdas
-        this.height   = height;   // en celdas
-        this.products = [];       // Product[]
+    constructor({ id = null, x, y, width = 2, height = 4 } = {}) {
+        this.id = id || _genId('R');
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.products = [];
     }
 
-    /** Devuelve true si la celda (cx, cy) está dentro de este rack. */
     containsCell(cx, cy) {
         return cx >= this.x && cx < this.x + this.width &&
-               cy >= this.y && cy < this.y + this.height;
+            cy >= this.y && cy < this.y + this.height;
     }
 
+    /** Formato backend: { id, ubicacion:{x,y}, ancho, alto }  */
     toJSON() {
         return {
-            id: this.id, x: this.x, y: this.y,
-            width: this.width, height: this.height,
-            products: this.products.map(p => p.toJSON())
+            id: this.id,
+            ubicacion: { x: this.x, y: this.y },
+            ancho: this.width,
+            alto: this.height,
         };
     }
 
     static fromJSON(data) {
-        const rack = new Rack(data);
-        rack.products = (data.products || []).map(p => Product.fromJSON(p));
-        return rack;
+        const ub = data.ubicacion || {};
+        return new Rack({
+            id: data.id,
+            x: ub.x != null ? ub.x : data.x,
+            y: ub.y != null ? ub.y : data.y,
+            width: data.ancho != null ? data.ancho : (data.width != null ? data.width : 2),
+            height: data.alto != null ? data.alto : (data.height != null ? data.height : 4),
+        });
     }
 }
 
-// ── Product ───────────────────────────────────────────────────────
+// Product
 
 class Product {
-    constructor({ id = null, name, sku, quantity = 1, rackId } = {}) {
-        this.id       = id || _genId('P');
-        this.name     = name || 'Producto';
-        this.sku      = sku  || this.id;
+    constructor({ id = null, name = 'Producto', sku = null, rackId,
+        x = 0, y = 0, z = 1, quantity = 1, pesoKg = 1.0 } = {}) {
+        this.id = id || _genId('P');
+        this.name = name;
+        this.sku = sku || this.id;
+        this.rackId = rackId;
+        this.x = x;
+        this.y = y;
+        this.z = z;
         this.quantity = quantity;
-        this.rackId   = rackId;
+        this.pesoKg = pesoKg;
     }
 
     toJSON() {
-        return { id: this.id, name: this.name, sku: this.sku, quantity: this.quantity, rackId: this.rackId };
+        return {
+            id: this.id,
+            nombre: this.name,
+            rack_id: this.rackId,
+            ubicacion: { x: this.x, y: this.y, z: this.z },
+            cantidad_disponible: this.quantity,
+            peso_kg: this.pesoKg,
+        };
     }
 
-    static fromJSON(data) { return new Product(data); }
+    static fromJSON(data) {
+        const ub = data.ubicacion || {};
+        return new Product({
+            id: data.id,
+            name: data.nombre != null ? data.nombre : (data.name != null ? data.name : 'Producto'),
+            sku: data.sku != null ? data.sku : data.id,
+            rackId: data.rack_id != null ? data.rack_id : data.rackId,
+            x: ub.x != null ? ub.x : (data.x != null ? data.x : 0),
+            y: ub.y != null ? ub.y : (data.y != null ? data.y : 0),
+            z: ub.z != null ? ub.z : (data.z != null ? data.z : 1),
+            quantity: data.cantidad_disponible != null ? data.cantidad_disponible : (data.quantity != null ? data.quantity : 1),
+            pesoKg: data.peso_kg != null ? data.peso_kg : (data.pesoKg != null ? data.pesoKg : 1.0),
+        });
+    }
 }
 
-// ── Picker ────────────────────────────────────────────────────────
+// Picker
 
 class Picker {
     constructor({ id = null, x, y, name = null, color = null, capacidadKg = 100 } = {}) {
-        this.id          = id || _genId('PK');
-        this.x           = x;
-        this.y           = y;
-        this.name        = name  || this.id;
-        this.color       = color || PICKER_COLORS[0];
+        this.id = id || _genId('PK');
+        this.x = x;
+        this.y = y;
+        this.name = name || this.id;
+        this.color = color || PICKER_COLORS[0];
         this.capacidadKg = capacidadKg;
     }
 
     toJSON() {
-        return { id: this.id, x: this.x, y: this.y, name: this.name, color: this.color, capacidadKg: this.capacidadKg };
+        return {
+            id: this.id,
+            posicion_inicial: { x: this.x, y: this.y },
+            capacidad_carga_kg: this.capacidadKg,
+        };
     }
 
-    static fromJSON(data) { return new Picker(data); }
+    static fromJSON(data) {
+        const pos = data.posicion_inicial || {};
+        return new Picker({
+            id: data.id,
+            x: pos.x != null ? pos.x : data.x,
+            y: pos.y != null ? pos.y : data.y,
+            name: data.name != null ? data.name : data.id,
+            color: data.color || null,
+            capacidadKg: data.capacidad_carga_kg != null ? data.capacidad_carga_kg : (data.capacidadKg != null ? data.capacidadKg : 100),
+        });
+    }
 }
 
-// ── Scenario ──────────────────────────────────────────────────────
+// Door (Puerta / Muelle)
+
+class Door {
+    constructor({ id = null, x, y, tipo = 'AMBOS' } = {}) {
+        this.id = id || _genId('D');
+        this.x = x;
+        this.y = y;
+        this.tipo = tipo;
+    }
+
+    /** Formato backend: { id, tipo, ubicacion:{x,y} } */
+    toJSON() {
+        return {
+            id: this.id,
+            tipo: this.tipo,
+            ubicacion: { x: this.x, y: this.y },
+        };
+    }
+
+    static fromJSON(data) {
+        const ub = data.ubicacion || {};
+        return new Door({
+            id: data.id,
+            x: ub.x != null ? ub.x : data.x,
+            y: ub.y != null ? ub.y : data.y,
+            tipo: data.tipo || 'AMBOS',
+        });
+    }
+}
+
+// Aisle (Pasillo declarado)
+
+class Aisle {
+    constructor({ id = null, x, y, width = 1, height = 1, sentido = 'AMBOS' } = {}) {
+        this.id = id || _genId('A');
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.sentido = sentido;
+    }
+
+    containsCell(cx, cy) {
+        return cx >= this.x && cx < this.x + this.width &&
+            cy >= this.y && cy < this.y + this.height;
+    }
+
+    toJSON() {
+        return {
+            id: this.id,
+            ubicacion: { x: this.x, y: this.y },
+            ancho: this.width,
+            alto: this.height,
+            sentido: this.sentido,
+        };
+    }
+
+    static fromJSON(data) {
+        const ub = data.ubicacion || {};
+        return new Aisle({
+            id: data.id,
+            x: ub.x != null ? ub.x : data.x,
+            y: ub.y != null ? ub.y : data.y,
+            width: data.ancho != null ? data.ancho : (data.width != null ? data.width : 1),
+            height: data.alto != null ? data.alto : (data.height != null ? data.height : 1),
+            sentido: data.sentido || 'AMBOS',
+        });
+    }
+}
+
+// DispatchZone (Zona de despacho)
+
+class DispatchZone {
+    constructor({ id = null, puertaId = null, x, y,
+        width = 3, height = 2, pesoMaxKg = 500 } = {}) {
+        this.id = id || _genId('Z');
+        this.puertaId = puertaId;
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.pesoMaxKg = pesoMaxKg;
+    }
+
+    containsCell(cx, cy) {
+        return cx >= this.x && cx < this.x + this.width &&
+            cy >= this.y && cy < this.y + this.height;
+    }
+
+    toJSON() {
+        return {
+            id: this.id,
+            puerta_id: this.puertaId,
+            ubicacion: { x: this.x, y: this.y },
+            ancho: this.width,
+            alto: this.height,
+            peso_max_kg: this.pesoMaxKg,
+        };
+    }
+
+    static fromJSON(data) {
+        const ub = data.ubicacion || {};
+        return new DispatchZone({
+            id: data.id,
+            puertaId: data.puerta_id != null ? data.puerta_id : data.puertaId,
+            x: ub.x != null ? ub.x : data.x,
+            y: ub.y != null ? ub.y : data.y,
+            width: data.ancho != null ? data.ancho : (data.width != null ? data.width : 3),
+            height: data.alto != null ? data.alto : (data.height != null ? data.height : 2),
+            pesoMaxKg: data.peso_max_kg != null ? data.peso_max_kg : (data.pesoMaxKg != null ? data.pesoMaxKg : 500),
+        });
+    }
+}
+
+// OrderItem
+
+class OrderItem {
+    constructor({ productoId, cantidad = 1 } = {}) {
+        this.productoId = productoId;
+        this.cantidad = cantidad;
+    }
+
+    toJSON() {
+        return { producto_id: this.productoId, cantidad: this.cantidad };
+    }
+
+    static fromJSON(data) {
+        return new OrderItem({
+            productoId: data.producto_id != null ? data.producto_id : data.productoId,
+            cantidad: data.cantidad != null ? data.cantidad : 1,
+        });
+    }
+}
+
+// Order (Pedido)
+
+class Order {
+    constructor({ id = null, prioridad = 3, estado = 'PENDIENTE', items = [] } = {}) {
+        this.id = id || _genId('PED');
+        this.prioridad = prioridad;
+        this.estado = estado;
+        this.items = items;
+    }
+
+    toJSON() {
+        return {
+            id: this.id,
+            prioridad: this.prioridad,
+            estado: this.estado,
+            items: this.items.map(i => i.toJSON()),
+        };
+    }
+
+    static fromJSON(data) {
+        return new Order({
+            id: data.id,
+            prioridad: data.prioridad != null ? data.prioridad : 3,
+            estado: data.estado || 'PENDIENTE',
+            items: (data.items || []).map(i => OrderItem.fromJSON(i)),
+        });
+    }
+}
+
+// Scenario
 
 class Scenario {
     constructor({ id = null, name = 'Nuevo Escenario', width = 20, height = 15 } = {}) {
-        this.id      = id || _genId('SC');
-        this.name    = name;
-        this.width   = width;    // columnas
-        this.height  = height;   // filas
-        this.racks   = [];       // Rack[]
-        this.pickers = [];       // Picker[]
+        this.id = id || _genId('SC');
+        this.name = name;
+        this.width = width;
+        this.height = height;
 
-        // Zona de despacho: esquina inferior-izquierda (y=0 abajo), 3×2 celdas
-        this.dispatchZone = { x: 0, y: 0, w: 3, h: 2 };
+        this.racks = [];
+        this.pickers = [];
+        this.doors = [];
+        this.aisles = [];
+        this.dispatchZones = [];
+        this.orders = [];
+
+        this.waveMaxPedidos = 5;
+        this.waveMaxProductos = 20;
+
+        // Zona de despacho por defecto
+        this.dispatchZones.push(new DispatchZone({ x: 0, y: 0, width: 3, height: 2 }));
 
         this._nextPickerColorIdx = 0;
-        this._nextPickerNum      = 1;
+        this._nextPickerNum = 1;
     }
 
-    // ── Racks ────────────────────────────────────────────────────
+    // El renderer accede a scenario.dispatchZone (singular, con .w y .h).
+    // Este getter expone la primera zona de despacho en ese formato.
+    get dispatchZone() {
+        const dz = this.dispatchZones[0];
+        if (!dz) return { x: 0, y: 0, w: 0, h: 0 };
+        return { x: dz.x, y: dz.y, w: dz.width, h: dz.height };
+    }
+
+    // Racks
 
     addRack(x, y, width, height) {
-        // Normalizar para que siempre x,y sea top-left
-        const nx = Math.max(0, Math.min(x, this.width  - width));
+        const nx = Math.max(0, Math.min(x, this.width - width));
         const ny = Math.max(0, Math.min(y, this.height - height));
-
         if (!this.isInBounds(nx, ny) || !this.isInBounds(nx + width - 1, ny + height - 1)) return null;
         if (this._isAreaOccupied(nx, ny, width, height)) return null;
-
         const rack = new Rack({ x: nx, y: ny, width, height });
         this.racks.push(rack);
         return rack;
@@ -126,20 +346,19 @@ class Scenario {
         return true;
     }
 
-    getRackById(id) {
-        return this.racks.find(r => r.id === id) || null;
-    }
+    getRackById(id) { return this.racks.find(r => r.id === id) || null; }
+    getRackAt(cx, cy) { return this.racks.find(r => r.containsCell(cx, cy)) || null; }
 
-    getRackAt(cx, cy) {
-        return this.racks.find(r => r.containsCell(cx, cy)) || null;
-    }
+    // Products
 
-    // ── Products ─────────────────────────────────────────────────
-
-    addProduct(rackId, { name, sku, quantity }) {
+    addProduct(rackId, { name, sku, quantity, cantidad, pesoKg = 1.0 } = {}) {
         const rack = this.getRackById(rackId);
         if (!rack) return null;
-        const product = new Product({ name, sku, quantity, rackId });
+        const qty = cantidad != null ? cantidad : (quantity != null ? quantity : 1);
+        const px = rack.x;
+        const py = rack.y;
+        const pz = rack.products.filter(p => p.x === px && p.y === py).length + 1;
+        const product = new Product({ name, sku, rackId, x: px, y: py, z: pz, quantity: qty, pesoKg });
         rack.products.push(product);
         return product;
     }
@@ -156,36 +375,21 @@ class Scenario {
         return this.racks.flatMap(r => r.products);
     }
 
-    // ── Pickers ───────────────────────────────────────────────────
+    // Pickers
 
-    /**
-     * Agrega un picker en la primera celda libre de la zona de despacho.
-     * @param {number} capacidadKg - Capacidad de carga en kg (default 100).
-     * @returns {Picker|null} El picker creado, o null si no hay espacio en la zona de despacho.
-     */
     addPicker(capacidadKg = 100) {
-        const dz  = this.dispatchZone;
-        let pos   = null;
-
-        // Buscar primera celda libre dentro de la zona de despacho
-        outer: for (let cy = dz.y; cy < dz.y + dz.h; cy++) {
-            for (let cx = dz.x; cx < dz.x + dz.w; cx++) {
-                if (!this.getPickerAt(cx, cy)) {
-                    pos = { x: cx, y: cy };
-                    break outer;
+        let pos = null;
+        for (const dz of this.dispatchZones) {
+            outer: for (let cy = dz.y; cy < dz.y + dz.height; cy++) {
+                for (let cx = dz.x; cx < dz.x + dz.width; cx++) {
+                    if (!this.getPickerAt(cx, cy)) { pos = { x: cx, y: cy }; break outer; }
                 }
             }
+            if (pos) break;
         }
-
-        if (!pos) return null;  // zona de despacho llena
-
-        const color  = PICKER_COLORS[this._nextPickerColorIdx % PICKER_COLORS.length];
-        const picker = new Picker({
-            x: pos.x, y: pos.y,
-            color,
-            name: `Picker ${this._nextPickerNum}`,
-            capacidadKg
-        });
+        if (!pos) return null;
+        const color = PICKER_COLORS[this._nextPickerColorIdx % PICKER_COLORS.length];
+        const picker = new Picker({ x: pos.x, y: pos.y, color, name: `Picker ${this._nextPickerNum}`, capacidadKg });
         this._nextPickerColorIdx++;
         this._nextPickerNum++;
         this.pickers.push(picker);
@@ -203,64 +407,109 @@ class Scenario {
         return this.pickers.find(p => p.x === cx && p.y === cy) || null;
     }
 
-    // ── Utilidades ────────────────────────────────────────────────
+    // Utilidades
 
     isInBounds(cx, cy) {
         return cx >= 0 && cx < this.width && cy >= 0 && cy < this.height;
     }
 
     _isInDispatchZone(cx, cy) {
-        const dz = this.dispatchZone;
-        return cx >= dz.x && cx < dz.x + dz.w && cy >= dz.y && cy < dz.y + dz.h;
+        return this.dispatchZones.some(dz => dz.containsCell(cx, cy));
     }
 
     _isAreaOccupied(x, y, w, h) {
         for (let cy = y; cy < y + h; cy++) {
             for (let cx = x; cx < x + w; cx++) {
-                if (this.getRackAt(cx, cy))       return true;
+                if (this.getRackAt(cx, cy)) return true;
                 if (this._isInDispatchZone(cx, cy)) return true;
             }
         }
         return false;
     }
 
-    // ── Stats ─────────────────────────────────────────────────────
-
     stats() {
         return {
-            racks:    this.racks.length,
+            racks: this.racks.length,
             products: this.getAllProducts().length,
-            pickers:  this.pickers.length,
-            size:     `${this.width} × ${this.height}`
+            pickers: this.pickers.length,
+            size: `${this.width} x ${this.height}`,
         };
     }
 
-    // ── Serialización ─────────────────────────────────────────────
-
+    // Serializacion - formato backend JSON
+    // toJSON produce la misma estructura que escenario_basico.json
     toJSON() {
+        const productos = this.racks.flatMap(r => r.products.map(p => p.toJSON()));
         return {
-            id:           this.id,
-            name:         this.name,
-            width:        this.width,
-            height:       this.height,
-            racks:        this.racks.map(r => r.toJSON()),
-            pickers:      this.pickers.map(p => p.toJSON()),
-            dispatchZone: { ...this.dispatchZone },
-            _nextPickerColorIdx: this._nextPickerColorIdx,
-            _nextPickerNum:      this._nextPickerNum
+            warehouse: {
+                dimensiones: { ancho_x: this.width, largo_y: this.height },
+                puertas: this.doors.map(d => d.toJSON()),
+                zonas_despacho: this.dispatchZones.map(z => z.toJSON()),
+                racks: this.racks.map(r => r.toJSON()),
+                pasillos: this.aisles.map(a => a.toJSON()),
+            },
+            pickers: this.pickers.map(p => p.toJSON()),
+            productos,
+            pedidos: this.orders.map(o => o.toJSON()),
+            configuracion: {
+                wave_max_pedidos: this.waveMaxPedidos,
+                wave_max_productos: this.waveMaxProductos,
+            },
+            _editor: {
+                id: this.id,
+                name: this.name,
+                _nextPickerColorIdx: this._nextPickerColorIdx,
+                _nextPickerNum: this._nextPickerNum,
+                pickerColors: this.pickers.map(p => ({ id: p.id, color: p.color, name: p.name })),
+            },
         };
     }
 
     static fromJSON(data) {
+        const wh = data.warehouse || {};
+        const dim = wh.dimensiones || {};
+        const config = data.configuracion || {};
+        const meta = data._editor || {};
+
         const s = new Scenario({
-            id: data.id, name: data.name,
-            width: data.width, height: data.height
+            id: meta.id || null,
+            name: meta.name || 'Escenario cargado',
+            width: dim.ancho_x != null ? dim.ancho_x : (data.width != null ? data.width : 20),
+            height: dim.largo_y != null ? dim.largo_y : (data.height != null ? data.height : 15),
         });
-        s.dispatchZone         = data.dispatchZone;
-        s.racks                = (data.racks   || []).map(r => Rack.fromJSON(r));
-        s.pickers              = (data.pickers || []).map(p => Picker.fromJSON(p));
-        s._nextPickerColorIdx  = data._nextPickerColorIdx ?? s.pickers.length;
-        s._nextPickerNum       = data._nextPickerNum      ?? s.pickers.length + 1;
+
+        s.dispatchZones = [];
+        s.doors = (wh.puertas || []).map(d => Door.fromJSON(d));
+        s.dispatchZones = (wh.zonas_despacho || []).map(z => DispatchZone.fromJSON(z));
+        s.racks = (wh.racks || []).map(r => Rack.fromJSON(r));
+        s.aisles = (wh.pasillos || []).map(a => Aisle.fromJSON(a));
+        s.pickers = (data.pickers || []).map(p => Picker.fromJSON(p));
+        s.orders = (data.pedidos || []).map(o => Order.fromJSON(o));
+
+        s.waveMaxPedidos = config.wave_max_pedidos != null ? config.wave_max_pedidos : 5;
+        s.waveMaxProductos = config.wave_max_productos != null ? config.wave_max_productos : 20;
+
+        // Restaurar colores de pickers desde metadatos del editor
+        const pickerColors = meta.pickerColors || [];
+        for (const pc of pickerColors) {
+            const pk = s.pickers.find(p => p.id === pc.id);
+            if (pk) { pk.color = pc.color; pk.name = pc.name; }
+        }
+        s.pickers.forEach((pk, i) => {
+            if (!pk.color) pk.color = PICKER_COLORS[i % PICKER_COLORS.length];
+        });
+
+        // Distribuir productos a sus racks (para que rack.products funcione en el renderer)
+        const rackMap = Object.fromEntries(s.racks.map(r => [r.id, r]));
+        for (const pData of (data.productos || [])) {
+            const product = Product.fromJSON(pData);
+            const rack = rackMap[product.rackId];
+            if (rack) rack.products.push(product);
+        }
+
+        s._nextPickerColorIdx = meta._nextPickerColorIdx != null ? meta._nextPickerColorIdx : s.pickers.length;
+        s._nextPickerNum = meta._nextPickerNum != null ? meta._nextPickerNum : s.pickers.length + 1;
+
         return s;
     }
 }
