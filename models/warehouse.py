@@ -385,6 +385,18 @@ class Picker:
         self.picker_id = picker_id
         self.posicion_inicial: tuple = tuple(posicion_inicial)
         self.capacidad_carga_kg = capacidad_carga_kg
+        self.is_busy: bool = False
+        self.assigned_wave_id: str | None = None
+
+    def assign_wave(self, wave_id: str) -> None:
+        """Marca al picker como ocupado asignado a una wave."""
+        self.is_busy = True
+        self.assigned_wave_id = wave_id
+
+    def release(self) -> None:
+        """Libera al picker dejándolo disponible."""
+        self.is_busy = False
+        self.assigned_wave_id = None
 
     def to_dict(self) -> dict:
         """
