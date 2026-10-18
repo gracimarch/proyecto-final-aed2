@@ -218,6 +218,8 @@ class WarehouseRenderer {
         this._drawFloor();
         this._drawGrid();
         this._drawDispatchZone();
+        this._drawAisles();
+        this._drawDoors();
         this._drawRacks();
         this._drawPickers();
         this._drawCursorPreview();
@@ -310,35 +312,152 @@ class WarehouseRenderer {
         }
     }
 
-    // ── Zona de despacho ──────────────────────────────────────────
+    // ── Zonas de despacho (múltiples) ────────────────────────────
 
     _drawDispatchZone() {
+        for (const dz of this.scenario.dispatchZones) {
+            this._drawOneDispatchZone(dz);
+        }
+    }
+
+    _drawOneDispatchZone(dz) {
         const ctx = this.ctx;
         const s   = this.scenario;
-        const dz  = s.dispatchZone;
         const x   = dz.x * CELL;
-        // El borde superior en pantalla = celda lógica superior de la zona (dz.y + dz.h - 1)
-        const y   = (s.height - dz.y - dz.h) * CELL;
-        const w   = dz.w * CELL;
-        const h   = dz.h * CELL;
+        const y   = (s.height - dz.y - dz.height) * CELL;
+        const w   = dz.width  * CELL;
+        const h   = dz.height * CELL;
+        const isSel = this.selectedElement?.type === 'dispatch' && this.selectedElement.element.id === dz.id;
 
-        // Relleno
-        ctx.fillStyle = 'rgba(79, 201, 127, 0.12)';
+        ctx.fillStyle = isSel ? 'rgba(79,201,127,0.22)' : 'rgba(79,201,127,0.12)';
         ctx.fillRect(x, y, w, h);
 
-        // Borde punteado
-        ctx.strokeStyle = 'rgba(79, 201, 127, 0.75)';
-        ctx.lineWidth   = 1.5;
+        ctx.strokeStyle = isSel ? 'rgba(79,201,127,1.0)' : 'rgba(79,201,127,0.75)';
+        ctx.lineWidth   = isSel ? 2 : 1.5;
         ctx.setLineDash([5, 4]);
         ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         ctx.setLineDash([]);
 
-        // Etiqueta
-        ctx.fillStyle    = 'rgba(79, 201, 127, 0.85)';
+        ctx.fillStyle    = 'rgba(79,201,127,0.85)';
         ctx.font         = `bold 9px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('DESPACHO', x + w / 2, y + h / 2);
+        if (dz.puertaId) {
+            ctx.font      = `7px "JetBrains Mono", monospace`;
+            ctx.fillStyle = 'rgba(79,201,127,0.6)';
+            ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 11);
+        }
+    }
+
+    // ── Pasillos (flechas de dirección) ──────────────────────────
+
+    _drawAisles() {
+        for (const aisle of this.scenario.aisles) {
+            for (let cx = aisle.x; cx < aisle.x + aisle.width; cx++) {
+                for (let cy = aisle.y; cy < aisle.y + aisle.height; cy++) {
+                    this._drawAisleCell(cx, cy, aisle.sentido);
+                }
+            }
+        }
+    }
+
+    _drawAisleCell(cx, cy, sentido) {
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        const px  = cx * CELL;
+        const py  = (s.height - 1 - cy) * CELL;
+        const mid = CELL / 2;
+        const ar  = CELL * 0.22;
+
+        ctx.save();
+        ctx.translate(px + mid, py + mid);
+
+        ctx.fillStyle = 'rgba(251,191,36,0.07)';
+        ctx.fillRect(-mid, -mid, CELL, CELL);
+
+        ctx.strokeStyle = 'rgba(251,191,36,0.55)';
+        ctx.fillStyle   = 'rgba(251,191,36,0.55)';
+        ctx.lineWidth   = 1.2;
+
+        const drawArrow = (dx, dy) => {
+            const len = ar;
+            ctx.beginPath();
+            ctx.moveTo(-dx * len * 0.6, -dy * len * 0.6);
+            ctx.lineTo( dx * len,        dy * len);
+            ctx.stroke();
+            const hw = 3, hh = 4;
+            ctx.beginPath();
+            if (dy === 0) {
+                const sx = dx > 0 ? 1 : -1;
+                ctx.moveTo(sx * len, 0);
+                ctx.lineTo(sx * (len - hh), -hw);
+                ctx.lineTo(sx * (len - hh),  hw);
+            } else {
+                // Norte lógico (+y) = arriba en canvas (-py), Sur lógico (-y) = abajo en canvas (+py)
+                const sy = dy > 0 ? -1 : 1;
+                ctx.moveTo(0, sy * len);
+                ctx.lineTo(-hw, sy * (len - hh));
+                ctx.lineTo( hw, sy * (len - hh));
+            }
+            ctx.closePath();
+            ctx.fill();
+        };
+
+        if      (sentido === 'N') { drawArrow(0,  1); }
+        else if (sentido === 'S') { drawArrow(0, -1); }
+        else if (sentido === 'E') { drawArrow(1,  0); }
+        else if (sentido === 'O') { drawArrow(-1, 0); }
+        else {
+            ctx.strokeStyle = 'rgba(251,191,36,0.25)';
+            ctx.fillStyle   = 'rgba(251,191,36,0.25)';
+            drawArrow(0, 1); drawArrow(0, -1);
+            drawArrow(1, 0); drawArrow(-1, 0);
+        }
+        ctx.restore();
+    }
+
+    // ── Puertas (muelles) ─────────────────────────────────────────
+
+    _drawDoors() {
+        for (const door of this.scenario.doors) {
+            this._drawDoor(door);
+        }
+    }
+
+    _drawDoor(door) {
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        const px  = door.x * CELL;
+        const py  = (s.height - 1 - door.y) * CELL;
+        const isSel = this.selectedElement?.type === 'door' && this.selectedElement.element.id === door.id;
+
+        const colors = { INBOUND: '#22c55e', OUTBOUND: '#f97316', AMBOS: '#a78bfa' };
+        const base = colors[door.tipo] || '#a78bfa';
+
+        ctx.fillStyle = isSel ? base + '44' : base + '1a';
+        ctx.fillRect(px, py, CELL, CELL);
+
+        ctx.strokeStyle = base;
+        ctx.lineWidth   = isSel ? 2.5 : 1.5;
+        ctx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+
+        // Arco simbólico de puerta
+        ctx.strokeStyle = base;
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px + 7, py + CELL - 5);
+        ctx.lineTo(px + 7, py + 7);
+        ctx.quadraticCurveTo(px + CELL / 2, py + 3, px + CELL - 7, py + 7);
+        ctx.lineTo(px + CELL - 7, py + CELL - 5);
+        ctx.stroke();
+
+        const labelMap = { INBOUND: 'IN', OUTBOUND: 'OUT', AMBOS: 'IO' };
+        ctx.fillStyle    = base;
+        ctx.font         = `bold 7px "JetBrains Mono", monospace`;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(labelMap[door.tipo] || 'IO', px + CELL / 2, py + CELL - 2);
     }
 
     // ── Racks ─────────────────────────────────────────────────────
@@ -542,34 +661,48 @@ class WarehouseRenderer {
         ctx.fillText(picker.name, cx, worldY + CELL - 2);
     }
 
-    // ── Cursor preview (modo rack) ────────────────────────────────
+    // ── Cursor preview (todos los modos) ──────────────────────────
 
     _drawCursorPreview() {
-        if (!this.cursorRect || this.mode !== 'rack') return;
+        if (!this.cursorRect) return;
         const ctx = this.ctx;
         const s   = this.scenario;
         const { x, y, w, h } = this.cursorRect;
-        const px = x * CELL;
-        // Igual que rack: el borde superior en pantalla = celda lógica superior del rect
-        const py = (s.height - y - h) * CELL;
-        const pw = w * CELL;
-        const ph = h * CELL;
 
-        ctx.fillStyle   = 'rgba(79, 156, 249, 0.2)';
-        ctx.fillRect(px, py, pw, ph);
+        if (this.mode === 'rack' || this.mode === 'dispatch' || this.mode === 'aisle' || this.mode === 'move-rack') {
+            const px = x * CELL;
+            const py = (s.height - y - h) * CELL;
+            const pw = w * CELL;
+            const ph = h * CELL;
 
-        ctx.strokeStyle = '#4f9cf9';
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
-        ctx.setLineDash([]);
+            let color;
+            if      (this.mode === 'dispatch')   color = '79,201,127';
+            else if (this.mode === 'aisle')       color = '251,191,36';
+            else if (this.mode === 'move-rack')   color = '168,85,247';
+            else                                  color = '79,156,249';
 
-        // Dimensiones del rack
-        ctx.fillStyle    = '#4f9cf9';
-        ctx.font         = `bold 9px "JetBrains Mono", monospace`;
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${w}×${h}`, px + pw / 2, py + ph / 2);
+            ctx.fillStyle   = `rgba(${color},0.2)`;
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = `rgb(${color})`;
+            ctx.lineWidth   = 1.5;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+            ctx.setLineDash([]);
+            ctx.fillStyle    = `rgb(${color})`;
+            ctx.font         = `bold 9px "JetBrains Mono", monospace`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${w}x${h}`, px + pw / 2, py + ph / 2);
+
+        } else if (this.mode === 'door') {
+            const px = x * CELL;
+            const py = (s.height - 1 - y) * CELL;
+            ctx.fillStyle   = 'rgba(251,146,60,0.35)';
+            ctx.fillRect(px, py, CELL, CELL);
+            ctx.strokeStyle = '#fb923c';
+            ctx.lineWidth   = 2;
+            ctx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+        }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────
@@ -578,3 +711,4 @@ class WarehouseRenderer {
         this._ro.disconnect();
     }
 }
+

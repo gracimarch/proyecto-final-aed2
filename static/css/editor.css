@@ -443,16 +443,16 @@
 ================================================================ */
 .editor-toast {
     position: fixed;
-    bottom: 20px;
+    top: 72px;
     left: 50%;
-    transform: translateX(-50%) translateY(60px);
+    z-index: 1100;
+    transform: translateX(-50%) translateY(-20px);
     background: var(--color-surface);
     border: 1px solid var(--color-border-2);
     border-radius: var(--radius);
     padding: var(--space-sm) var(--space-lg);
     font-size: var(--font-size-sm);
     color: var(--color-text);
-    z-index: 200;
     pointer-events: none;
     white-space: nowrap;
     box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -576,3 +576,322 @@
     white-space: nowrap;
 }
 
+
+/* ================================================================
+   NUEVAS HERRAMIENTAS - tool-select, wizard, doors, aisles
+================================================================ */
+
+/* Select dentro de la toolbar */
+.tool-select {
+    height: 32px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 60px;
+    max-width: 100px;
+}
+.tool-select:focus { outline: 2px solid var(--color-primary); }
+
+/* ── Wizard Modal ───────────────────────────────────────────────── */
+.modal--wizard .modal__content--wizard {
+    width: 520px;
+    max-width: 95vw;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal--wizard .modal__header {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wizard-step-badge {
+    margin-left: auto;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--color-text-dim);
+    background: var(--color-surface-2);
+    padding: 2px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--color-border);
+    white-space: nowrap;
+}
+
+/* Indicadores de paso */
+.wizard-indicators {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 12px 20px 0;
+}
+
+.wizard-step-ind {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    background: var(--color-surface-2);
+    color: var(--color-text-dim);
+    border: 2px solid var(--color-border);
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    cursor: default;
+    user-select: none;
+    flex-shrink: 0;
+}
+.wizard-step-ind.active {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+}
+.wizard-step-ind.done {
+    background: rgba(79, 201, 127, 0.2);
+    color: #4fc97f;
+    border-color: #4fc97f;
+}
+.wizard-step-ind-line {
+    flex: 1;
+    height: 2px;
+    background: var(--color-border);
+    min-width: 12px;
+    max-width: 40px;
+}
+
+/* Cuerpo del wizard */
+.wizard-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 80px;
+}
+
+.wizard-step {
+    display: none;
+}
+.wizard-step.active {
+    display: block;
+}
+
+.wizard-hint {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    margin: 0 0 10px;
+    padding: 10px 14px;
+    background: var(--color-surface-2);
+    border-radius: 8px;
+    border-left: 3px solid var(--color-primary);
+    line-height: 1.5;
+}
+.wizard-hint .icon {
+    vertical-align: middle;
+    margin-right: 4px;
+    color: var(--color-primary);
+}
+
+/* Mensaje de validacion */
+.wizard-valid-msg {
+    font-size: 12px;
+    color: #f87171;
+    background: rgba(248,113,113,0.10);
+    border: 1px solid rgba(248,113,113,0.3);
+    padding: 8px 14px;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-family: var(--font-mono);
+}
+
+/* Footer del wizard */
+.wizard-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.wizard-nav {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+}
+
+/* ── Panel de seleccion - select inline ─────────────────────────── */
+.sel-row select,
+.sel-value select,
+select.sel-value {
+    margin-left: auto;
+    min-width: 110px;
+    max-width: 150px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 5px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+}
+.sel-row select:hover,
+select.sel-value:hover {
+    border-color: var(--color-primary);
+}
+.sel-row select:focus,
+select.sel-value:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(79,156,249,0.18);
+}
+/* Las opciones también deben tener fondo oscuro */
+.sel-row select option,
+select.sel-value option {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+}
+
+/* ================================================================
+   WIZARD FLOTANTE (pasos 1-4)
+================================================================ */
+
+#wizard-float {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 900;
+    width: 460px;
+    max-width: 95vw;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+    display: none;
+    backdrop-filter: blur(10px);
+}
+
+.wf-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(255,255,255,0.03);
+}
+
+.wf-steps {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+}
+
+.wf-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-surface-2);
+    color: var(--color-text-dim);
+    border: 1.5px solid var(--color-border);
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+}
+.wf-dot.active {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+}
+.wf-dot.done {
+    background: rgba(79,201,127,0.2);
+    color: #4fc97f;
+    border-color: #4fc97f;
+}
+.wf-dot-line {
+    width: 16px;
+    height: 1.5px;
+    background: var(--color-border);
+}
+
+.wf-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text);
+    flex: 1;
+    font-family: var(--font-mono);
+}
+
+.wf-cancel {
+    padding: 2px 6px;
+    font-size: 12px;
+    color: var(--color-text-dim);
+    border: none;
+    background: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wf-cancel:hover { color: var(--color-text); }
+
+.wf-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px 6px;
+}
+
+.wf-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.wf-text {
+    font-size: 13px;
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+.wf-tip {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    padding: 0 14px 8px;
+    font-style: italic;
+}
+
+.wf-valid {
+    font-size: 11px;
+    color: #f87171;
+    background: rgba(248,113,113,0.08);
+    padding: 4px 14px;
+    font-family: var(--font-mono);
+    border-top: 1px solid rgba(248,113,113,0.2);
+    display: none;
+}
+
+.wf-nav {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px 12px;
+    justify-content: flex-end;
+    border-top: 1px solid var(--color-border);
+    background: rgba(255,255,255,0.02);
+}

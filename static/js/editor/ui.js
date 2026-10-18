@@ -69,6 +69,20 @@ const DOM = {
 
     // Toast
     toast: () => document.getElementById('editor-toast'),
+
+    // Wizard
+    wizardSteps:     () => document.querySelectorAll('.wizard-step'),
+    wizardStepInds:  () => document.querySelectorAll('.wizard-step-ind'),
+    wizardPrevBtn:   () => document.getElementById('btn-wizard-prev'),
+    wizardNextBtn:   () => document.getElementById('btn-wizard-next'),
+    wizardFinishBtn: () => document.getElementById('btn-wizard-finish'),
+    wizardStepNum:   () => document.getElementById('wizard-step-num'),
+    wizardStepTitle: () => document.getElementById('wizard-step-title'),
+    wizardValidMsg:  () => document.getElementById('wizard-valid-msg'),
+
+    // Tool selects
+    doorTipoSelect:    () => document.getElementById('door-tipo-select'),
+    aisleSentidoSelect:() => document.getElementById('aisle-sentido-select'),
 };
 
 // ── Estado global de la UI ────────────────────────────────────────
@@ -76,7 +90,12 @@ const DOM = {
 let _renderer = null;
 let _editor   = null;
 let _scenario = null;
-let _productTargetRack = null;  // rack al que se le agrega producto
+let _productTargetRack  = null;
+let _wizardStep         = 0;
+let _wizardScenario     = null;
+
+/** Escenario activo: durante el wizard es _wizardScenario; despues es _scenario */
+function _activeScenario() { return _wizardScenario || _scenario; }
 
 // ── Init ──────────────────────────────────────────────────────────
 
@@ -95,13 +114,26 @@ function initEditorUI() {
         });
     });
 
-    // Modal nuevo escenario
+    // Modal nuevo escenario / wizard
     DOM.btnNew().addEventListener('click', () => openModalNew());
     DOM.btnCancelWH().addEventListener('click', () => closeModalNew());
     DOM.btnCreateWH().addEventListener('click', () => createScenario());
     DOM.modalNew().addEventListener('click', e => {
         if (e.target === DOM.modalNew()) closeModalNew();
     });
+    // Wizard navigation
+    const wizPrev = DOM.wizardPrevBtn();
+    const wizNext = DOM.wizardNextBtn();
+    const wizFin  = DOM.wizardFinishBtn();
+    if (wizPrev) wizPrev.addEventListener('click', () => _onWizardPrev());
+    if (wizNext) wizNext.addEventListener('click', () => _onWizardNext());
+    if (wizFin)  wizFin.addEventListener('click',  () => _onWizardFinish());
+
+    // Selects de herramientas
+    const doorEl = DOM.doorTipoSelect();
+    if (doorEl) doorEl.addEventListener('change', () => { if (_editor) _editor._doorTipo = doorEl.value; });
+    const aisleEl = DOM.aisleSentidoSelect();
+    if (aisleEl) aisleEl.addEventListener('change', () => { if (_editor) _editor._aisleSentido = aisleEl.value; });
 
     // Sliders de nuevo escenario
     DOM.inputWHWidth().addEventListener('input', () => {
@@ -127,9 +159,10 @@ function initEditorUI() {
 
     // Picker controls
     DOM.btnPickerAdd().addEventListener('click', () => {
-        if (!_scenario) return;
+        const sc = _activeScenario();
+        if (!sc) return;
         const cap = parseFloat(DOM.inputPickerCap().value) || 100;
-        const picker = _scenario.addPicker(cap);
+        const picker = sc.addPicker(cap);
         if (picker) {
             _updateSidebarInfo();
             _updatePickersList();
@@ -140,10 +173,10 @@ function initEditorUI() {
     });
 
     DOM.btnPickerRemove().addEventListener('click', () => {
-        if (!_scenario || _scenario.pickers.length === 0) return;
-        // Quita el último picker agregado
-        const last = _scenario.pickers[_scenario.pickers.length - 1];
-        _scenario.removePicker(last.id);
+        const sc = _activeScenario();
+        if (!sc || sc.pickers.length === 0) return;
+        const last = sc.pickers[sc.pickers.length - 1];
+        sc.removePicker(last.id);
         if (_renderer.selectedElement?.element?.id === last.id) {
             _renderer.selectedElement = null;
             _hideSelection();
@@ -167,17 +200,216 @@ function initEditorUI() {
     _renderer.render();   // dibuja fondo vacío
 }
 
-// ── Modal: Nuevo Escenario ────────────────────────────────────────
+// ── Modal: Nuevo Escenario (Wizard) ──────────────────────────────
+
+const WIZARD_STEPS = [
+    { title: 'Dimensiones' },
+    { title: 'Puertas' },
+    { title: 'Zonas de Despacho' },
+    { title: 'Racks' },
+    { title: 'Pasillos' },
+];
 
 function openModalNew() {
+    _wizardStep = 0;
+    _wizardScenario = null;
     updateGridPreview();
+    _showWizardStep(0);
     DOM.modalNew().classList.add('open');
     DOM.inputWHName().focus();
-    DOM.inputWHName().select();
 }
 
 function closeModalNew() {
     DOM.modalNew().classList.remove('open');
+    _wizardFloatHide();
+    _wizardStep = 0;
+    _wizardScenario = null;
+}
+
+function _showWizardStep(step) {
+    _wizardStep = step;
+
+    if (step === 0) {
+        // Paso 0: mostrar modal normal, ocultar panel flotante
+        _wizardFloatHide();
+        DOM.modalNew().classList.add('open');
+    } else {
+        // Pasos 1-4: cerrar modal y usar panel flotante no-bloqueante
+        DOM.modalNew().classList.remove('open');
+        _wizardFloatShow(step);
+    }
+
+    // Actualizar indicadores dentro del modal (para cuando está visible)
+    DOM.wizardSteps().forEach((el, i) => el.classList.toggle('active', i === step));
+    DOM.wizardStepInds().forEach((el, i) => {
+        el.classList.toggle('active', i === step);
+        el.classList.toggle('done', i < step);
+    });
+    const numEl   = DOM.wizardStepNum();
+    const titleEl = DOM.wizardStepTitle();
+    if (numEl)   numEl.textContent   = (step + 1) + '/5';
+    if (titleEl) titleEl.textContent = WIZARD_STEPS[step].title;
+
+    const prevBtn   = DOM.wizardPrevBtn();
+    const nextBtn   = DOM.wizardNextBtn();
+    const finishBtn = DOM.wizardFinishBtn();
+    if (prevBtn)   prevBtn.disabled = (step === 0);
+    if (nextBtn)   nextBtn.style.display   = step < 4 ? '' : 'none';
+    if (finishBtn) finishBtn.style.display = step === 4 ? '' : 'none';
+
+    _updateWizardValidMsg();
+
+    if (step >= 1 && _wizardScenario) {
+        const toolMap = { 1: 'door', 2: 'dispatch', 3: 'rack', 4: 'aisle' };
+        if (toolMap[step]) _setActiveTool(toolMap[step]);
+    }
+}
+
+// ─── Panel flotante del wizard (pasos 1-4) ────────────────────────
+
+const WIZARD_HINTS = {
+    1: { icon: 'door_front', color: '#a78bfa', text: 'Haz click en el <strong>borde</strong> del warehouse para colocar puertas. Necesitas ≥ 1.', tip: 'Cambia el tipo (IN/OUT/IO) en la barra superior.' },
+    2: { icon: 'package_2',  color: '#4fc97f', text: 'Arrastra en el canvas para colocar una <strong>Zona de Despacho</strong>. Necesitas ≥ 1.', tip: 'Después podés asociarla a una puerta seleccionándola.' },
+    3: { icon: 'shelves',    color: '#4f9cf9', text: 'Haz click o arrastra para colocar <strong>Racks</strong>. Necesitas ≥ 1.', tip: 'Al menos una dimensión debe ser ≤ 2.' },
+    4: { icon: 'route',      color: '#fbbf24', text: 'Opcional: arrastra para definir <strong>Pasillos</strong> con dirección.', tip: 'Si omitís, todas las celdas transitables serán AMBOS.' },
+};
+
+let _wizardFloatEl = null;
+
+function _wizardFloatShow(step) {
+    const hint = WIZARD_HINTS[step];
+    if (!hint) return;
+
+    if (!_wizardFloatEl) {
+        _wizardFloatEl = document.createElement('div');
+        _wizardFloatEl.id = 'wizard-float';
+        _wizardFloatEl.innerHTML = `
+            <div class="wf-header">
+                <div class="wf-steps" id="wf-step-dots"></div>
+                <span class="wf-title" id="wf-title"></span>
+                <button class="btn btn--ghost wf-cancel" id="wf-cancel" title="Cancelar wizard">&#x2715;</button>
+            </div>
+            <div class="wf-body">
+                <span class="wf-icon" id="wf-icon"></span>
+                <div class="wf-text" id="wf-text"></div>
+            </div>
+            <div class="wf-tip" id="wf-tip"></div>
+            <div class="wf-valid" id="wf-valid"></div>
+            <div class="wf-nav">
+                <button class="btn btn--ghost btn--sm" id="wf-prev">&#x2190; Anterior</button>
+                <button class="btn btn--primary btn--sm" id="wf-next">Siguiente &#x2192;</button>
+                <button class="btn btn--primary btn--sm" id="wf-finish" style="display:none" disabled>&#x2713; Crear escenario</button>
+            </div>`;
+        document.body.appendChild(_wizardFloatEl);
+
+        document.getElementById('wf-cancel').addEventListener('click', () => { _wizardFloatHide(); closeModalNew(); });
+        document.getElementById('wf-prev').addEventListener('click', () => _onWizardPrev());
+        document.getElementById('wf-next').addEventListener('click', () => _onWizardNext());
+        document.getElementById('wf-finish').addEventListener('click', () => _onWizardFinish());
+    }
+
+    // Dots
+    const dots = document.getElementById('wf-step-dots');
+    dots.innerHTML = WIZARD_STEPS.map((s, i) =>
+        `<span class="wf-dot ${i < step ? 'done' : i === step ? 'active' : ''}">${i+1}</span>`
+    ).join('<span class="wf-dot-line"></span>');
+
+    document.getElementById('wf-title').textContent  = WIZARD_STEPS[step].title;
+    document.getElementById('wf-icon').innerHTML     = `<span class="icon icon--20 icon--filled" style="color:${hint.color}">${hint.icon}</span>`;
+    document.getElementById('wf-text').innerHTML     = hint.text;
+    document.getElementById('wf-tip').textContent    = hint.tip;
+
+    // Nav
+    document.getElementById('wf-prev').disabled    = (step <= 1);
+    document.getElementById('wf-next').style.display   = step < 4 ? '' : 'none';
+    document.getElementById('wf-finish').style.display = step === 4 ? '' : 'none';
+
+    _wizardFloatEl.style.display = 'flex';
+    _wizardFloatValidMsg();
+}
+
+function _wizardFloatHide() {
+    if (_wizardFloatEl) _wizardFloatEl.style.display = 'none';
+}
+
+function _wizardFloatValidMsg() {
+    const el = document.getElementById('wf-valid');
+    const finBtn = document.getElementById('wf-finish');
+    if (!el || !_wizardScenario) return;
+    const s = _wizardScenario;
+    const missing = [];
+    if (s.doors.length        === 0) missing.push('≥ 1 puerta');
+    if (s.dispatchZones.length === 0) missing.push('≥ 1 despacho');
+    if (s.racks.length         === 0) missing.push('≥ 1 rack');
+    if (missing.length === 0) {
+        el.textContent = ''; el.style.display = 'none';
+        if (finBtn) finBtn.disabled = false;
+    } else {
+        el.textContent = 'Falta: ' + missing.join(', ');
+        el.style.display = '';
+        if (finBtn) finBtn.disabled = true;
+    }
+}
+
+function _updateWizardValidMsg() {
+    const msg = DOM.wizardValidMsg();
+    if (!msg || !_wizardScenario) return;
+    const s = _wizardScenario;
+    const missing = [];
+    if (s.doors.length === 0)         missing.push('al menos 1 puerta');
+    if (s.dispatchZones.length === 0) missing.push('al menos 1 zona de despacho');
+    if (s.racks.length === 0)         missing.push('al menos 1 rack');
+    if (missing.length === 0) {
+        msg.textContent = ''; msg.style.display = 'none';
+    } else {
+        msg.textContent = 'Falta: ' + missing.join(', ') + '.';
+        msg.style.display = '';
+    }
+    const finishBtn = DOM.wizardFinishBtn();
+    if (finishBtn) finishBtn.disabled = missing.length > 0;
+    // Sync float panel too
+    _wizardFloatValidMsg();
+}
+
+function _onWizardNext() {
+    if (_wizardStep === 0) {
+        const name   = DOM.inputWHName().value.trim() || 'Escenario 1';
+        const width  = parseInt(DOM.inputWHWidth().value)  || 20;
+        const height = parseInt(DOM.inputWHHeight().value) || 15;
+        _wizardScenario = new Scenario({ name, width, height });
+        _editor.setScenario(_wizardScenario);
+        DOM.canvasPlaceholder().style.display = 'none';
+        DOM.canvas().style.display = 'block';
+    }
+    if (_wizardStep < 4) _showWizardStep(_wizardStep + 1);
+}
+
+function _onWizardPrev() {
+    if (_wizardStep > 0) _showWizardStep(_wizardStep - 1);
+}
+
+function _onWizardFinish() {
+    if (!_wizardScenario) return;
+    const s = _wizardScenario;
+    if (!s.isValidForSave()) {
+        _updateWizardValidMsg();
+        _wizardFloatValidMsg();
+        showToast('Completa los requisitos minimos antes de crear el escenario.', 'warning');
+        return;
+    }
+    const picker = s.addPicker(100);
+    if (!picker) showToast('Advertencia: no se pudo ubicar un picker automaticamente.', 'warning');
+
+    _scenario = s;
+    _wizardScenario = null;
+    _editor.setScenario(_scenario);
+    _wizardFloatHide();
+    closeModalNew();
+    _updateSidebarInfo();
+    _updatePickersList();
+    _updateCanvasStatus();
+    _setActiveTool('select');
+    showToast('Escenario "' + s.name + '" creado (' + s.width + 'x' + s.height + ')', 'success');
 }
 
 function updateGridPreview() {
@@ -187,7 +419,6 @@ function updateGridPreview() {
     DOM.labelWHWidth().textContent  = w;
     DOM.labelWHHeight().textContent = h;
 
-    // Mini-grilla visual proporcional
     const maxPx = 140;
     const cellW = Math.floor(Math.min(maxPx / w, maxPx / h, 12));
     const cellH = cellW;
@@ -199,30 +430,13 @@ function updateGridPreview() {
     for (let i = 0; i < w * h; i++) {
         const cell = document.createElement('div');
         cell.className = 'preview-cell';
-        // La grilla del preview tiene y visual creciente hacia abajo,
-        // pero lógicamente y=0 está abajo → las filas inferiores son y=0,1
-        const cx = i % w;
-        const cy = Math.floor(i / w);         // fila en el preview (0 = arriba en pantalla)
-        const isDispatch = cx < 3 && cy >= h - 2;  // esquina inferior-izquierda (2 filas)
-        if (isDispatch) cell.className += ' preview-cell--dispatch';
         pg.appendChild(cell);
     }
 }
 
 function createScenario() {
-    const name   = DOM.inputWHName().value.trim() || 'Escenario 1';
-    const width  = parseInt(DOM.inputWHWidth().value)  || 20;
-    const height = parseInt(DOM.inputWHHeight().value) || 15;
-
-    _scenario = new Scenario({ name, width, height });
-    _editor.setScenario(_scenario);
-
-    closeModalNew();
-    DOM.canvasPlaceholder().style.display = 'none';
-    DOM.canvas().style.display            = 'block';
-    _updateSidebarInfo();
-    _updateCanvasStatus();
-    showToast(`Escenario "${name}" creado (${width}×${height})`, 'success');
+    // createScenario ahora delega al wizard; se llama desde btn-create-wh (oculto)
+    _onWizardFinish();
 }
 
 // ── Modal: Agregar Producto ───────────────────────────────────────
@@ -256,15 +470,16 @@ function submitProduct() {
     }
     DOM.inputProdName().classList.remove('input--error');
 
-    const product = _scenario.addProduct(_productTargetRack.id, {
+    const product = _activeScenario().addProduct(_productTargetRack.id, {
         name, sku: sku || name.toUpperCase().replace(/\s/g, '_'), quantity: qty
     });
 
     if (product) {
+        _showSelectionRack(_productTargetRack);
+        _productTargetRack = null;
         closeModalProduct();
         _updateSidebarInfo();
-        showToast(`Producto "${name}" agregado a ${_productTargetRack.id}`, 'success');
-        _productTargetRack = null;
+        showToast(`Producto "${name}" agregado`, 'success');
     }
 }
 
@@ -276,12 +491,71 @@ function _onEditorEvent(event, data) {
             _updateSidebarInfo();
             showToast(`Rack ${data.id} colocado`, 'info');
             _showSelectionRack(data);
+            if (_wizardScenario) _updateWizardValidMsg();
             break;
 
         case 'remove-rack':
             _updateSidebarInfo();
             showToast(`Rack ${data.id} eliminado`, 'warning');
             _hideSelection();
+            if (_wizardScenario) _updateWizardValidMsg();
+            break;
+
+        case 'move-rack':
+            _updateSidebarInfo();
+            showToast(`Rack ${data.id} movido`, 'info');
+            _showSelectionRack(data);
+            break;
+
+        case 'add-door':
+            _updateSidebarInfo();
+            showToast(`Puerta ${data.id} colocada (${data.tipo})`, 'info');
+            _showSelectionDoor(data);
+            if (_wizardScenario) _updateWizardValidMsg();
+            break;
+
+        case 'remove-door':
+            _updateSidebarInfo();
+            showToast(`Puerta ${data.id} eliminada`, 'warning');
+            _hideSelection();
+            if (_wizardScenario) _updateWizardValidMsg();
+            break;
+
+        case 'select-door':
+            _showSelectionDoor(data);
+            break;
+
+        case 'add-dispatch':
+            _updateSidebarInfo();
+            showToast(`Zona de despacho ${data.id} colocada`, 'info');
+            _showSelectionDispatch(data);
+            if (_wizardScenario) _updateWizardValidMsg();
+            break;
+
+        case 'remove-dispatch':
+            _updateSidebarInfo();
+            showToast(`Zona de despacho ${data.id} eliminada`, 'warning');
+            _hideSelection();
+            if (_wizardScenario) _updateWizardValidMsg();
+            break;
+
+        case 'select-dispatch':
+            _showSelectionDispatch(data);
+            break;
+
+        case 'add-aisle':
+            _updateSidebarInfo();
+            showToast(`Pasillo ${data.id} definido (${data.sentido})`, 'info');
+            _showSelectionAisle(data);
+            break;
+
+        case 'remove-aisle':
+            _updateSidebarInfo();
+            _hideSelection();
+            break;
+
+        case 'select-aisle':
+            _showSelectionAisle(data);
             break;
 
         case 'remove-picker':
@@ -346,29 +620,39 @@ function _showSelectionRack(rack) {
             <button class="btn btn--sm btn--ghost" id="sel-add-product-btn">
                 <span class="icon icon--sm" aria-hidden="true">add</span> Producto
             </button>
+            <button class="btn btn--sm btn--ghost" id="sel-rotate-rack-btn" title="Rotar rack">
+                <span class="icon icon--sm" aria-hidden="true">rotate_right</span> Rotar
+            </button>
             <button class="btn btn--sm btn--danger" id="sel-del-rack-btn">
                 <span class="icon icon--sm" aria-hidden="true">delete</span> Eliminar rack
             </button>
         </div>
     `;
 
-    // Botones del panel
     body.querySelector('#sel-add-product-btn')?.addEventListener('click', () => openModalProduct(rack));
-    body.querySelector('#sel-del-rack-btn')?.addEventListener('click',    () => {
-        _scenario.removeRack(rack.id);
+    body.querySelector('#sel-rotate-rack-btn')?.addEventListener('click', () => {
+        const ok = _activeScenario().rotateRack(rack.id);
+        if (ok) {
+            _showSelectionRack(rack);
+            showToast(`Rack ${rack.id} rotado`, 'info');
+        } else {
+            showToast('No se puede rotar: area ocupada o restriccion de dimension.', 'warning');
+        }
+    });
+    body.querySelector('#sel-del-rack-btn')?.addEventListener('click', () => {
+        _activeScenario().removeRack(rack.id);
         _renderer.selectedElement = null;
         _updateSidebarInfo();
         _hideSelection();
         showToast(`Rack ${rack.id} eliminado`, 'warning');
     });
 
-    // Eliminar producto individual
     body.querySelectorAll('.sel-prod-del').forEach(btn => {
         btn.addEventListener('click', () => {
             const pid = btn.dataset.pid;
-            _scenario.removeProduct(pid);
+            _activeScenario().removeProduct(pid);
             _updateSidebarInfo();
-            _showSelectionRack(rack);  // refresh
+            _showSelectionRack(rack);
             showToast('Producto eliminado', 'warning');
         });
     });
@@ -400,7 +684,7 @@ function _showSelectionPicker(picker) {
     `;
 
     body.querySelector('#sel-del-picker-btn')?.addEventListener('click', () => {
-        _scenario.removePicker(picker.id);
+        _activeScenario().removePicker(picker.id);
         _renderer.selectedElement = null;
         _updateSidebarInfo();
         _hideSelection();
@@ -414,22 +698,138 @@ function _hideSelection() {
     DOM.selectionPanel().classList.remove('open');
 }
 
+function _showSelectionDoor(door) {
+    const panel = DOM.selectionPanel();
+    const body  = DOM.selectionBody();
+    const doorColors = { INBOUND: '#22c55e', OUTBOUND: '#f97316', AMBOS: '#a78bfa' };
+    const c = doorColors[door.tipo] || '#a78bfa';
+    body.innerHTML = `
+        <div class="sel-header">
+            <span class="sel-icon" aria-hidden="true" style="color:${c}"><span class="icon icon--18 icon--filled">door_front</span></span>
+            <span class="sel-title">${door.id}</span>
+        </div>
+        <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${door.x}, ${door.y})</span></div>
+        <div class="sel-row">
+            <span class="sel-label">Tipo</span>
+            <select class="sel-value" id="sel-door-tipo" style="color:${c}">
+                <option value="AMBOS"   ${door.tipo==='AMBOS'   ?'selected':''}>IO (ambas)</option>
+                <option value="INBOUND" ${door.tipo==='INBOUND' ?'selected':''}>IN (entrada)</option>
+                <option value="OUTBOUND"${door.tipo==='OUTBOUND'?'selected':''}>OUT (salida)</option>
+            </select>
+        </div>
+        <div class="sel-actions">
+            <button class="btn btn--sm btn--danger" id="sel-del-door-btn">
+                <span class="icon icon--sm" aria-hidden="true">delete</span> Eliminar puerta
+            </button>
+        </div>
+    `;
+    body.querySelector('#sel-door-tipo')?.addEventListener('change', e => {
+        door.tipo = e.target.value;
+    });
+    body.querySelector('#sel-del-door-btn')?.addEventListener('click', () => {
+        _activeScenario().removeDoor(door.id);
+        _renderer.selectedElement = null;
+        _updateSidebarInfo();
+        _hideSelection();
+        showToast(`Puerta ${door.id} eliminada`, 'warning');
+    });
+    panel.classList.add('open');
+}
+
+function _showSelectionDispatch(dz) {
+    const panel = DOM.selectionPanel();
+    const body  = DOM.selectionBody();
+    const doors = _activeScenario()?.doors || [];
+    const doorOpts = doors.map(d =>
+        `<option value="${d.id}" ${dz.puertaId === d.id ? 'selected' : ''}>${d.id} (${d.tipo})</option>`
+    ).join('');
+    body.innerHTML = `
+        <div class="sel-header">
+            <span class="sel-icon" aria-hidden="true"><span class="icon icon--18 icon--filled">package_2</span></span>
+            <span class="sel-title">${dz.id}</span>
+        </div>
+        <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${dz.x}, ${dz.y})</span></div>
+        <div class="sel-row"><span class="sel-label">Tamaño</span><span class="sel-value">${dz.width}×${dz.height} celdas</span></div>
+        <div class="sel-row">
+            <span class="sel-label">Puerta</span>
+            <select class="sel-value" id="sel-dz-door">
+                <option value="">— Sin asignar —</option>
+                ${doorOpts}
+            </select>
+        </div>
+        <div class="sel-actions">
+            <button class="btn btn--sm btn--danger" id="sel-del-dz-btn">
+                <span class="icon icon--sm" aria-hidden="true">delete</span> Eliminar zona
+            </button>
+        </div>
+    `;
+    body.querySelector('#sel-dz-door')?.addEventListener('change', e => {
+        dz.puertaId = e.target.value || null;
+    });
+    body.querySelector('#sel-del-dz-btn')?.addEventListener('click', () => {
+        _activeScenario().removeDispatchZone(dz.id);
+        _renderer.selectedElement = null;
+        _updateSidebarInfo();
+        _hideSelection();
+        showToast(`Zona ${dz.id} eliminada`, 'warning');
+    });
+    panel.classList.add('open');
+}
+
+function _showSelectionAisle(aisle) {
+    const panel = DOM.selectionPanel();
+    const body  = DOM.selectionBody();
+    body.innerHTML = `
+        <div class="sel-header">
+            <span class="sel-icon" aria-hidden="true"><span class="icon icon--18 icon--filled">route</span></span>
+            <span class="sel-title">${aisle.id}</span>
+        </div>
+        <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${aisle.x}, ${aisle.y})</span></div>
+        <div class="sel-row"><span class="sel-label">Tamaño</span><span class="sel-value">${aisle.width}×${aisle.height} celdas</span></div>
+        <div class="sel-row">
+            <span class="sel-label">Sentido</span>
+            <select class="sel-value" id="sel-aisle-sentido">
+                <option value="AMBOS" ${aisle.sentido==='AMBOS'?'selected':''}>↕ AMBOS</option>
+                <option value="N"     ${aisle.sentido==='N'    ?'selected':''}>↑ Norte</option>
+                <option value="S"     ${aisle.sentido==='S'    ?'selected':''}>↓ Sur</option>
+                <option value="E"     ${aisle.sentido==='E'    ?'selected':''}>→ Este</option>
+                <option value="O"     ${aisle.sentido==='O'    ?'selected':''}>← Oeste</option>
+            </select>
+        </div>
+        <div class="sel-actions">
+            <button class="btn btn--sm btn--danger" id="sel-del-aisle-btn">
+                <span class="icon icon--sm" aria-hidden="true">delete</span> Eliminar pasillo
+            </button>
+        </div>
+    `;
+    body.querySelector('#sel-aisle-sentido')?.addEventListener('change', e => {
+        aisle.sentido = e.target.value;
+    });
+    body.querySelector('#sel-del-aisle-btn')?.addEventListener('click', () => {
+        _activeScenario().removeAisle(aisle.id);
+        _renderer.selectedElement = null;
+        _updateSidebarInfo();
+        _hideSelection();
+        showToast(`Pasillo ${aisle.id} eliminado`, 'warning');
+    });
+    panel.classList.add('open');
+}
+
 // ── Sidebar info ──────────────────────────────────────────────────
 
 function _updateSidebarInfo() {
-    if (!_scenario) return;
-    const st = _scenario.stats();
-    DOM.whId().textContent       = _scenario.name;
+    const sc = _activeScenario();
+    if (!sc) return;
+    const st = sc.stats();
+    DOM.whId().textContent       = sc.name;
     DOM.whSize().textContent     = st.size;
     DOM.whPickers().textContent  = st.pickers;
     DOM.whRacks().textContent    = st.racks;
     DOM.whProducts().textContent = st.products;
 
-    // Habilitar/deshabilitar controles de picker
-    const hasScenario = !!_scenario;
-    DOM.btnPickerAdd().disabled    = !hasScenario;
-    DOM.btnPickerRemove().disabled = !hasScenario || _scenario.pickers.length === 0;
-    DOM.pickersCount().textContent = _scenario.pickers.length;
+    DOM.btnPickerAdd().disabled    = false;
+    DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
+    DOM.pickersCount().textContent = sc.pickers.length;
     _updatePickersList();
 }
 
@@ -437,13 +837,14 @@ function _updateSidebarInfo() {
  * Renderiza la lista compacta de pickers dentro del panel de pickers.
  */
 function _updatePickersList() {
-    if (!_scenario) return;
+    const sc = _activeScenario();
+    if (!sc) return;
     const list = DOM.pickersList();
-    if (_scenario.pickers.length === 0) {
+    if (sc.pickers.length === 0) {
         list.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
         return;
     }
-    list.innerHTML = _scenario.pickers.map(pk => `
+    list.innerHTML = sc.pickers.map(pk => `
         <div class="picker-chip">
             <span class="picker-chip__dot" style="background:${pk.color}"></span>
             <span class="picker-chip__name">${pk.name}</span>
@@ -453,16 +854,15 @@ function _updatePickersList() {
 }
 
 function _updateCanvasStatus() {
-    if (!_scenario) {
+    const sc = _activeScenario();
+    if (!sc) {
         DOM.canvasStatus().textContent = 'Sin escenario cargado';
         return;
     }
-    DOM.canvasStatus().textContent = `${_scenario.name}  ·  ${_scenario.width}×${_scenario.height}`;
-
-    // Habilitar botones de picker al cargar un escenario
+    DOM.canvasStatus().textContent = `${sc.name}  ·  ${sc.width}×${sc.height}`;
     DOM.btnPickerAdd().disabled    = false;
-    DOM.btnPickerRemove().disabled = _scenario.pickers.length === 0;
-    DOM.pickersCount().textContent = _scenario.pickers.length;
+    DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
+    DOM.pickersCount().textContent = sc.pickers.length;
     _updatePickersList();
 }
 
@@ -470,6 +870,15 @@ function _updateCanvasStatus() {
 
 function saveScenario() {
     if (!_scenario) { showToast('No hay escenario para guardar.', 'warning'); return; }
+    if (!_scenario.isValidForSave()) {
+        const missing = [];
+        if (_scenario.doors.length        === 0) missing.push('1 puerta');
+        if (_scenario.dispatchZones.length === 0) missing.push('1 zona de despacho');
+        if (_scenario.racks.length         === 0) missing.push('1 rack');
+        if (_scenario.pickers.length       === 0) missing.push('1 picker');
+        showToast('Faltan: ' + missing.join(', ') + '.', 'warning');
+        return;
+    }
     const json = JSON.stringify(_scenario.toJSON(), null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -516,7 +925,7 @@ function _onKeyDown(e) {
     // No activar si el foco está en un input/textarea
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
 
-    const toolMap = { 's': 'select', 'r': 'rack', 'p': 'product', 'e': 'erase' };
+    const toolMap = { 's': 'select', 'r': 'rack', 'p': 'product', 'e': 'erase', 'd': 'door', 'z': 'dispatch', 'a': 'aisle', 'm': 'move-rack' };
     if (toolMap[e.key]) {
         _setActiveTool(toolMap[e.key]);
         return;
@@ -532,20 +941,19 @@ function _onKeyDown(e) {
     }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Eliminar elemento seleccionado
         const sel = _renderer?.selectedElement;
-        if (!sel || !_scenario) return;
-        if (sel.type === 'rack') {
-            _scenario.removeRack(sel.element.id);
-            _renderer.selectedElement = null;
-            _hideSelection();
-            _updateSidebarInfo();
-        } else if (sel.type === 'picker') {
-            _scenario.removePicker(sel.element.id);
-            _renderer.selectedElement = null;
-            _hideSelection();
-            _updateSidebarInfo();
-        }
+        const sc  = _activeScenario();
+        if (!sel || !sc) return;
+        const id = sel.element.id;
+        if      (sel.type === 'rack')     { sc.removeRack(id); }
+        else if (sel.type === 'picker')   { sc.removePicker(id); _updatePickersList(); }
+        else if (sel.type === 'door')     { sc.removeDoor(id); }
+        else if (sel.type === 'dispatch') { sc.removeDispatchZone(id); }
+        else if (sel.type === 'aisle')    { sc.removeAisle(id); }
+        _renderer.selectedElement = null;
+        _hideSelection();
+        _updateSidebarInfo();
+        if (_wizardScenario) _updateWizardValidMsg();
     }
 }
 
@@ -571,3 +979,4 @@ function showToast(msg, type = 'info') {
 // ── Arrancar cuando el DOM está listo ─────────────────────────────
 
 document.addEventListener('DOMContentLoaded', initEditorUI);
+
