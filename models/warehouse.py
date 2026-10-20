@@ -547,12 +547,20 @@ class Warehouse:
         Agrega un rack al warehouse.
 
         Raises:
-            ValueError: Si ya existe un rack con el mismo id o la posición
-                        está fuera de los límites del warehouse.
+            ValueError: Si ya existe un rack con el mismo id, la posición está
+                        fuera de los límites, o ninguna dimensión es igual a 2.
         """
         if rack.rack_id in self.racks:
             raise ValueError(f"Ya existe un rack con id '{rack.rack_id}'.")
+            
+        if rack.ancho != 2 and rack.alto != 2:
+            raise ValueError(
+                f"El rack '{rack.rack_id}' debe tener exactamente un lado igual a 2 "
+                f"(ancho={rack.ancho}, alto={rack.alto})."
+            )
+        
         self._validate_position(rack.x, rack.y)
+        self._validate_position(rack.x + rack.ancho - 1, rack.y + rack.alto - 1)
         self.racks[rack.rack_id] = rack
 
     def get_rack(self, rack_id: str) -> Rack:
@@ -583,9 +591,22 @@ class Warehouse:
 
         Raises:
             RuntimeError: Si el warehouse ya fue sellado.
+            ValueError: Si la puerta_id ya está asignada a otra zona o la
+                        posición está fuera de límites.
         """
         if self._sealed:
             raise RuntimeError("El warehouse ya fue sellado; no se pueden agregar zonas.")
+        # Validar ambas esquinas del rectángulo
+        self._validate_position(zone.x, zone.y)
+        self._validate_position(zone.x + zone.ancho - 1, zone.y + zone.alto - 1)
+        # Verificar unicidad de puerta
+        if zone.puerta_id is not None:
+            for existing in self._dispatch_zones:
+                if existing.puerta_id == zone.puerta_id:
+                    raise ValueError(
+                        f"La puerta '{zone.puerta_id}' ya está asignada "
+                        f"a la zona '{existing.zone_id}'."
+                    )
         self._dispatch_zones.append(zone)
 
     # ------------------------------------------------------------------
@@ -613,9 +634,32 @@ class Warehouse:
 
         Raises:
             RuntimeError: Si el warehouse ya fue sellado.
+            ValueError: Si el pasillo está fuera de límites o se solapa con
+                        un rack u otro pasillo ya registrado.
         """
         if self._sealed:
             raise RuntimeError("El warehouse ya fue sellado; no se pueden agregar pasillos.")
+        # Validar ambas esquinas del rectángulo
+        self._validate_position(aisle.x, aisle.y)
+        self._validate_position(aisle.x + aisle.ancho - 1, aisle.y + aisle.alto - 1)
+        # Verificar solapamiento con racks
+        for rack in self.racks.values():
+            for dx in range(rack.ancho):
+                for dy in range(rack.alto):
+                    if aisle.contains_cell(rack.x + dx, rack.y + dy):
+                        raise ValueError(
+                            f"El pasillo '{aisle.aisle_id}' se solapa con "
+                            f"el rack '{rack.rack_id}'."
+                        )
+        # Verificar solapamiento con otros pasillos
+        for existing in self._aisles:
+            for dx in range(existing.ancho):
+                for dy in range(existing.alto):
+                    if aisle.contains_cell(existing.x + dx, existing.y + dy):
+                        raise ValueError(
+                            f"El pasillo '{aisle.aisle_id}' se solapa con "
+                            f"el pasillo '{existing.aisle_id}'."
+                        )
         self._aisles.append(aisle)
 
     def get_aisle_sentido(self, x: int, y: int) -> str:
