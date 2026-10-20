@@ -77,30 +77,32 @@
             <!-- Pickers -->
             <section class="panel" id="pickers-panel">
                 <div class="panel__header">
-                    <h2 class="panel__title">
-                        <span class="icon icon--16 icon--filled" aria-hidden="true">person_pin</span>
-                        Pickers
-                    </h2>
-                    <span class="info-value" id="wh-pickers">—</span>
-                </div>
-                <div class="panel__body">
-                    <div class="pickers-counter">
-                        <button class="btn btn--icon btn--sm btn--ghost" id="btn-picker-remove"
+                    <h2 class="panel__title">Pickers</h2>
+                    <div class="pickers-controls">
+                        <button class="btn btn--icon btn--xs btn--ghost" id="btn-picker-remove"
                                 title="Quitar un picker" aria-label="Quitar picker" disabled>
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">remove</span>
+                            <span class="icon icon--14 icon--filled" aria-hidden="true">remove</span>
                         </button>
-                        <span class="pickers-count" id="pickers-count">0</span>
-                        <button class="btn btn--icon btn--sm btn--primary" id="btn-picker-add"
+                        <button class="btn btn--icon btn--xs btn--primary" id="btn-picker-add"
                                 title="Agregar un picker" aria-label="Agregar picker" disabled>
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">add</span>
+                            <span class="icon icon--14 icon--filled" aria-hidden="true">add</span>
                         </button>
                     </div>
+                    <span class="info-value" id="wh-pickers" style="margin-left:auto;font-size:.75rem">—</span>
+                </div>
+                <div class="panel__body">
                     <div class="pickers-capacity-row">
-                        <label class="form-label" for="input-picker-capacity">Cap. por picker (kg)</label>
+                        <label class="form-label" for="input-picker-capacity">Cap. nueva (kg)</label>
                         <input class="form-input form-input--num" type="number"
                                id="input-picker-capacity" min="1" max="9999" value="100">
                     </div>
-                    <div id="pickers-list" class="pickers-list"></div>
+                    <!-- Lista colapsable -->
+                    <button class="pickers-list-toggle" id="btn-pickers-list-toggle"
+                            aria-expanded="false" aria-controls="pickers-list">
+                        <span>Lista</span>
+                        <span class="icon icon--14 icon--filled pickers-chevron" aria-hidden="true">expand_more</span>
+                    </button>
+                    <div id="pickers-list" class="pickers-list pickers-list--collapsed"></div>
                 </div>
             </section>
 
@@ -158,18 +160,18 @@
                             <option value="OUTBOUND">OUT</option>
                         </select>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch" title="Zona de despacho (Z)" aria-label="Colocar despacho">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">package_2</span>
+                        <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch" title="Zona de despacho (Z)" aria-label="Colocar zona de despacho">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
                         </button>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="rack" id="tool-rack" title="Colocar rack (R)" aria-label="Colocar rack">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">shelves</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="move-rack" id="tool-move-rack" title="Mover rack (M)" aria-label="Mover rack">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">drag_pan</span>
+                        <button class="btn btn--icon tool-btn" data-tool="move-rack" id="tool-move-rack" title="Mover elemento (M)" aria-label="Mover elemento">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">open_with</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product" title="Agregar producto (P)" aria-label="Agregar producto">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
+                        <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">add_box</span>
                         </button>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="aisle" id="tool-aisle" title="Pasillo con dirección (A)" aria-label="Definir pasillo">

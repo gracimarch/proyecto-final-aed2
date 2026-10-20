@@ -401,8 +401,16 @@
 .wh-preview__grid {
     display: grid;
     gap: 1px;
-    transition: width 0.2s, height 0.2s;
+    /* Sin transicion: la actualizacion del slider debe ser instantanea */
     flex-shrink: 0;
+    /* La grilla se dibuja con background CSS para evitar crear miles de divs */
+    background-color: rgba(79, 156, 249, 0.06);
+    background-image:
+        linear-gradient(to right,  rgba(79, 156, 249, 0.18) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(79, 156, 249, 0.18) 1px, transparent 1px);
+    background-size: var(--preview-cell-px, 8px) var(--preview-cell-px, 8px);
+    border: 1px solid rgba(79, 156, 249, 0.25);
+    border-radius: 2px;
 }
 
 .preview-cell {
@@ -484,26 +492,30 @@
 }
 
 /* ================================================================
-   PANEL DE PICKERS
-================================================================ */
-
-/* Control +/− con contador central */
-.pickers-counter {
+/* Controles inline +/−/count en el header */
+.pickers-controls {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: var(--space-md);
-    padding: var(--space-xs) 0 var(--space-sm);
+    gap: 4px;
+    margin-left: var(--space-sm);
 }
 
 .pickers-count {
-    font-size: 1.6rem;
+    font-size: .9rem;
     font-weight: 700;
     color: var(--color-text);
     font-family: var(--font-mono);
-    min-width: 2ch;
+    min-width: 1.6ch;
     text-align: center;
     line-height: 1;
+}
+
+/* Botones xs (más pequeños que sm) */
+.btn--xs {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: var(--radius-sm);
 }
 
 /* Fila de capacidad */
@@ -513,7 +525,7 @@
     gap: var(--space-sm);
     padding-bottom: var(--space-sm);
     border-bottom: 1px solid var(--color-border);
-    margin-bottom: var(--space-sm);
+    margin-bottom: 6px;
 }
 
 .pickers-capacity-row .form-label {
@@ -525,9 +537,40 @@
 }
 
 .pickers-capacity-row .form-input--num {
-    width: 72px;
+    width: 64px;
     flex-shrink: 0;
     text-align: right;
+    padding: 3px 6px;
+    font-size: .8rem;
+}
+
+/* Toggle de la lista */
+.pickers-list-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    margin-bottom: 4px;
+}
+.pickers-list-toggle:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+}
+
+.pickers-chevron {
+    transition: transform 0.2s;
+}
+.pickers-chevron.open {
+    transform: rotate(180deg);
 }
 
 /* Lista de pickers (chips) */
@@ -535,10 +578,39 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 160px;
-    overflow-y: auto;
+    overflow: hidden;
+    max-height: 200px;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+    opacity: 1;
 }
 
+
+.pickers-list--collapsed {
+    max-height: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Scroll container interno — el externo maneja el colapso */
+.pickers-list-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+/* Scrollbar sutil */
+.pickers-list-scroll::-webkit-scrollbar       { width: 4px; }
+.pickers-list-scroll::-webkit-scrollbar-track { background: transparent; }
+.pickers-list-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-border-2);
+    border-radius: 2px;
+}
+.pickers-list-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* Chips individuales de cada picker */
 .picker-chip {
     display: flex;
     align-items: center;
@@ -575,7 +647,6 @@
     font-family: var(--font-mono);
     white-space: nowrap;
 }
-
 
 /* ================================================================
    NUEVAS HERRAMIENTAS - tool-select, wizard, doors, aisles
@@ -681,7 +752,9 @@
     display: none;
 }
 .wizard-step.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
 }
 
 .wizard-hint {
@@ -894,4 +967,64 @@ select.sel-value option {
     justify-content: flex-end;
     border-top: 1px solid var(--color-border);
     background: rgba(255,255,255,0.02);
+}
+
+/* ================================================================
+   TEMA CLARO — overrides especificos del editor
+================================================================ */
+[data-theme="light"] .modal__overlay {
+    background: rgba(0, 0, 0, 0.3);
+}
+[data-theme="light"] .modal__content {
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] .wizard-float {
+    background: var(--color-surface);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.14), 0 0 0 1px var(--color-border);
+}
+[data-theme="light"] .wf-header {
+    background: var(--color-surface-2);
+}
+[data-theme="light"] .wf-nav {
+    background: var(--color-surface-2);
+}
+[data-theme="light"] .tool-group {
+    background: var(--color-surface-2);
+    border-color: var(--color-border);
+}
+[data-theme="light"] .editor-toast {
+    box-shadow: 0 8px 20px rgba(0,0,0,0.13);
+}
+[data-theme="light"] .canvas-legend {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text-muted);
+}
+[data-theme="light"] .canvas-legend kbd {
+    background: var(--color-surface-2);
+    border-color: var(--color-border-2);
+    color: var(--color-text);
+}
+[data-theme="light"] .confirm-modal__content {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.16);
+}
+[data-theme="light"] .wf-dot--completed {
+    background: var(--color-primary);
+    color: #fff;
+}
+[data-theme="light"] .wizard-valid-msg {
+    color: #dc2626;
+    background: rgba(220,38,38,0.07);
+    border-color: rgba(220,38,38,0.2);
+}
+[data-theme="light"] .preview-cell {
+    background: rgba(37,99,235,0.07);
+    border-color: rgba(37,99,235,0.18);
+}
+[data-theme="light"] .wh-preview__grid {
+    background-color: rgba(37,99,235,0.05);
+    background-image:
+        linear-gradient(to right,  rgba(37,99,235,0.15) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(37,99,235,0.15) 1px, transparent 1px);
+    border-color: rgba(37,99,235,0.2);
 }
