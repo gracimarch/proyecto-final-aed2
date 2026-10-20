@@ -338,16 +338,24 @@ class WarehouseRenderer {
         ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         ctx.setLineDash([]);
 
-        ctx.fillStyle    = 'rgba(79,201,127,0.85)';
+        // Etiquetas — clipeadas al área de la zona
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x + 2, y + 2, w - 4, h - 4);
+        ctx.clip();
+
+        ctx.fillStyle    = 'rgba(79,201,127,0.9)';
         ctx.font         = `bold 9px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('DESPACHO', x + w / 2, y + h / 2);
+
         if (dz.puertaId) {
             ctx.font      = `7px "JetBrains Mono", monospace`;
-            ctx.fillStyle = 'rgba(79,201,127,0.6)';
-            ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 11);
+            ctx.fillStyle = 'rgba(79,201,127,0.7)';
+            ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 12);
         }
+        ctx.restore();
     }
 
     // ── Pasillos (flechas de dirección) ──────────────────────────
@@ -453,11 +461,24 @@ class WarehouseRenderer {
         ctx.stroke();
 
         const labelMap = { INBOUND: 'IN', OUTBOUND: 'OUT', AMBOS: 'IO' };
+        ctx.save();
+        // Clip al área de la celda de la puerta
+        ctx.beginPath(); ctx.rect(px, py, CELL, CELL); ctx.clip();
+        // Etiqueta de tipo — siempre visible
         ctx.fillStyle    = base;
-        ctx.font         = `bold 7px "JetBrains Mono", monospace`;
+        ctx.font         = `bold 8px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText(labelMap[door.tipo] || 'IO', px + CELL / 2, py + CELL - 2);
+        // ID de la puerta — siempre visible encima, fondo semi-transparente para legibilidad
+        ctx.font         = `bold 8px "JetBrains Mono", monospace`;
+        ctx.fillStyle    = 'rgba(0,0,0,0.45)';
+        const idW = ctx.measureText(door.id).width + 4;
+        ctx.fillRect(px + CELL / 2 - idW / 2, py + 2, idW, 11);
+        ctx.fillStyle    = base;
+        ctx.textBaseline = 'top';
+        ctx.fillText(door.id, px + CELL / 2, py + 3);
+        ctx.restore();
     }
 
     // ── Racks ─────────────────────────────────────────────────────
@@ -517,12 +538,21 @@ class WarehouseRenderer {
         ctx.roundRect(rx, ry, rw, rh, r);
         ctx.stroke();
 
-        // ID del rack (esquina superior)
-        ctx.fillStyle    = isSelected ? 'rgba(200, 204, 255, 0.85)' : 'rgba(130, 150, 220, 0.6)';
-        ctx.font         = `8px "JetBrains Mono", monospace`;
+        // ID del rack — siempre visible, clipeado al rack
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, r); ctx.clip();
+        ctx.fillStyle    = isSelected ? 'rgba(220, 225, 255, 0.98)' : 'rgba(180, 200, 245, 0.92)';
+        ctx.font         = `bold ${Math.max(7, Math.min(9, rw / 4 | 0))}px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText(rack.id, rx + rw / 2, ry + 3);
+        // Fondo semi-opaco para garantizar legibilidad sobre el gradiente
+        const idMetrics = ctx.measureText(rack.id);
+        const idW = idMetrics.width + 6;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(rx + rw / 2 - idW / 2, ry + 2, idW, 12);
+        ctx.fillStyle = isSelected ? 'rgba(220, 225, 255, 0.98)' : 'rgba(180, 200, 245, 0.92)';
+        ctx.fillText(rack.id, rx + rw / 2, ry + 4);
+        ctx.restore();
 
         // Productos
         if (rack.products.length > 0) {

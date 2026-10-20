@@ -31,7 +31,8 @@ class WarehouseEditor {
         this._aisleDragStart = null;
 
         // Mover rack existente
-        this._movingRack     = null;  // { rack, offsetX, offsetY }
+        this._movingRack     = null;  // { rack, offsetX, offsetY } — kept for compat
+        this._movingElement  = null;  // { type, element, offsetX, offsetY } — elemento que se está arrastrando
 
         // Config herramientas
         this._doorTipo       = 'AMBOS';
@@ -70,6 +71,7 @@ class WarehouseEditor {
         this._dzDragStart     = null;
         this._aisleDragStart  = null;
         this._movingRack      = null;
+        this._movingElement   = null;
         this._isDragging      = false;
 
         const cursors = {
@@ -204,13 +206,22 @@ class WarehouseEditor {
             this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
         }
 
-        // Mover rack: preview en vivo
-        if (this.mode === 'move-rack' && this._movingRack) {
+        // Mover elemento: preview en vivo
+        if (this.mode === 'move-rack' && this._movingElement) {
             this._isDragging = true;
-            const { rack, offsetX, offsetY } = this._movingRack;
-            const nx = cell.x - offsetX;
-            const ny = cell.y - offsetY;
-            this.renderer.cursorRect = { x: nx, y: ny, w: rack.width, h: rack.height };
+            const { type, element, offsetX, offsetY } = this._movingElement;
+            if (type === 'rack') {
+                const nx = cell.x - offsetX;
+                const ny = cell.y - offsetY;
+                this.renderer.cursorRect = { x: nx, y: ny, w: element.width, h: element.height };
+            } else if (type === 'dispatch') {
+                const nx = cell.x - offsetX;
+                const ny = cell.y - offsetY;
+                this.renderer.cursorRect = { x: nx, y: ny, w: element.width, h: element.height };
+            } else {
+                // door o picker: 1×1, el cursor indica la celda destino
+                this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
+            }
         }
     }
 
@@ -249,14 +260,15 @@ class WarehouseEditor {
             this._commitAisle();
         }
 
-        if (this.mode === 'move-rack' && this._movingRack) {
-            this._commitMoveRack(this._cellAt(e));
+        if (this.mode === 'move-rack' && this._movingElement) {
+            this._commitMove(this._cellAt(e));
         }
 
         this._rackDragStart  = null;
         this._dzDragStart    = null;
         this._aisleDragStart = null;
         this._movingRack     = null;
+        this._movingElement  = null;
         this._isDragging     = false;
         this.renderer.cursorRect = null;
     }
@@ -271,6 +283,7 @@ class WarehouseEditor {
         this._dzDragStart        = null;
         this._aisleDragStart     = null;
         this._movingRack         = null;
+        this._movingElement      = null;
         this._isDragging         = false;
     }
 
@@ -351,7 +364,7 @@ class WarehouseEditor {
             this.renderer.selectedElement = { type: 'rack', element: rack };
             this.onEvent('add-rack', rack);
         } else {
-            this.onEvent('error', 'No se pudo colocar el rack (área ocupada o fuera de límites).');
+            this.onEvent('error', 'No se pudo colocar el rack. Verificá que: no esté ocupado, tenga distancia ≥ 1 con otros racks, y no quede pegado a la pared (debe haber al menos 1 celda libre en cada cara).');
         }
     }
 
@@ -438,6 +451,10 @@ class WarehouseEditor {
             this.onEvent('add-dispatch', result);
         } else if (result && result.error === 'no-door') {
             this.onEvent('error', 'La zona de despacho debe ser adyacente a una puerta.');
+        } else if (result && result.error === 'door-taken') {
+            this.onEvent('error', 'La puerta adyacente ya está asignada a otra zona de despacho.');
+        } else if (result && result.error === 'multiple-doors') {
+            this.onEvent('error', 'La zona no puede ser adyacente a más de una puerta. Reubicala.');
         } else {
             this.onEvent('error', 'No se pudo colocar la zona (area ocupada o fuera de limites).');
         }
@@ -453,7 +470,25 @@ class WarehouseEditor {
     _commitAisle() {
         const rect = this.renderer.cursorRect;
         if (!rect) return;
-        const aisle = this.scenario.addAisle(rect.x, rect.y, rect.w, rect.h, this._aisleSentido || 'AMBOS');
+
+        // Inferir sentido desde la dirección dominante del drag
+        let sentido = 'AMBOS';
+        if (this._aisleDragStart && (rect.w > 1 || rect.h > 1)) {
+            const start = this._aisleDragStart;
+            // rect.x = min(start.x, end.x), así que end.x es el extremo opuesto a start.x
+            const endX = start.x === rect.x ? rect.x + rect.w - 1 : rect.x;
+            const endY = start.y === rect.y ? rect.y + rect.h - 1 : rect.y;
+            const dx = endX - start.x;
+            const dy = endY - start.y;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                sentido = dx > 0 ? 'E' : 'O';
+            } else if (Math.abs(dy) > Math.abs(dx)) {
+                sentido = dy > 0 ? 'N' : 'S';
+            }
+            // Si dx == dy (cuadrado o click simple) queda 'AMBOS'
+        }
+
+        const aisle = this.scenario.addAisle(rect.x, rect.y, rect.w, rect.h, sentido);
         if (aisle) {
             this.renderer.selectedElement = { type: 'aisle', element: aisle };
             this.onEvent('add-aisle', aisle);
@@ -462,28 +497,53 @@ class WarehouseEditor {
 
     _onMoveRackDown(cell) {
         if (!this.scenario.isInBounds(cell.x, cell.y)) return;
-        const rack = this.scenario.getRackAt(cell.x, cell.y);
-        if (!rack) {
-            this.onEvent('hint', 'Hacé click en un rack para moverlo.');
+
+        const picker = this.scenario.getPickerAt(cell.x, cell.y);
+        if (picker) {
+            this._movingElement = { type: 'picker', element: picker, offsetX: 0, offsetY: 0 };
+            this.canvas.style.cursor = 'grabbing';
+            this.renderer.cursorRect = { x: picker.x, y: picker.y, w: 1, h: 1 };
             return;
         }
-        this._movingRack = { rack, offsetX: cell.x - rack.x, offsetY: cell.y - rack.y };
-        this.canvas.style.cursor = 'grabbing';
-        this.renderer.cursorRect = { x: rack.x, y: rack.y, w: rack.width, h: rack.height };
+
+        const rack = this.scenario.getRackAt(cell.x, cell.y);
+        if (rack) {
+            const ox = cell.x - rack.x, oy = cell.y - rack.y;
+            this._movingRack    = { rack, offsetX: ox, offsetY: oy };  // compat
+            this._movingElement = { type: 'rack', element: rack, offsetX: ox, offsetY: oy };
+            this.canvas.style.cursor = 'grabbing';
+            this.renderer.cursorRect = { x: rack.x, y: rack.y, w: rack.width, h: rack.height };
+            return;
+        }
+
+        this.onEvent('hint', 'Hacé click en un rack o picker para moverlo.');
     }
 
-    _commitMoveRack(cell) {
-        if (!this._movingRack) return;
-        const { rack, offsetX, offsetY } = this._movingRack;
-        const nx = cell.x - offsetX;
-        const ny = cell.y - offsetY;
-        const moved = this.scenario.moveRack(rack.id, nx, ny);
-        if (moved) {
-            this.renderer.selectedElement = { type: 'rack', element: rack };
-            this.onEvent('move-rack', rack);
-        } else {
-            this.onEvent('error', 'No se pudo mover el rack (área ocupada o fuera de límites).');
+    _commitMove(cell) {
+        if (!this._movingElement) return;
+        const { type, element, offsetX, offsetY } = this._movingElement;
+
+        if (type === 'rack') {
+            const nx = cell.x - offsetX;
+            const ny = cell.y - offsetY;
+            const moved = this.scenario.moveRack(element.id, nx, ny);
+            if (moved) {
+                this.renderer.selectedElement = { type: 'rack', element };
+                this.onEvent('move-rack', element);
+            } else {
+                this.onEvent('error', 'No se pudo mover el rack. Verificá que: la posición esté libre, haya distancia ≥ 1 con otros racks, y no quede pegado a la pared.');
+            }
+        } else if (type === 'picker') {
+            const moved = this.scenario.movePicker(element.id, cell.x, cell.y);
+            if (moved) {
+                this.renderer.selectedElement = { type: 'picker', element };
+                this.onEvent('move-picker', element);
+            } else {
+                this.onEvent('error', 'No se pudo mover el picker (celda ocupada o fuera de límites).');
+            }
         }
     }
-}
 
+    // Kept for backwards compat
+    _commitMoveRack(cell) { this._commitMove(cell); }
+}

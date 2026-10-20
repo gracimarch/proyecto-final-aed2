@@ -166,9 +166,9 @@ function initEditorUI() {
         if (picker) {
             _updateSidebarInfo();
             _updatePickersList();
-            showToast(`${picker.name} agregado en zona de despacho`, 'info');
+            showToast(`${picker.name} agregado`, 'info');
         } else {
-            showToast('Zona de despacho llena. No hay celdas disponibles.', 'warning');
+            showToast('No se pudo agregar el picker.', 'warning');
         }
     });
 
@@ -186,7 +186,21 @@ function initEditorUI() {
         showToast(`${last.name} eliminado`, 'warning');
     });
 
+    // Toggle colapsable de la lista de pickers
+    const _pickerListToggle = document.getElementById('btn-pickers-list-toggle');
+    if (_pickerListToggle) {
+        _pickerListToggle.addEventListener('click', () => {
+            const list    = document.getElementById('pickers-list');
+            const chevron = _pickerListToggle.querySelector('.pickers-chevron');
+            const isOpen  = _pickerListToggle.getAttribute('aria-expanded') === 'true';
+            _pickerListToggle.setAttribute('aria-expanded', String(!isOpen));
+            list?.classList.toggle('pickers-list--collapsed', isOpen);
+            chevron?.classList.toggle('open', !isOpen);
+        });
+    }
+
     // Guardar / Cargar
+
     DOM.btnSave().addEventListener('click', saveScenario);
     DOM.btnLoad().addEventListener('click', loadScenario);
 
@@ -220,10 +234,84 @@ function openModalNew() {
 }
 
 function closeModalNew() {
+    // Si el wizard tiene un escenario en construcción (pasos 1-4), pedir confirmación
+    if (_wizardStep >= 1 && _wizardScenario) {
+        _showConfirmModal(
+            '¿Cancelar creación?',
+            'Se descartarán todos los cambios del escenario en progreso.',
+            'Sí, cancelar',
+            () => _doCloseModalNew()
+        );
+        return;
+    }
+    _doCloseModalNew();
+}
+
+function _doCloseModalNew() {
     DOM.modalNew().classList.remove('open');
     _wizardFloatHide();
     _wizardStep = 0;
-    _wizardScenario = null;
+    if (_wizardScenario) {
+        _wizardScenario = null;
+        if (!_scenario) {
+            const placeholder = DOM.canvasPlaceholder();
+            const canvas = DOM.canvas();
+            if (placeholder) placeholder.style.display = '';
+            if (canvas) canvas.style.display = 'none';
+            _editor?.setScenario(null);
+        } else {
+            _editor?.setScenario(_scenario);
+        }
+    } else {
+        _wizardScenario = null;
+    }
+}
+
+/**
+ * Muestra un modal de confirmación custom (no usa confirm() nativo).
+ * @param {string} title       - Título del modal
+ * @param {string} message     - Mensaje descriptivo
+ * @param {string} confirmText - Texto del botón de confirmar
+ * @param {Function} onConfirm - Callback al confirmar
+ */
+function _showConfirmModal(title, message, confirmText, onConfirm) {
+    // Reusar o crear overlay
+    let overlay = document.getElementById('confirm-modal-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'confirm-modal-overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:9999',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.55)', 'backdrop-filter:blur(4px)'
+        ].join(';');
+        document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+        <div style="
+            background:var(--color-surface,#1c1f2e);
+            border:1px solid rgba(255,255,255,0.08);
+            border-radius:14px;
+            padding:28px 32px;
+            max-width:380px;
+            width:90%;
+            box-shadow:0 24px 48px rgba(0,0,0,0.5);
+            font-family:'JetBrains Mono',monospace;
+        ">
+            <h3 style="margin:0 0 10px;font-size:1rem;color:var(--color-text,#e2e8f0)">${title}</h3>
+            <p  style="margin:0 0 24px;font-size:.82rem;color:var(--color-text-muted,#94a3b8);line-height:1.5">${message}</p>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button id="confirm-modal-cancel" class="btn btn--ghost btn--sm">Volver</button>
+                <button id="confirm-modal-ok"     class="btn btn--danger btn--sm">${confirmText}</button>
+            </div>
+        </div>`;
+    overlay.style.display = 'flex';
+
+    const close = () => { overlay.style.display = 'none'; };
+    overlay.querySelector('#confirm-modal-cancel').onclick = close;
+    overlay.querySelector('#confirm-modal-ok').onclick = () => { close(); onConfirm(); };
+    // Click fuera del cuadro también cierra
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
 }
 
 function _showWizardStep(step) {
@@ -269,8 +357,8 @@ function _showWizardStep(step) {
 
 const WIZARD_HINTS = {
     1: { icon: 'door_front', color: '#a78bfa', text: 'Haz click en el <strong>borde</strong> del warehouse para colocar puertas. Necesitas ≥ 1.', tip: 'Cambia el tipo (IN/OUT/IO) en la barra superior.' },
-    2: { icon: 'package_2',  color: '#4fc97f', text: 'Arrastra en el canvas para colocar una <strong>Zona de Despacho</strong>. Necesitas ≥ 1.', tip: 'Después podés asociarla a una puerta seleccionándola.' },
-    3: { icon: 'shelves',    color: '#4f9cf9', text: 'Haz click o arrastra para colocar <strong>Racks</strong>. Necesitas ≥ 1.', tip: 'Al menos una dimensión debe ser ≤ 2.' },
+    2: { icon: 'inventory_2',  color: '#4fc97f', text: 'Arrastra en el canvas para colocar una <strong>Zona de Despacho</strong>. Necesitas ≥ 1.', tip: 'Cada puerta debe tener exactamente una zona de despacho frente a ella.' },
+    3: { icon: 'shelves',    color: '#4f9cf9', text: 'Haz click o arrastra para colocar <strong>Racks</strong>. Necesitas ≥ 1.', tip: 'Exactamente una dimensión debe ser igual a 2 (ancho o alto).' },
     4: { icon: 'route',      color: '#fbbf24', text: 'Opcional: arrastra para definir <strong>Pasillos</strong> con dirección.', tip: 'Si omitís, todas las celdas transitables serán AMBOS.' },
 };
 
@@ -298,11 +386,11 @@ function _wizardFloatShow(step) {
             <div class="wf-nav">
                 <button class="btn btn--ghost btn--sm" id="wf-prev">&#x2190; Anterior</button>
                 <button class="btn btn--primary btn--sm" id="wf-next">Siguiente &#x2192;</button>
-                <button class="btn btn--primary btn--sm" id="wf-finish" style="display:none" disabled>&#x2713; Crear escenario</button>
+                <button class="btn btn--primary btn--sm" id="wf-finish" style="display:none">&#x2713; Crear escenario</button>
             </div>`;
         document.body.appendChild(_wizardFloatEl);
 
-        document.getElementById('wf-cancel').addEventListener('click', () => { _wizardFloatHide(); closeModalNew(); });
+        document.getElementById('wf-cancel').addEventListener('click', () => closeModalNew());
         document.getElementById('wf-prev').addEventListener('click', () => _onWizardPrev());
         document.getElementById('wf-next').addEventListener('click', () => _onWizardNext());
         document.getElementById('wf-finish').addEventListener('click', () => _onWizardFinish());
@@ -334,40 +422,30 @@ function _wizardFloatHide() {
 
 function _wizardFloatValidMsg() {
     const el = document.getElementById('wf-valid');
-    const finBtn = document.getElementById('wf-finish');
-    if (!el || !_wizardScenario) return;
-    const s = _wizardScenario;
-    const missing = [];
-    if (s.doors.length        === 0) missing.push('≥ 1 puerta');
-    if (s.dispatchZones.length === 0) missing.push('≥ 1 despacho');
-    if (s.racks.length         === 0) missing.push('≥ 1 rack');
+    if (!el || !_wizardScenario) { if (el) { el.textContent = ''; el.style.display = 'none'; } return; }
+    // Solo mostrar en el último paso del float (Pasillos, step 4)
+    if (_wizardStep < 4) { el.textContent = ''; el.style.display = 'none'; return; }
+    const missing = _wizardScenario.getMissingRequirements(false);
     if (missing.length === 0) {
         el.textContent = ''; el.style.display = 'none';
-        if (finBtn) finBtn.disabled = false;
     } else {
-        el.textContent = 'Falta: ' + missing.join(', ');
+        el.innerHTML = '<span style="color:#f97316">&#x26A0;</span> Falta: ' + missing.join(', ');
         el.style.display = '';
-        if (finBtn) finBtn.disabled = true;
     }
 }
 
 function _updateWizardValidMsg() {
     const msg = DOM.wizardValidMsg();
-    if (!msg || !_wizardScenario) return;
-    const s = _wizardScenario;
-    const missing = [];
-    if (s.doors.length === 0)         missing.push('al menos 1 puerta');
-    if (s.dispatchZones.length === 0) missing.push('al menos 1 zona de despacho');
-    if (s.racks.length === 0)         missing.push('al menos 1 rack');
+    if (!msg || !_wizardScenario) { if (msg) { msg.textContent = ''; msg.style.display = 'none'; } return; }
+    // Solo mostrar en el último paso del modal (no tiene sentido en pasos intermedios)
+    if (_wizardStep < 4) { msg.textContent = ''; msg.style.display = 'none'; _wizardFloatValidMsg(); return; }
+    const missing = _wizardScenario.getMissingRequirements(false);
     if (missing.length === 0) {
         msg.textContent = ''; msg.style.display = 'none';
     } else {
         msg.textContent = 'Falta: ' + missing.join(', ') + '.';
         msg.style.display = '';
     }
-    const finishBtn = DOM.wizardFinishBtn();
-    if (finishBtn) finishBtn.disabled = missing.length > 0;
-    // Sync float panel too
     _wizardFloatValidMsg();
 }
 
@@ -381,6 +459,28 @@ function _onWizardNext() {
         DOM.canvasPlaceholder().style.display = 'none';
         DOM.canvas().style.display = 'block';
     }
+    // Validar requisito mínimo del paso actual antes de avanzar
+    if (_wizardStep === 1 && _wizardScenario && _wizardScenario.doors.length === 0) {
+        showToast('Colocá al menos 1 puerta antes de continuar.', 'warning');
+        return;
+    }
+    if (_wizardStep === 2 && _wizardScenario) {
+        const s = _wizardScenario;
+        if (s.dispatchZones.length === 0) {
+            showToast('Colocá al menos 1 zona de despacho antes de continuar.', 'warning');
+            return;
+        }
+        // Cada puerta debe tener su zona de despacho
+        const doorsWithoutZone = s.doors.filter(d => !s.dispatchZones.some(z => z.puertaId === d.id));
+        if (doorsWithoutZone.length > 0) {
+            showToast('Falta zona de despacho para: ' + doorsWithoutZone.map(d => d.id).join(', ') + '.', 'warning');
+            return;
+        }
+    }
+    if (_wizardStep === 3 && _wizardScenario && _wizardScenario.racks.length === 0) {
+        showToast('Colocá al menos 1 rack antes de continuar.', 'warning');
+        return;
+    }
     if (_wizardStep < 4) _showWizardStep(_wizardStep + 1);
 }
 
@@ -391,10 +491,11 @@ function _onWizardPrev() {
 function _onWizardFinish() {
     if (!_wizardScenario) return;
     const s = _wizardScenario;
-    if (!s.isValidForSave()) {
+    const missing = s.getMissingRequirements(false); // pickers se agregan a continuación
+    if (missing.length > 0) {
         _updateWizardValidMsg();
         _wizardFloatValidMsg();
-        showToast('Completa los requisitos minimos antes de crear el escenario.', 'warning');
+        showToast('Faltan: ' + missing.join(', ') + '.', 'warning');
         return;
     }
     const picker = s.addPicker(100);
@@ -419,19 +520,16 @@ function updateGridPreview() {
     DOM.labelWHWidth().textContent  = w;
     DOM.labelWHHeight().textContent = h;
 
-    const maxPx = 140;
-    const cellW = Math.floor(Math.min(maxPx / w, maxPx / h, 12));
-    const cellH = cellW;
-    pg.style.width  = (w * cellW) + 'px';
-    pg.style.height = (h * cellH) + 'px';
-    pg.style.gridTemplateColumns = `repeat(${w}, ${cellW}px)`;
-    pg.style.gridTemplateRows    = `repeat(${h}, ${cellH}px)`;
-    pg.innerHTML = '';
-    for (let i = 0; i < w * h; i++) {
-        const cell = document.createElement('div');
-        cell.className = 'preview-cell';
-        pg.appendChild(cell);
-    }
+    // Ajustar al contenedor (ancho disponible ~360px, alto ~130px)
+    const container = pg.parentElement;
+    const availW = (container?.clientWidth  || 360) - 8;
+    const availH = 130;
+    const cellPx = Math.max(2, Math.min(12, Math.floor(Math.min(availW / w, availH / h))));
+
+    pg.style.width   = (w * cellPx) + 'px';
+    pg.style.height  = (h * cellPx) + 'px';
+    pg.style.setProperty('--preview-cell-px', cellPx + 'px');
+    pg.innerHTML = ''; // sin divs individuales
 }
 
 function createScenario() {
@@ -585,8 +683,33 @@ function _onEditorEvent(event, data) {
             showToast(data, 'error');
             break;
 
+        case 'accessibility-warning':
+            showToast(data, 'warning');
+            break;
+
         case 'hint':
             showToast(data, 'info');
+            break;
+
+        case 'move-rack':
+            _updateSidebarInfo();
+            showToast(`Rack ${data.id} movido`, 'info');
+            break;
+
+        case 'move-picker':
+            _updateSidebarInfo();
+            _updatePickersList();
+            showToast(`${data.name} movido a (${data.x},${data.y})`, 'info');
+            break;
+
+        case 'move-dispatch':
+            _updateSidebarInfo();
+            showToast(`Zona ${data.id} movida`, 'info');
+            break;
+
+        case 'move-door':
+            _updateSidebarInfo();
+            showToast(`Puerta ${data.id} movida a (${data.x},${data.y})`, 'info');
             break;
     }
 }
@@ -671,10 +794,20 @@ function _showSelectionPicker(picker) {
         </div>
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${picker.x}, ${picker.y})</span></div>
         <div class="sel-row"><span class="sel-label">ID</span><span class="sel-value">${picker.id}</span></div>
-        <div class="sel-row"><span class="sel-label">Color</span>
+        <div class="sel-row">
+            <span class="sel-label">Color</span>
             <span class="sel-value">
                 <span class="sel-color-dot" style="background:${picker.color}" aria-hidden="true"></span>${picker.color}
             </span>
+        </div>
+        <div class="sel-row" style="align-items:center;gap:8px">
+            <span class="sel-label">Capacidad (kg)</span>
+            <input class="form-input form-input--num" type="number" id="sel-picker-cap"
+                   min="1" max="9999" value="${picker.capacidadKg}"
+                   style="width:72px;padding:3px 6px;font-size:.8rem">
+            <button class="btn btn--sm btn--ghost" id="sel-picker-cap-btn" title="Aplicar">
+                <span class="icon icon--sm" aria-hidden="true">check</span>
+            </button>
         </div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--danger" id="sel-del-picker-btn">
@@ -682,6 +815,19 @@ function _showSelectionPicker(picker) {
             </button>
         </div>
     `;
+
+    body.querySelector('#sel-picker-cap-btn')?.addEventListener('click', () => {
+        const val = parseFloat(body.querySelector('#sel-picker-cap').value);
+        if (!val || val < 1) { showToast('Capacidad inválida (mínimo 1 kg).', 'warning'); return; }
+        picker.capacidadKg = val;
+        _updateSidebarInfo();
+        showToast(`${picker.name}: capacidad actualizada a ${val} kg`, 'info');
+    });
+
+    // Aplicar también con Enter en el input
+    body.querySelector('#sel-picker-cap')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') body.querySelector('#sel-picker-cap-btn').click();
+    });
 
     body.querySelector('#sel-del-picker-btn')?.addEventListener('click', () => {
         _activeScenario().removePicker(picker.id);
@@ -764,7 +910,15 @@ function _showSelectionDispatch(dz) {
         </div>
     `;
     body.querySelector('#sel-dz-door')?.addEventListener('change', e => {
-        dz.puertaId = e.target.value || null;
+        const newId = e.target.value || null;
+        const sc = _activeScenario();
+        // Verificar unicidad: una puerta no puede estar asignada a más de una zona
+        if (newId && sc && sc.dispatchZones.some(z => z.id !== dz.id && z.puertaId === newId)) {
+            showToast('Esa puerta ya está asignada a otra zona de despacho.', 'error');
+            e.target.value = dz.puertaId || ''; // revertir el selector
+            return;
+        }
+        dz.puertaId = newId;
     });
     body.querySelector('#sel-del-dz-btn')?.addEventListener('click', () => {
         _activeScenario().removeDispatchZone(dz.id);
@@ -829,7 +983,7 @@ function _updateSidebarInfo() {
 
     DOM.btnPickerAdd().disabled    = false;
     DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
-    DOM.pickersCount().textContent = sc.pickers.length;
+    DOM.pickersCount()?.textContent != null && (DOM.pickersCount().textContent = sc.pickers.length);
     _updatePickersList();
 }
 
@@ -841,16 +995,17 @@ function _updatePickersList() {
     if (!sc) return;
     const list = DOM.pickersList();
     if (sc.pickers.length === 0) {
-        list.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
+        list.innerHTML = '<div class="pickers-list-scroll"><p class="empty-msg">Sin pickers asignados.</p></div>';
         return;
     }
-    list.innerHTML = sc.pickers.map(pk => `
+    const chips = sc.pickers.map(pk => `
         <div class="picker-chip">
             <span class="picker-chip__dot" style="background:${pk.color}"></span>
             <span class="picker-chip__name">${pk.name}</span>
-            <span class="picker-chip__meta">(${pk.x},${pk.y}) · ${pk.capacidadKg}kg</span>
+            <span class="picker-chip__meta">(${pk.x},${pk.y})·${pk.capacidadKg}kg</span>
         </div>
     `).join('');
+    list.innerHTML = `<div class="pickers-list-scroll">${chips}</div>`;
 }
 
 function _updateCanvasStatus() {
@@ -862,7 +1017,7 @@ function _updateCanvasStatus() {
     DOM.canvasStatus().textContent = `${sc.name}  ·  ${sc.width}×${sc.height}`;
     DOM.btnPickerAdd().disabled    = false;
     DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
-    DOM.pickersCount().textContent = sc.pickers.length;
+    DOM.pickersCount()?.textContent != null && (DOM.pickersCount().textContent = sc.pickers.length);
     _updatePickersList();
 }
 
@@ -870,12 +1025,8 @@ function _updateCanvasStatus() {
 
 function saveScenario() {
     if (!_scenario) { showToast('No hay escenario para guardar.', 'warning'); return; }
-    if (!_scenario.isValidForSave()) {
-        const missing = [];
-        if (_scenario.doors.length        === 0) missing.push('1 puerta');
-        if (_scenario.dispatchZones.length === 0) missing.push('1 zona de despacho');
-        if (_scenario.racks.length         === 0) missing.push('1 rack');
-        if (_scenario.pickers.length       === 0) missing.push('1 picker');
+    const missing = _scenario.getMissingRequirements(true);
+    if (missing.length > 0) {
         showToast('Faltan: ' + missing.join(', ') + '.', 'warning');
         return;
     }
