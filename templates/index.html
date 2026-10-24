@@ -77,30 +77,32 @@
             <!-- Pickers -->
             <section class="panel" id="pickers-panel">
                 <div class="panel__header">
-                    <h2 class="panel__title">
-                        <span class="icon icon--16 icon--filled" aria-hidden="true">person_pin</span>
-                        Pickers
-                    </h2>
-                    <span class="info-value" id="wh-pickers">—</span>
-                </div>
-                <div class="panel__body">
-                    <div class="pickers-counter">
-                        <button class="btn btn--icon btn--sm btn--ghost" id="btn-picker-remove"
+                    <h2 class="panel__title">Pickers</h2>
+                    <div class="pickers-controls">
+                        <button class="btn btn--icon btn--xs btn--ghost" id="btn-picker-remove"
                                 title="Quitar un picker" aria-label="Quitar picker" disabled>
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">remove</span>
+                            <span class="icon icon--14 icon--filled" aria-hidden="true">remove</span>
                         </button>
-                        <span class="pickers-count" id="pickers-count">0</span>
-                        <button class="btn btn--icon btn--sm btn--primary" id="btn-picker-add"
+                        <button class="btn btn--icon btn--xs btn--primary" id="btn-picker-add"
                                 title="Agregar un picker" aria-label="Agregar picker" disabled>
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">add</span>
+                            <span class="icon icon--14 icon--filled" aria-hidden="true">add</span>
                         </button>
                     </div>
+                    <span class="info-value" id="wh-pickers" style="margin-left:auto;font-size:.75rem">—</span>
+                </div>
+                <div class="panel__body">
                     <div class="pickers-capacity-row">
-                        <label class="form-label" for="input-picker-capacity">Cap. por picker (kg)</label>
+                        <label class="form-label" for="input-picker-capacity">Cap. nueva (kg)</label>
                         <input class="form-input form-input--num" type="number"
                                id="input-picker-capacity" min="1" max="9999" value="100">
                     </div>
-                    <div id="pickers-list" class="pickers-list"></div>
+                    <!-- Lista colapsable -->
+                    <button class="pickers-list-toggle" id="btn-pickers-list-toggle"
+                            aria-expanded="false" aria-controls="pickers-list">
+                        <span>Lista</span>
+                        <span class="icon icon--14 icon--filled pickers-chevron" aria-hidden="true">expand_more</span>
+                    </button>
+                    <div id="pickers-list" class="pickers-list pickers-list--collapsed"></div>
                 </div>
             </section>
 
@@ -145,20 +147,45 @@
                 <!-- Herramientas de edición -->
                 <div class="canvas-toolbar__left">
                     <div class="tool-group" id="editor-tools" role="toolbar" aria-label="Herramientas de edición">
-                        <button class="btn btn--icon tool-btn active" data-tool="select"
-                                id="tool-select" title="Seleccionar (S)" aria-label="Seleccionar">
+                        <button class="btn btn--icon tool-btn active" data-tool="select" id="tool-select" title="Seleccionar (S)" aria-label="Seleccionar">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">arrow_selector_tool</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="rack"
-                                id="tool-rack" title="Colocar rack (R) — click o arrastrar" aria-label="Colocar rack">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">shelves</span>
+                        <div class="toolbar-sep"></div>
+                        <button class="btn btn--icon tool-btn" data-tool="door" id="tool-door" title="Puerta en borde (D)" aria-label="Colocar puerta">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">door_front</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="product"
-                                id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
+                        <select class="tool-select" id="door-tipo-select" title="Tipo de puerta">
+                            <option value="AMBOS">IO</option>
+                            <option value="INBOUND">IN</option>
+                            <option value="OUTBOUND">OUT</option>
+                        </select>
+                        <div class="toolbar-sep"></div>
+                        <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch" title="Zona de despacho (Z)" aria-label="Colocar zona de despacho">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="erase"
-                                id="tool-erase" title="Borrar (E)" aria-label="Borrar">
+                        <div class="toolbar-sep"></div>
+                        <button class="btn btn--icon tool-btn" data-tool="rack" id="tool-rack" title="Colocar rack (R)" aria-label="Colocar rack">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">shelves</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="move-rack" id="tool-move-rack" title="Mover elemento (M)" aria-label="Mover elemento">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">open_with</span>
+                        </button>
+                        <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">add_box</span>
+                        </button>
+                        <div class="toolbar-sep"></div>
+                        <button class="btn btn--icon tool-btn" data-tool="aisle" id="tool-aisle" title="Pasillo con dirección (A)" aria-label="Definir pasillo">
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">route</span>
+                        </button>
+                        <select class="tool-select" id="aisle-sentido-select" title="Sentido del pasillo">
+                            <option value="AMBOS">&#x21D5; AMBOS</option>
+                            <option value="N">&#x2191; N</option>
+                            <option value="S">&#x2193; S</option>
+                            <option value="E">&#x2192; E</option>
+                            <option value="O">&#x2190; O</option>
+                        </select>
+                        <div class="toolbar-sep"></div>
+                        <button class="btn btn--icon tool-btn" data-tool="erase" id="tool-erase" title="Borrar (E)" aria-label="Borrar">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">ink_eraser</span>
                         </button>
                     </div>
@@ -191,14 +218,17 @@
             <!-- Leyenda de shortcuts -->
             <div class="canvas-legend">
                 <span><kbd>S</kbd> Selec.</span>
+                <span><kbd>D</kbd> Puerta</span>
+                <span><kbd>Z</kbd> Despacho</span>
                 <span><kbd>R</kbd> Rack</span>
+                <span><kbd>M</kbd> Mover</span>
                 <span><kbd>P</kbd> Producto</span>
+                <span><kbd>A</kbd> Pasillo</span>
                 <span><kbd>E</kbd> Borrar</span>
                 <span><kbd>Del</kbd> Eliminar sel.</span>
-                <span><kbd>Esc</kbd> Cancelar</span>
                 <span class="legend-sep">·</span>
                 <span>Rueda: zoom</span>
-                <span>Clic der.: mover vista</span>
+                <span>Clic der.: vista</span>
             </div>
         </section>
 
@@ -294,60 +324,93 @@
     </main>
 
     <!-- ═══════════════════════════════════════════════════
-         MODAL: NUEVO ESCENARIO
+         MODAL: NUEVO ESCENARIO (WIZARD)
     ════════════════════════════════════════════════════ -->
-    <div class="modal" id="modal-new-scenario" role="dialog" aria-modal="true" aria-labelledby="modal-new-title">
+    <div class="modal modal--wizard" id="modal-new-scenario" role="dialog" aria-modal="true" aria-labelledby="modal-new-title">
         <div class="modal__overlay"></div>
-        <div class="modal__content">
+        <div class="modal__content modal__content--wizard">
             <div class="modal__header">
                 <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">warehouse</span></span>
                 <h2 class="modal__title" id="modal-new-title">Nuevo Escenario</h2>
+                <span class="wizard-step-badge"><span id="wizard-step-num">1/5</span> &mdash; <span id="wizard-step-title">Dimensiones</span></span>
             </div>
 
-            <div class="modal__body">
-                <!-- Nombre -->
-                <div class="form-group">
-                    <label class="form-label" for="input-wh-name">Nombre del escenario</label>
-                    <input class="form-input" type="text" id="input-wh-name"
-                           placeholder="Escenario 1" value="Escenario 1" maxlength="40">
-                </div>
+            <div class="wizard-indicators">
+                <span class="wizard-step-ind active" title="Dimensiones">1</span>
+                <span class="wizard-step-ind-line"></span>
+                <span class="wizard-step-ind" title="Puertas">2</span>
+                <span class="wizard-step-ind-line"></span>
+                <span class="wizard-step-ind" title="Despacho">3</span>
+                <span class="wizard-step-ind-line"></span>
+                <span class="wizard-step-ind" title="Racks">4</span>
+                <span class="wizard-step-ind-line"></span>
+                <span class="wizard-step-ind" title="Pasillos">5</span>
+            </div>
 
-                <!-- Tamaño -->
-                <div class="form-row">
+            <div class="modal__body wizard-body">
+                <!-- PASO 1: Dimensiones -->
+                <div class="wizard-step active" data-step="0">
                     <div class="form-group">
-                        <label class="form-label" for="input-wh-width">
-                            Ancho (columnas) — <span id="label-wh-width">20</span>
-                        </label>
-                        <input class="form-range" type="range" id="input-wh-width"
-                               min="8" max="50" step="1" value="20">
+                        <label class="form-label" for="input-wh-name">Nombre del escenario</label>
+                        <input class="form-input" type="text" id="input-wh-name" placeholder="Escenario 1" value="Escenario 1" maxlength="40">
                     </div>
-                    <div class="form-group">
-                        <label class="form-label" for="input-wh-height">
-                            Alto (filas) — <span id="label-wh-height">15</span>
-                        </label>
-                        <input class="form-range" type="range" id="input-wh-height"
-                               min="6" max="35" step="1" value="15">
-                    </div>
-                </div>
-
-                <!-- Preview -->
-                <div class="form-group">
-                    <label class="form-label">Vista previa</label>
-                    <div class="wh-preview">
-                        <div class="wh-preview__grid" id="wh-preview-grid"></div>
-                        <div class="wh-preview__legend">
-                            <span class="legend-dot legend-dot--floor"></span> Pasillo
-                            <span class="legend-dot legend-dot--dispatch"></span> Despacho
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="input-wh-width">Ancho (columnas) &mdash; <span id="label-wh-width">20</span></label>
+                            <input class="form-range" type="range" id="input-wh-width" min="8" max="50" step="1" value="20">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="input-wh-height">Alto (filas) &mdash; <span id="label-wh-height">15</span></label>
+                            <input class="form-range" type="range" id="input-wh-height" min="6" max="35" step="1" value="15">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Vista previa</label>
+                        <div class="wh-preview"><div class="wh-preview__grid" id="wh-preview-grid"></div></div>
+                    </div>
                 </div>
+
+                <!-- PASO 2: Puertas -->
+                <div class="wizard-step" data-step="1">
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Puerta</strong> <span class="icon icon--14 icon--filled">door_front</span> y haz click en el <strong>borde</strong> del warehouse. Necesitas al menos 1.</p>
+                    <p class="wizard-hint">Tipos: <strong style="color:#22c55e">IN</strong> = entrada &nbsp;|&nbsp; <strong style="color:#f97316">OUT</strong> = salida &nbsp;|&nbsp; <strong style="color:#a78bfa">IO</strong> = ambas.</p>
+                </div>
+
+                <!-- PASO 3: Zonas de Despacho -->
+                <div class="wizard-step" data-step="2">
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Zona de Despacho</strong> <span class="icon icon--14 icon--filled">package_2</span> y arrastra en el canvas. Necesitas al menos 1.</p>
+                    <p class="wizard-hint">Luego selecciona la zona creada para asociarla a una puerta.</p>
+                </div>
+
+                <!-- PASO 4: Racks -->
+                <div class="wizard-step" data-step="3">
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Rack</strong> <span class="icon icon--14 icon--filled">shelves</span> y haz click o arrastra. Necesitas al menos 1.</p>
+                    <p class="wizard-hint">Restriccion: al menos una dimension del rack debe ser &le; 2 celdas.</p>
+                </div>
+
+                <!-- PASO 5: Pasillos -->
+                <div class="wizard-step" data-step="4">
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Opcionalmente, usa <strong>Pasillo</strong> <span class="icon icon--14 icon--filled">route</span> y arrastra para asignar direccion de circulacion.</p>
+                    <p class="wizard-hint">Si no asignas, las celdas transitables tendran sentido <strong>AMBOS</strong> (libre en 4 direcciones).</p>
+                </div>
+
+                <div class="wizard-valid-msg" id="wizard-valid-msg" style="display:none"></div>
             </div>
 
-            <div class="modal__footer">
+            <div class="modal__footer wizard-footer">
                 <button class="btn btn--ghost" id="btn-cancel-wh">Cancelar</button>
-                <button class="btn btn--primary" id="btn-create-wh">
-                    Crear <span class="icon icon--16" aria-hidden="true">arrow_forward</span>
-                </button>
+                <div class="wizard-nav">
+                    <button class="btn btn--ghost" id="btn-wizard-prev" disabled>
+                        <span class="icon icon--16" aria-hidden="true">arrow_back</span> Anterior
+                    </button>
+                    <button class="btn btn--primary" id="btn-wizard-next">
+                        Siguiente <span class="icon icon--16" aria-hidden="true">arrow_forward</span>
+                    </button>
+                    <button class="btn btn--primary" id="btn-wizard-finish" style="display:none" disabled>
+                        <span class="icon icon--16 icon--filled" aria-hidden="true">check_circle</span> Crear escenario
+                    </button>
+                </div>
+                <button id="btn-create-wh" style="display:none">Crear</button>
             </div>
         </div>
     </div>
