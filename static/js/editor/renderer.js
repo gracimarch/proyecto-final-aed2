@@ -360,17 +360,30 @@ class WarehouseRenderer {
         ctx.rect(x + 2, y + 2, w - 4, h - 4);
         ctx.clip();
 
-        ctx.fillStyle    = 'rgba(79,201,127,0.9)';
-        ctx.font         = `bold 9px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('DESPACHO', x + w / 2, y + h / 2);
 
-        if (dz.puertaId) {
-            ctx.font      = `7px "JetBrains Mono", monospace`;
-            ctx.fillStyle = 'rgba(79,201,127,0.7)';
-            ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 12);
-        }
+        // Calcular cuántas líneas y centrar verticalmente el bloque
+        const lines = ['DESPACHO'];
+        if (dz.puertaId)           lines.push(dz.puertaId);
+        lines.push(`Máx: ${dz.pesoMaxKg || 500} kg`);
+
+        const lineHeight = 11;
+        const totalH     = (lines.length - 1) * lineHeight;
+        const startY     = y + h / 2 - totalH / 2;
+
+        lines.forEach((text, i) => {
+            const cy = startY + i * lineHeight;
+            if (i === 0) {
+                ctx.font      = `bold 9px "JetBrains Mono", monospace`;
+                ctx.fillStyle = 'rgba(79,201,127,0.9)';
+            } else {
+                ctx.font      = `7px "JetBrains Mono", monospace`;
+                ctx.fillStyle = 'rgba(79,201,127,0.7)';
+            }
+            ctx.fillText(text, x + w / 2, cy);
+        });
+
         ctx.restore();
 
         // El rect del clip queda en el path actual (save/restore no lo limpia).
@@ -382,15 +395,51 @@ class WarehouseRenderer {
 
     _drawAisles() {
         for (const aisle of this.scenario.aisles) {
-            for (let cx = aisle.x; cx < aisle.x + aisle.width; cx++) {
-                for (let cy = aisle.y; cy < aisle.y + aisle.height; cy++) {
-                    this._drawAisleCell(cx, cy, aisle.sentido);
-                }
-            }
+            this._drawOneAisle(aisle);
         }
     }
 
-    _drawAisleCell(cx, cy, sentido) {
+    _drawOneAisle(aisle) {
+        const isSel = this.selectedElement?.type === 'aisle' &&
+                      this.selectedElement.element.id === aisle.id;
+
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        const x   = aisle.x * CELL;
+        const y   = (s.height - aisle.y - aisle.height) * CELL;
+        const w   = aisle.width  * CELL;
+        const h   = aisle.height * CELL;
+
+        // Si está seleccionado, dibujar fondo iluminado previo
+        if (isSel) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(253, 196, 51, 0.18)';
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+        }
+
+        // Celdas y flechas individuales
+        for (let cx = aisle.x; cx < aisle.x + aisle.width; cx++) {
+            for (let cy = aisle.y; cy < aisle.y + aisle.height; cy++) {
+                this._drawAisleCell(cx, cy, aisle.sentido, isSel);
+            }
+        }
+
+        // Si está seleccionado, dibujar contorno perimetral discontinuo con glow
+        if (isSel) {
+            ctx.save();
+            ctx.shadowColor   = 'rgba(251,191,36,0.45)';
+            ctx.shadowBlur    = 8;
+            ctx.strokeStyle   = 'rgba(251,191,36,1.0)';
+            ctx.lineWidth     = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+    }
+
+    _drawAisleCell(cx, cy, sentido, isSelected = false) {
         const ctx = this.ctx;
         const s   = this.scenario;
         const px  = cx * CELL;
@@ -401,12 +450,15 @@ class WarehouseRenderer {
         ctx.save();
         ctx.translate(px + mid, py + mid);
 
-        ctx.fillStyle = 'rgba(251,191,36,0.07)';
+        ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
         ctx.fillRect(-mid, -mid, CELL, CELL);
 
-        ctx.strokeStyle = 'rgba(251,191,36,0.55)';
-        ctx.fillStyle   = 'rgba(251,191,36,0.55)';
-        ctx.lineWidth   = 1.2;
+        const strokeColor = isSelected ? 'rgba(251,191,36,0.95)' : 'rgba(251,191,36,0.55)';
+        const strokeColorBoth = isSelected ? 'rgba(251,191,36,0.65)' : 'rgba(251,191,36,0.25)';
+
+        ctx.strokeStyle = strokeColor;
+        ctx.fillStyle   = strokeColor;
+        ctx.lineWidth   = isSelected ? 1.6 : 1.2;
 
         const drawArrow = (dx, dy) => {
             const len = ar;
@@ -437,8 +489,8 @@ class WarehouseRenderer {
         else if (sentido === 'E') { drawArrow(1,  0); }
         else if (sentido === 'O') { drawArrow(-1, 0); }
         else {
-            ctx.strokeStyle = 'rgba(251,191,36,0.25)';
-            ctx.fillStyle   = 'rgba(251,191,36,0.25)';
+            ctx.strokeStyle = strokeColorBoth;
+            ctx.fillStyle   = strokeColorBoth;
             drawArrow(0, 1); drawArrow(0, -1);
             drawArrow(1, 0); drawArrow(-1, 0);
         }
