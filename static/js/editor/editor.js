@@ -91,8 +91,18 @@ class WarehouseEditor {
 
     _startLoop() {
         const loop = () => {
-            this.renderer.render();
+            // Agendar antes de dibujar: si render() lanza una excepción,
+            // el loop no debe morir y dejar el canvas congelado.
             this._animFrame = requestAnimationFrame(loop);
+            try {
+                this.renderer.render();
+                this._renderErrorLogged = false;
+            } catch (err) {
+                if (!this._renderErrorLogged) {
+                    this._renderErrorLogged = true;
+                    console.error('[WarehouseEditor] Error al renderizar:', err);
+                }
+            }
         };
         this._animFrame = requestAnimationFrame(loop);
     }

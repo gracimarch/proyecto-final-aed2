@@ -356,6 +356,10 @@ class WarehouseRenderer {
             ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 12);
         }
         ctx.restore();
+
+        // El rect del clip queda en el path actual (save/restore no lo limpia).
+        // Lo reiniciamos para que ningún fill/stroke posterior lo repinte.
+        ctx.beginPath();
     }
 
     // ── Pasillos (flechas de dirección) ──────────────────────────
@@ -462,7 +466,7 @@ class WarehouseRenderer {
 
         const labelMap = { INBOUND: 'IN', OUTBOUND: 'OUT', AMBOS: 'IO' };
         ctx.save();
-        // Clip al área de la celda de la puerta
+        // Clip al área de la celda de la puerta (solo para el tag IN/OUT)
         ctx.beginPath(); ctx.rect(px, py, CELL, CELL); ctx.clip();
         // Etiqueta de tipo — siempre visible
         ctx.fillStyle    = base;
@@ -470,15 +474,23 @@ class WarehouseRenderer {
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText(labelMap[door.tipo] || 'IO', px + CELL / 2, py + CELL - 2);
-        // ID de la puerta — siempre visible encima, fondo semi-transparente para legibilidad
+        ctx.restore();
+
+        // ID de la puerta — se dibuja SIN clip: los IDs generados son más anchos
+        // que la celda y antes quedaban cortados por ambos lados.
+        ctx.save();
         ctx.font         = `bold 8px "JetBrains Mono", monospace`;
-        ctx.fillStyle    = 'rgba(0,0,0,0.45)';
-        const idW = ctx.measureText(door.id).width + 4;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'top';
+        const idW = Math.ceil(ctx.measureText(door.id).width) + 4;
+        ctx.fillStyle    = 'rgba(0,0,0,0.55)';
         ctx.fillRect(px + CELL / 2 - idW / 2, py + 2, idW, 11);
         ctx.fillStyle    = base;
-        ctx.textBaseline = 'top';
         ctx.fillText(door.id, px + CELL / 2, py + 3);
         ctx.restore();
+
+        // Evitar que el rect del clip quede en el path para el resto del frame
+        ctx.beginPath();
     }
 
     // ── Racks ─────────────────────────────────────────────────────
@@ -514,6 +526,7 @@ class WarehouseRenderer {
         grad.addColorStop(0, isSelected ? '#3d4470' : '#2e3150');
         grad.addColorStop(1, isSelected ? '#272b52' : '#1c1f38');
         ctx.fillStyle = grad;
+        ctx.beginPath();
         ctx.roundRect(rx, ry, rw, rh, r);
         ctx.fill();
 
@@ -535,6 +548,7 @@ class WarehouseRenderer {
         // Borde
         ctx.strokeStyle = isSelected ? '#818cf8' : 'rgba(79, 156, 249, 0.45)';
         ctx.lineWidth   = isSelected ? 2 : 1;
+        ctx.beginPath();
         ctx.roundRect(rx, ry, rw, rh, r);
         ctx.stroke();
 
