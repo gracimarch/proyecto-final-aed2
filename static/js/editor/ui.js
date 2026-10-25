@@ -985,6 +985,15 @@ function _showSelectionDispatch(dz) {
                 ${doorOpts}
             </select>
         </div>
+        <div class="sel-row" style="align-items:center;gap:8px">
+            <span class="sel-label">Peso Máx. (kg)</span>
+            <input class="form-input form-input--num" type="number" id="sel-dz-weight"
+                   min="1" max="99999" value="${dz.pesoMaxKg || 500}"
+                   style="width:72px;padding:3px 6px;font-size:.8rem">
+            <button class="btn btn--sm btn--ghost" id="sel-dz-weight-btn" title="Aplicar">
+                <span class="icon icon--sm" aria-hidden="true">check</span>
+            </button>
+        </div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--danger" id="sel-del-dz-btn">
                 <span class="icon icon--sm" aria-hidden="true">delete</span> Eliminar zona
@@ -1002,6 +1011,20 @@ function _showSelectionDispatch(dz) {
         }
         dz.puertaId = newId;
     });
+
+    body.querySelector('#sel-dz-weight-btn')?.addEventListener('click', () => {
+        const val = parseFloat(body.querySelector('#sel-dz-weight').value);
+        if (!val || val < 1) { showToast('Peso máximo inválido (mínimo 1 kg).', 'warning'); return; }
+        dz.pesoMaxKg = val;
+        _updateSidebarInfo();
+        showToast(`Zona ${dz.id}: peso máximo actualizado a ${val} kg`, 'info');
+    });
+
+    // Aplicar también con Enter en el input
+    body.querySelector('#sel-dz-weight')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') body.querySelector('#sel-dz-weight-btn').click();
+    });
+
     body.querySelector('#sel-del-dz-btn')?.addEventListener('click', () => {
         _activeScenario().removeDispatchZone(dz.id);
         _renderer.selectedElement = null;
