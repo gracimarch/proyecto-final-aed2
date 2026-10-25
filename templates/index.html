@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}">
+
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
 <body>
 
@@ -152,7 +154,7 @@
                         </button>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="door" id="tool-door" title="Puerta en borde (D)" aria-label="Colocar puerta">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">door_front</span>
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">garage_door</span>
                         </button>
                         <select class="tool-select" id="door-tipo-select" title="Tipo de puerta">
                             <option value="AMBOS">IO</option>
@@ -161,7 +163,7 @@
                         </select>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch" title="Zona de despacho (Z)" aria-label="Colocar zona de despacho">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">inventory_2</span>
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">home_storage</span>
                         </button>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="rack" id="tool-rack" title="Colocar rack (R)" aria-label="Colocar rack">
@@ -171,7 +173,7 @@
                             <span class="icon icon--18 icon--filled" aria-hidden="true">open_with</span>
                         </button>
                         <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
-                            <span class="icon icon--18 icon--filled" aria-hidden="true">add_box</span>
+                            <span class="icon icon--18 icon--filled" aria-hidden="true">package_2</span>
                         </button>
                         <div class="toolbar-sep"></div>
                         <button class="btn btn--icon tool-btn" data-tool="aisle" id="tool-aisle" title="Pasillo con dirección (A)" aria-label="Definir pasillo">
@@ -372,7 +374,7 @@
 
                 <!-- PASO 2: Puertas -->
                 <div class="wizard-step" data-step="1">
-                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Puerta</strong> <span class="icon icon--14 icon--filled">door_front</span> y haz click en el <strong>borde</strong> del warehouse. Necesitas al menos 1.</p>
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Puerta</strong> <span class="icon icon--14 icon--filled">garage_door</span> y haz click en el <strong>borde</strong> del warehouse. Necesitas al menos 1.</p>
                     <p class="wizard-hint">Tipos: <strong style="color:#22c55e">IN</strong> = entrada &nbsp;|&nbsp; <strong style="color:#f97316">OUT</strong> = salida &nbsp;|&nbsp; <strong style="color:#a78bfa">IO</strong> = ambas.</p>
                 </div>
 
@@ -422,11 +424,12 @@
         <div class="modal__overlay"></div>
         <div class="modal__content modal__content--sm">
             <div class="modal__header">
-                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">inventory_2</span></span>
+                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">home_storage</span></span>
                 <h2 class="modal__title" id="modal-prod-title">Agregar producto</h2>
             </div>
 
             <div class="modal__body">
+                <span id="label-prod-cell" class="modal__subtitle" style="display:block;margin-bottom:.6rem;font-size:.72rem;color:var(--color-accent,#4f9cf9);font-family:'JetBrains Mono',monospace;">Celda: (—, —)</span>
                 <div class="form-group">
                     <label class="form-label" for="input-prod-name">Nombre del producto <span class="form-required">*</span></label>
                     <input class="form-input" type="text" id="input-prod-name"
@@ -442,6 +445,18 @@
                         <label class="form-label" for="input-prod-qty">Cantidad</label>
                         <input class="form-input form-input--num" type="number" id="input-prod-qty"
                                min="1" max="9999" value="1">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-prod-weight">Peso (kg)</label>
+                        <input class="form-input form-input--num" type="number" id="input-prod-weight"
+                               min="0.01" step="0.1" value="1.0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-prod-z">Nivel Z</label>
+                        <input class="form-input form-input--num" type="number" id="input-prod-z"
+                               min="1" step="1" value="1">
                     </div>
                 </div>
             </div>

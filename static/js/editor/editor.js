@@ -91,8 +91,18 @@ class WarehouseEditor {
 
     _startLoop() {
         const loop = () => {
-            this.renderer.render();
+            // Agendar antes de dibujar: si render() lanza una excepción,
+            // el loop no debe morir y dejar el canvas congelado.
             this._animFrame = requestAnimationFrame(loop);
+            try {
+                this.renderer.render();
+                this._renderErrorLogged = false;
+            } catch (err) {
+                if (!this._renderErrorLogged) {
+                    this._renderErrorLogged = true;
+                    console.error('[WarehouseEditor] Error al renderizar:', err);
+                }
+            }
         };
         this._animFrame = requestAnimationFrame(loop);
     }
@@ -204,6 +214,12 @@ class WarehouseEditor {
         // Preview puerta (1 celda)
         if (this.mode === 'door' && this.scenario && this.scenario.isInBounds(cell.x, cell.y)) {
             this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
+        }
+
+        // Preview celda en modo producto
+        if (this.mode === 'product') {
+            const rackUnder = this.scenario.getRackAt(cell.x, cell.y);
+            this.renderer.cursorRect = rackUnder ? { x: cell.x, y: cell.y, w: 1, h: 1 } : null;
         }
 
         // Mover elemento: preview en vivo
@@ -372,7 +388,7 @@ class WarehouseEditor {
         if (!this.scenario.isInBounds(cell.x, cell.y)) return;
         const rack = this.scenario.getRackAt(cell.x, cell.y);
         if (rack) {
-            this.onEvent('open-product-form', rack);
+            this.onEvent('open-product-form', { rack, cell });
         } else {
             this.onEvent('hint', 'Hacé click en un rack para agregarle un producto.');
         }
