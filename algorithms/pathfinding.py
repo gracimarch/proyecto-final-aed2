@@ -1,74 +1,53 @@
-from algorithms.graph import Graph, bfs_to_any, astar_to_any
+"""
+algorithms/pathfinding.py
 
-from models.warehouse import Warehouse
-from models.product import Product
+Cómo llega un picker hasta un producto.
+
+Un producto está dentro de un rack, y los racks no son transitables. El
+picker lo recoge parado en la celda de pasillo que está pegada a la cara del
+rack donde está el producto. Esa celda se llama "celda de recogida".
+
+Funciones:
+    pickup_cells          : celdas de recogida de un producto.
+    path_to_product_bfs   : camino mínimo hasta un producto con BFS.
+    path_to_product_astar : camino mínimo hasta un producto con A*.
+    manhattan             : heurística que usa A*.
+"""
+
+from algorithms.graph import bfs_to_any, astar_to_any
 
 
 # ===========================================================================
 # 1. Celdas de recogida de un producto
 # ===========================================================================
 
-def pickup_cells(
-    product: "Product",
-    warehouse: "Warehouse",
-    graph: Graph,
-) -> list[tuple[int, int]]:
+def pickup_cells(product, warehouse, graph):
     """
-    Retorna las celdas de pasillo desde las cuales puede recogerse product.
+    Lista de celdas de pasillo desde las que se puede recoger el producto.
 
-    El acceso se determina según la cara del rack en la que se encuentra
-    el producto.
+    Todo rack tiene ancho 2 o alto 2, así que cada celda del rack da a una cara:
 
-    Un rack tiene ancho == 2 o alto == 2.
+        Rack vertical (ancho == 2):
+            producto en la columna izquierda (x == rack.x)  -> recoge desde (x - 1, y)
+            producto en la columna derecha   (x == rack.x + 1) -> recoge desde (x + 1, y)
 
-    Rack vertical
-    -------------
-    ancho == 2
+        Rack horizontal (alto == 2):
+            producto en la fila de abajo  (y == rack.y)     -> recoge desde (x, y - 1)
+            producto en la fila de arriba (y == rack.y + 1) -> recoge desde (x, y + 1)
 
-        cara izquierda:
-            producto en x == rack.x
-            acceso = (product.x - 1, product.y)
+    Un rack 2x2 cumple las dos cosas, así que cada producto puede tener dos
+    celdas de recogida. La altura z no cambia la celda.
 
-        cara derecha:
-            producto en x == rack.x + ancho - 1
-            acceso = (product.x + 1, product.y)
+    Solo se devuelven las celdas que son nodos del grafo (transitables y
+    dentro del warehouse).
 
-    Rack horizontal
-    ---------------
-    alto == 2
-
-        cara inferior:
-            producto en y == rack.y
-            acceso = (product.x, product.y - 1)
-
-        cara superior:
-            producto en y == rack.y + alto - 1
-            acceso = (product.x, product.y + 1)
-
-    Si el rack es 2x2, un producto puede estar expuesto por dos caras,
-    por lo que pueden existir dos celdas de recogida válidas.
-
-    z no interviene en el cálculo del acceso.
-
-    Una celda candidata solamente se devuelve si:
-      1. está dentro del Warehouse;
-      2. existe como nodo del grafo, por lo tanto es transitable.
-
-
+    Raises:
+        ValueError: Si el producto no está dentro de su rack o el rack no
+                    tiene ninguna dimensión igual a 2.
     """
-
-    # ---------------------------------------------------------------
-    # 1. Obtener el rack real del producto
-    # ---------------------------------------------------------------
-
     rack = warehouse.get_rack(product.rack_id)
-
     px = product.x
     py = product.y
-
-    # ---------------------------------------------------------------
-    # 2. Validar que el producto realmente pertenece a ese rack
-    # ---------------------------------------------------------------
 
     if not rack.contains_cell(px, py):
         raise ValueError(
@@ -76,184 +55,88 @@ def pickup_cells(
             f"({px},{py}), pero esa celda no pertenece al rack "
             f"'{rack.rack_id}'."
         )
-
-    # Según la consigna, una de las dimensiones del rack debe ser 2.
     if rack.ancho != 2 and rack.alto != 2:
         raise ValueError(
             f"El rack '{rack.rack_id}' no tiene una dimensión igual a 2 "
             f"(ancho={rack.ancho}, alto={rack.alto})."
         )
 
-    candidates: list[tuple[int, int]] = []
-
-    # ---------------------------------------------------------------
-    # 3. Rack vertical: ancho == 2
-    # ---------------------------------------------------------------
+    candidatas = []
 
     if rack.ancho == 2:
-
-        # Producto en la cara izquierda
-        if px == rack.x:
-            candidates.append(
-                (px - 1, py)
-            )
-
-        # Producto en la cara derecha
-        if px == rack.x + rack.ancho - 1:
-            candidates.append(
-                (px + 1, py)
-            )
-
-    # ---------------------------------------------------------------
-    # 4. Rack horizontal: alto == 2
-    # ---------------------------------------------------------------
+        if px == rack.x:                     # cara izquierda
+            candidatas.append((px - 1, py))
+        if px == rack.x + 1:                 # cara derecha
+            candidatas.append((px + 1, py))
 
     if rack.alto == 2:
+        if py == rack.y:                     # cara de abajo
+            candidatas.append((px, py - 1))
+        if py == rack.y + 1:                 # cara de arriba
+            candidatas.append((px, py + 1))
 
-        # Producto en la cara inferior
-        if py == rack.y:
-            candidates.append(
-                (px, py - 1)
-            )
-
-        # Producto en la cara superior
-        if py == rack.y + rack.alto - 1:
-            candidates.append(
-                (px, py + 1)
-            )
-
-    # ---------------------------------------------------------------
-    # 5. Filtrar candidatos
-    # ---------------------------------------------------------------
-
-    W = warehouse.ancho_x
-    H = warehouse.largo_y
-
-    cells: list[tuple[int, int]] = []
-    seen: set[tuple[int, int]] = set()
-
-    for cell in candidates:
-
-        cx, cy = cell
-
-        # Fuera del Warehouse
-        if not (0 <= cx < W and 0 <= cy < H):
-            continue
-
-        # Debe ser realmente una celda transitable del Graph
-        if not graph.has_node(cell):
-            continue
-
-        # Evitar duplicados
-        if cell not in seen:
-            cells.append(cell)
-            seen.add(cell)
-
-    return cells
+    celdas = []
+    for celda in candidatas:
+        # graph.has_node ya descarta lo que está fuera del warehouse o bloqueado
+        if graph.has_node(celda) and celda not in celdas:
+            celdas.append(celda)
+    return celdas
 
 
-# ===========================================================================
-# 2. Camino mediante BFS desde una posición hasta un producto
-# ===========================================================================
-
-def path_to_product_bfs(
-    graph: Graph,
-    source: tuple[int, int],
-    product: "Product",
-    warehouse: "Warehouse",
-) -> tuple[
-    list[tuple[int, int]],
-    float,
-    tuple[int, int] | None,
-]:
+def _pickup_targets(graph, source, product, warehouse):
+    """
+    Controles comunes de BFS y A*: que source sea un nodo y que el producto
+    tenga al menos una celda de recogida. Devuelve esas celdas como conjunto.
+    """
     if not graph.has_node(source):
-        raise KeyError(
-            f"La posición del picker {source} "
-            f"no es un nodo del grafo."
-        )
+        raise KeyError(f"La posición del picker {source} no es un nodo del grafo.")
 
-    # ---------------------------------------------------------------
-    # Obtener las celdas desde las cuales se puede recoger
-    # físicamente el producto
-    # ---------------------------------------------------------------
-
-    targets = pickup_cells(
-        product,
-        warehouse,
-        graph,
-    )
-
-    if not targets:
+    celdas = pickup_cells(product, warehouse, graph)
+    if len(celdas) == 0:
         raise ValueError(
             f"El producto '{product.product_id}' ubicado en "
             f"({product.x},{product.y},{product.z}) no tiene "
             f"ninguna celda válida de recogida."
         )
+    return set(celdas)
 
-
-    path, distance, reached_target = bfs_to_any(
-        graph,
-        source,
-        set(targets),
-    )
-
-    return path, distance, reached_target
 
 # ===========================================================================
-# 3. Heurística espacial del Warehouse
+# 2. Camino con BFS
 # ===========================================================================
 
+def path_to_product_bfs(graph, source, product, warehouse, stats=None):
+    """
+    Camino mínimo desde source hasta alguna celda de recogida del producto.
 
-def manhattan(source: tuple[int, int], target: tuple[int, int]) -> int:
-    """Distancia mínima sin obstáculos para movimientos ortogonales de costo 1."""
+    Returns:
+        (camino, distancia, celda de recogida a la que llegó)
+    """
+    destinos = _pickup_targets(graph, source, product, warehouse)
+    return bfs_to_any(graph, source, destinos, stats)
+
+
+# ===========================================================================
+# 3. Heurística y camino con A*
+# ===========================================================================
+
+def manhattan(source, target):
+    """
+    Distancia Manhattan: |x1 - x2| + |y1 - y2|.
+
+    Es lo que caminaría el picker si no hubiera racks ni sentidos. Como el
+    camino real nunca puede ser más corto, A* con esta heurística sigue
+    encontrando el camino mínimo.
+    """
     return abs(source[0] - target[0]) + abs(source[1] - target[1])
 
 
-# ===========================================================================
-# 4. Camino mediante A* desde una posición hasta un producto
-# ===========================================================================
+def path_to_product_astar(graph, source, product, warehouse, stats=None):
+    """
+    Igual que path_to_product_bfs, pero con A* y la heurística Manhattan.
 
-
-def path_to_product_astar(
-    graph: Graph,
-    source: tuple[int, int],
-    product: "Product",
-    warehouse: "Warehouse",
-) -> tuple[
-    list[tuple[int, int]],
-    float,
-    tuple[int, int] | None,
-]:
-    if not graph.has_node(source):
-        raise KeyError(
-            f"La posición del picker {source} "
-            f"no es un nodo del grafo."
-        )
-
-    # ---------------------------------------------------------------
-    # Obtener las celdas desde las cuales se puede recoger
-    # físicamente el producto
-    # ---------------------------------------------------------------
-
-    targets = pickup_cells(
-        product,
-        warehouse,
-        graph,
-    )
-
-    if not targets:
-        raise ValueError(
-            f"El producto '{product.product_id}' ubicado en "
-            f"({product.x},{product.y},{product.z}) no tiene "
-            f"ninguna celda válida de recogida."
-        )
-
-
-    path, distance, reached_target = astar_to_any(
-        graph,
-        source,
-        set(targets),
-        manhattan,
-    )
-
-    return path, distance, reached_target
+    Returns:
+        (camino, costo, celda de recogida a la que llegó)
+    """
+    destinos = _pickup_targets(graph, source, product, warehouse)
+    return astar_to_any(graph, source, destinos, manhattan, stats)

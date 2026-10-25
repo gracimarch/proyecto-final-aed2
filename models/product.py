@@ -1,27 +1,26 @@
+"""
+models/product.py
+
+Un producto guardado en un rack del warehouse (consigna §4).
+"""
+
+
 class Product:
     """
     Representa un producto almacenado en el Warehouse.
 
     Atributos:
-        product_id          (str)       : Identificador único del producto.
-        name                (str)       : Nombre descriptivo del producto.
-        rack_id             (str)       : Identificador del rack que contiene al producto.
-        location            (list[int]) : Posición mutable [x, y, z] dentro del rack.
-                                          x e y son la celda del rack en el plano;
-                                          z ≥ 1 es el nivel vertical dentro del rack.
-        cantidad_disponible (int)       : Stock disponible en esa posición.
-        peso_kg             (float)     : Peso por unidad, en kilogramos.
+        product_id          (str)   : Identificador único del producto.
+        name                (str)   : Nombre descriptivo del producto.
+        rack_id             (str)   : Identificador del rack que contiene al producto.
+        location            (list)  : Posición [x, y, z] dentro del rack.
+                                      x e y son la celda del rack en el plano;
+                                      z >= 1 es el nivel (altura) dentro del rack.
+        cantidad_disponible (int)   : Stock disponible en esa posición.
+        peso_kg             (float) : Peso por unidad, en kilogramos.
     """
 
-    def __init__(
-        self,
-        product_id: str,
-        name: str,
-        rack_id: str,
-        location: list,
-        cantidad_disponible: int,
-        peso_kg: float,
-    ):
+    def __init__(self, product_id, name, rack_id, location, cantidad_disponible, peso_kg):
         if cantidad_disponible < 0:
             raise ValueError(f"El stock no puede ser negativo: {cantidad_disponible}")
         if len(location) != 3:
@@ -34,52 +33,50 @@ class Product:
         self.product_id = product_id
         self.name = name
         self.rack_id = rack_id
-        self.location: list[int] = list(location)   # [x, y, z] — mutable
+        self.location = list(location)   # copia propia: [x, y, z]
         self.cantidad_disponible = cantidad_disponible
         self.peso_kg = peso_kg
 
     # ------------------------------------------------------------------
-    # Propiedades de acceso a la ubicación
+    # Acceso a la ubicación
+    #
+    # @property permite escribir product.x en lugar de product.location[0].
+    # Se usa como un atributo (sin paréntesis), pero se calcula al leerlo.
     # ------------------------------------------------------------------
 
     @property
-    def x(self) -> int:
+    def x(self):
         return self.location[0]
 
     @property
-    def y(self) -> int:
+    def y(self):
         return self.location[1]
 
     @property
-    def z(self) -> int:
+    def z(self):
         return self.location[2]
 
-    def drop_z(self) -> None:
+    def drop_z(self):
         """
-        Decrementa en 1 el nivel z del producto.
-        Se invoca cuando el producto ubicado en el nivel inmediatamente inferior
-        es retirado del rack, desplazando este producto un nivel hacia abajo.
+        Baja el producto un nivel (z - 1). Se usa cuando se retira el
+        producto que estaba justo debajo en la misma celda del rack.
         """
         if self.location[2] <= 1:
             raise ValueError(
                 f"El producto '{self.product_id}' ya se encuentra en el nivel z=1."
             )
-        self.location[2] -= 1
+        self.location[2] = self.location[2] - 1
 
     # ------------------------------------------------------------------
     # Stock
     # ------------------------------------------------------------------
 
-    def reduce_stock(self, quantity: int) -> None:
+    def reduce_stock(self, quantity):
         """
-        Reduce el stock disponible del producto en la cantidad indicada.
-
-        Args:
-            quantity: Cantidad a descontar. Debe ser mayor a 0 y no superar
-                      el stock disponible actual.
+        Descuenta quantity unidades del stock.
 
         Raises:
-            ValueError: Si la cantidad es inválida o supera el stock disponible.
+            ValueError: Si la cantidad no es positiva o supera el stock.
         """
         if quantity <= 0:
             raise ValueError("La cantidad debe ser positiva.")
@@ -88,20 +85,14 @@ class Product:
                 f"Stock insuficiente para '{self.name}': "
                 f"disponible={self.cantidad_disponible}, solicitado={quantity}"
             )
-        self.cantidad_disponible -= quantity
+        self.cantidad_disponible = self.cantidad_disponible - quantity
 
     # ------------------------------------------------------------------
     # Serialización
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> dict:
-        """
-        Serializa el producto al formato del escenario JSON.
-
-        Returns:
-            Diccionario con los campos del producto según la especificación:
-            id, nombre, rack_id, ubicacion ({x, y, z}), cantidad_disponible, peso_kg.
-        """
+    def to_dict(self):
+        """Devuelve el producto como diccionario, en el formato del escenario JSON."""
         return {
             "id": self.product_id,
             "nombre": self.name,
@@ -116,13 +107,12 @@ class Product:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Product":
+    def from_dict(cls, data):
         """
-        Reconstruye un Product desde un diccionario en formato de escenario JSON.
+        Crea un Product a partir de un diccionario del escenario JSON.
 
-        Args:
-            data: Diccionario con los campos id, nombre, rack_id, ubicacion,
-                  cantidad_disponible y peso_kg.
+        @classmethod significa que se llama sobre la clase, no sobre un
+        objeto: Product.from_dict(datos). "cls" es la clase Product.
         """
         ubicacion = data["ubicacion"]
         return cls(
@@ -134,9 +124,10 @@ class Product:
             peso_kg=data["peso_kg"],
         )
 
-    def __repr__(self) -> str:
+    def __repr__(self):
+        # __repr__ define cómo se muestra el objeto al imprimirlo.
         return (
-            f"Product(id={self.product_id!r}, name={self.name!r}, "
-            f"rack_id={self.rack_id!r}, location={self.location}, "
+            f"Product(id='{self.product_id}', name='{self.name}', "
+            f"rack_id='{self.rack_id}', location={self.location}, "
             f"stock={self.cantidad_disponible}, peso_kg={self.peso_kg})"
         )

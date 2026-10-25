@@ -1,54 +1,58 @@
 """
 algorithms/graph.py
 
-Grafo dirigido o no dirigido con pesos, implementado con lista de adyacencia.
+Grafo con lista de adyacencia y los algoritmos de búsqueda que usa el
+proyecto: BFS (varias variantes) y A*.
 
-Nodos: cualquier tipo hashable (se usan tuplas (x, y) para representar
-       celdas del warehouse).
-Aristas: pares de nodos con un peso numérico no negativo.
+Nodos: cualquier valor que pueda ser clave de un diccionario. En el
+warehouse son tuplas (x, y), una por celda de pasillo.
+
+Estructuras de Python que se usan:
+    deque (de collections): cola doble. popleft() saca el primero en O(1).
+        Con una lista común, lista.pop(0) cuesta O(n) porque corre todos
+        los elementos, y eso arruinaría el O(V + E) del BFS.
+    heapq: funciones para usar una lista como cola de prioridad (min-heap).
+        heappush agrega y heappop saca el MENOR, los dos en O(log n). Lo usa A*.
 """
 
 import heapq
 from collections import deque
 
 
+INFINITO = float("inf")
+
+
 class Graph:
     """
-    Grafo ponderado implementado con lista de adyacencia.
+    Grafo con pesos implementado con lista de adyacencia.
 
-    Puede ser dirigido o no dirigido, según el parámetro ``directed``.
-    En el grafo no dirigido, cada arista se almacena en ambas direcciones.
+    _adj es un diccionario de diccionarios:
+        _adj[u] = {v1: peso1, v2: peso2, ...}   (los vecinos de u y el peso de cada arista)
 
-    Atributos internos:
-        _adj      (dict[object, dict[object, float]]): {nodo: {vecino: peso}}
-        _directed (bool): Si True, las aristas son dirigidas.
+    Si el grafo es dirigido, la arista u -> v NO implica v -> u. El warehouse
+    usa un grafo dirigido porque los pasillos tienen sentido de circulación.
     """
 
-    def __init__(self, directed: bool = False):
+    def __init__(self, directed=False):
         self._directed = directed
-        self._adj: dict[object, dict[object, float]] = {}
-        self._node_count: int = 0
-        self._edge_count: int = 0
+        self._adj = {}
+        self._node_count = 0
+        self._edge_count = 0
 
     # ------------------------------------------------------------------
     # Construcción
     # ------------------------------------------------------------------
 
-    def add_node(self, node: object) -> None:
-        """Agrega un nodo al grafo. No hace nada si ya existe."""
+    def add_node(self, node):
+        """Agrega un nodo. Si ya existe, no hace nada."""
         if node not in self._adj:
             self._adj[node] = {}
-            self._node_count += 1
+            self._node_count = self._node_count + 1
 
-    def add_edge(self, u: object, v: object, weight: float = 1.0) -> None:
+    def add_edge(self, u, v, weight=1.0):
         """
-        Agrega una arista entre u y v con el peso indicado.
-        Si la arista ya existe, actualiza su peso.
-        En un grafo no dirigido, agrega la arista en ambas direcciones.
-
-        Args:
-            u, v   : Nodos extremos de la arista.
-            weight : Peso de la arista. Debe ser no negativo.
+        Agrega la arista u -> v (y v -> u si el grafo no es dirigido).
+        Si ya existía, actualiza su peso.
 
         Raises:
             ValueError: Si el peso es negativo.
@@ -57,23 +61,17 @@ class Graph:
             raise ValueError(f"El peso de una arista no puede ser negativo: {weight}")
         self.add_node(u)
         self.add_node(v)
-
         if v not in self._adj[u]:
-            self._edge_count += 1
-
+            self._edge_count = self._edge_count + 1
         self._adj[u][v] = weight
         if not self._directed:
             self._adj[v][u] = weight
 
-    def remove_edge(self, u: object, v: object) -> None:
-        """
-        Elimina la arista (u, v) del grafo.
-        En un grafo no dirigido, elimina también (v, u).
-        No hace nada si la arista no existe.
-        """
+    def remove_edge(self, u, v):
+        """Borra la arista u -> v (y v -> u si no es dirigido). Si no existe, no hace nada."""
         if self.has_edge(u, v):
             del self._adj[u][v]
-            self._edge_count -= 1
+            self._edge_count = self._edge_count - 1
             if not self._directed:
                 del self._adj[v][u]
 
@@ -81,18 +79,14 @@ class Graph:
     # Consultas
     # ------------------------------------------------------------------
 
-    def has_node(self, node: object) -> bool:
-        """Devuelve True si el nodo existe en el grafo."""
+    def has_node(self, node):
         return node in self._adj
 
-    def has_edge(self, u: object, v: object) -> bool:
-        """Devuelve True si existe la arista (u, v)."""
+    def has_edge(self, u, v):
         return u in self._adj and v in self._adj[u]
 
-    def weight(self, u: object, v: object) -> float:
+    def weight(self, u, v):
         """
-        Retorna el peso de la arista (u, v).
-
         Raises:
             KeyError: Si la arista no existe.
         """
@@ -100,9 +94,10 @@ class Graph:
             raise KeyError(f"No existe arista entre {u} y {v}.")
         return self._adj[u][v]
 
-    def neighbors(self, node: object) -> dict:
+    def neighbors(self, node):
         """
-        Retorna un diccionario {vecino: peso} con los vecinos del nodo.
+        Vecinos del nodo como diccionario {vecino: peso}. Recorrerlo con un
+        for da los vecinos.
 
         Raises:
             KeyError: Si el nodo no existe.
@@ -111,151 +106,53 @@ class Graph:
             raise KeyError(f"Nodo '{node}' no existe en el grafo.")
         return dict(self._adj[node])
 
-    def nodes(self) -> list:
-        """Retorna la lista de todos los nodos del grafo."""
+    def nodes(self):
         return list(self._adj.keys())
 
-    def node_count(self) -> int:
-        """Retorna la cantidad de nodos."""
+    def node_count(self):
         return self._node_count
 
-    def edge_count(self) -> int:
-        """Retorna la cantidad de aristas."""
+    def edge_count(self):
         return self._edge_count
 
     # ------------------------------------------------------------------
-    # BFS
+    # BFS desde un nodo
     # ------------------------------------------------------------------
 
-    def bfs(self, source: object) -> dict:
+    def bfs(self, source):
         """
-        Recorrido en anchura (BFS) desde ``source``.
-
-        Utiliza una lista con puntero de cabeza como cola para evitar
-        el costo lineal de ``list.pop(0)``.
-
-        Complejidad temporal : O(V + E)
-        Complejidad espacial : O(V)
-
-        Args:
-            source: Nodo de partida. Debe existir en el grafo.
+        Recorrido en anchura desde source.
 
         Returns:
-            Diccionario {nodo: nivel}, donde nivel es la cantidad de saltos
-            desde ``source`` hasta ese nodo.
+            {nodo: nivel}, donde nivel es la cantidad de aristas desde source.
+            Solo aparecen los nodos alcanzables.
+
+        Complejidad: O(V + E) en tiempo, O(V) en espacio.
 
         Raises:
-            KeyError: Si ``source`` no existe en el grafo.
+            KeyError: Si source no existe.
         """
         if not self.has_node(source):
             raise KeyError(f"Nodo fuente '{source}' no existe en el grafo.")
 
-        visited = {source: 0}
-        queue = [source]
-        head = 0
-
-        while head < len(queue):
-            u = queue[head]
-            head += 1
-
+        nivel = {source: 0}       # también sirve como "visitados"
+        cola = deque([source])
+        while len(cola) > 0:
+            u = cola.popleft()
             for v in self._adj[u]:
-                if v not in visited:
-                    visited[v] = visited[u] + 1
-                    queue.append(v)
+                if v not in nivel:
+                    nivel[v] = nivel[u] + 1
+                    cola.append(v)
+        return nivel
 
-        return visited
+    def reachable_from(self, source):
+        """Conjunto de nodos a los que se puede llegar desde source."""
+        alcanzables = set()
+        for nodo in self.bfs(source):
+            alcanzables.add(nodo)
+        return alcanzables
 
-    # ------------------------------------------------------------------
-    # Utilidades
-    # ------------------------------------------------------------------
-
-    def is_connected(self) -> bool:
-        """
-        Verifica si el grafo es conexo. Para grafos dirigidos, verifica
-        conectividad débil: ignora el sentido de las aristas para comprobar
-        que todos los nodos pertenecen a una misma componente.
-
-        Complejidad: O(V + E).
-        """
-        if self._node_count == 0:
-            return True
-        source = next(iter(self._adj))
-        if not self._directed:
-            return len(self.bfs(source)) == self._node_count
-
-        # Construir vecinos en ambos sentidos sin modificar el grafo original.
-        neighbors = {node: set() for node in self._adj}
-        for u in self._adj:
-            for v in self._adj[u]:
-                neighbors[u].add(v)
-                neighbors[v].add(u)
-
-        visited = {source}
-        queue = deque([source])
-        while queue:
-            u = queue.popleft()
-            for v in neighbors[u]:
-                if v not in visited:
-                    visited.add(v)
-                    queue.append(v)
-
-        return len(visited) == self._node_count
-
-    def reachable_from(self, source: object) -> set:
-        """
-        Retorna el conjunto de nodos alcanzables desde ``source``.
-
-        Args:
-            source: Nodo de partida. Debe existir en el grafo.
-        """
-        return set(self.bfs(source).keys())
-
-    # ------------------------------------------------------------------
-    # Serialización
-    # ------------------------------------------------------------------
-
-    def to_dict(self) -> dict:
-        """
-        Serializa el grafo a un diccionario para persistencia.
-
-        Las tuplas de nodo se convierten a listas para compatibilidad JSON.
-
-        Returns:
-            Diccionario con las claves 'directed' y 'edges'.
-        """
-        edges = []
-        seen = set()
-        for u, neighbors in self._adj.items():
-            for v, w in neighbors.items():
-                key = (min(str(u), str(v)), max(str(u), str(v)))
-                if self._directed or key not in seen:
-                    edges.append({
-                        "u": list(u) if isinstance(u, tuple) else u,
-                        "v": list(v) if isinstance(v, tuple) else v,
-                        "weight": w,
-                    })
-                    seen.add(key)
-        return {
-            "directed": self._directed,
-            "edges": edges,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Graph":
-        """
-        Reconstruye un grafo desde un diccionario serializado por ``to_dict``.
-
-        Args:
-            data: Diccionario con las claves 'directed' y 'edges'.
-        """
-        g = cls(directed=data.get("directed", False))
-        for edge in data.get("edges", []):
-            u = tuple(edge["u"]) if isinstance(edge["u"], list) else edge["u"]
-            v = tuple(edge["v"]) if isinstance(edge["v"], list) else edge["v"]
-            g.add_edge(u, v, edge.get("weight", 1.0))
-        return g
-
-    def __repr__(self) -> str:
+    def __repr__(self):
         return (
             f"Graph(nodes={self._node_count}, edges={self._edge_count}, "
             f"directed={self._directed})"
@@ -263,212 +160,218 @@ class Graph:
 
 
 # ===========================================================================
-# 1. Reconstrucción de camino
+# Ayudas
 # ===========================================================================
 
-def _reconstruct(
-    prev: dict[object, object | None],
-    target: object,
-) -> tuple[list[object], int]:
+def _reconstruct(prev, target):
+    """
+    Arma el camino desde el origen hasta target usando prev.
 
-    path: list[object] = []
+    prev[v] es el nodo desde el que se llegó a v. El origen se guarda como
+    prev[origen] = origen, y así sabemos dónde parar.
 
-    node: object = target
-
+    Returns:
+        (camino, cantidad de aristas)
+    """
+    path = []
+    node = target
     while True:
         path.append(node)
         if prev[node] == node:
             break
         node = prev[node]
-
-    path.reverse()
-
+    path.reverse()     # lo armamos de atrás para adelante
     return path, len(path) - 1
 
 
+def _count_expanded(stats, expanded):
+    """Suma nodos expandidos en stats["nodos_expandidos"], si se pasó stats."""
+    if stats is not None:
+        anterior = stats.get("nodos_expandidos", 0)
+        stats["nodos_expandidos"] = anterior + expanded
+
+
 # ===========================================================================
-# 2. BFS hacia uno o varios destinos
+# BFS multi-origen: distancia desde un conjunto de nodos
 # ===========================================================================
 
-def bfs_to_any(
-    graph: Graph,
-    source: object,
-    targets: set[object],
-) -> tuple[
-    list[object],
-    float,
-    object | None,
-]:
+def bfs_distances(graph, sources):
     """
-    Ejecuta BFS desde source hasta cualquiera de los nodos de targets.
+    BFS que arranca a la vez desde todos los nodos de sources.
 
-    Minimiza la cantidad de aristas; ignora sus pesos.
-    Retorna (camino, saltos, destino), o ([], inf, None) si no llega.
-    Los destinos ausentes del grafo se consideran inalcanzables.
+    Devuelve {nodo: distancia}: la menor cantidad de aristas desde
+    CUALQUIERA de los orígenes. Es lo mismo que hacer un BFS desde cada
+    origen y quedarse con el mínimo, pero en un solo recorrido.
+
+    Lo usa WaveManager para medir qué tan cerca está cada pedido de una wave.
+    Los orígenes que no están en el grafo se ignoran.
+
+    Complejidad: O(V + E) en tiempo, O(V) en espacio.
     """
+    dist = {}
+    cola = deque()
+    for s in sources:
+        if graph.has_node(s) and s not in dist:
+            dist[s] = 0
+            cola.append(s)
 
-    if not graph.has_node(source):
-        raise KeyError(
-            f"Nodo origen {source} no existe en el grafo."
-        )
-
-    # Caso trivial:
-    # el origen ya es uno de los destinos.
-    if source in targets:
-        return [source], 0, source
-
-    # prev también funciona como conjunto de visitados.
-    prev: dict[
-        object,
-        object | None
-    ] = {
-        source: source
-    }
-
-    queue: deque[object] = deque([source])
-
-    while queue:
-
-        u = queue.popleft()
-
-        # Usamos la interfaz pública de Graph.
-        # neighbors(u) devuelve {vecino: peso}.
-        # Al iterar el dict obtenemos los vecinos.
+    while len(cola) > 0:
+        u = cola.popleft()
         for v in graph.neighbors(u):
-
-            # Si todavía no fue descubierto
-            if v not in prev:
-
-                prev[v] = u
-
-                # BFS explora por niveles.
-                # La primera vez que llegamos a un target,
-                # su distancia es mínima.
-                if v in targets:
-
-                    path, distance = _reconstruct(
-                        prev,
-                        v,
-                    )
-
-                    return path, distance, v
-
-                queue.append(v)
-
-    # Ninguno de los destinos es alcanzable.
-    return [], float("inf"), None
+            if v not in dist:
+                dist[v] = dist[u] + 1
+                cola.append(v)
+    return dist
 
 
 # ===========================================================================
-# 3. BFS entre dos nodos
+# BFS hacia uno o varios destinos
 # ===========================================================================
 
-def bfs_shortest_path(
-    graph: Graph,
-    source: object,
-    target: object,
-) -> tuple[list[object], float]:
+def bfs_to_any(graph, source, targets, stats=None):
     """
-    Encuentra mediante BFS el camino mínimo entre source y target.
+    BFS desde source hasta el destino de targets que esté más cerca.
 
-    """
+    Como BFS avanza por niveles, el primer destino que encuentra es el más
+    cercano. Cuenta aristas e ignora los pesos (en el warehouse todos valen 1).
 
-    if not graph.has_node(target):
-        raise KeyError(
-            f"Nodo destino {target} no existe en el grafo."
-        )
+    Args:
+        targets: Conjunto de nodos destino.
+        stats  : Diccionario opcional donde se suma "nodos_expandidos".
 
-    path, distance, _ = bfs_to_any(
-        graph,
-        source,
-        {target},
-    )
+    Returns:
+        (camino, distancia, destino alcanzado), o ([], infinito, None) si no llega.
 
-    return path, distance
+    Complejidad: O(V + E) en el peor caso.
 
-
-# ===========================================================================
-# 4. A* hacia uno o varios destinos
-# ===========================================================================
-
-
-def astar_to_any(
-    graph: Graph,
-    source: object,
-    targets: set[object],
-    heuristic,
-) -> tuple[list[object], float, object | None]:
-    """
-    Busca un camino de costo mínimo hacia cualquiera de los destinos.
-
-    heuristic(nodo, destino) estima el costo restante. Para garantizar
-    optimalidad debe ser admisible, no negativa y valer 0 en el destino.
-    Para varios destinos se utiliza la menor de esas estimaciones.
-
-    Retorna (camino, costo, destino), o ([], inf, None) si no llega.
-    Los destinos ausentes del grafo se consideran inalcanzables.
-    Lanza KeyError si el origen no existe.
+    Raises:
+        KeyError: Si source no existe.
     """
     if not graph.has_node(source):
         raise KeyError(f"Nodo origen {source} no existe en el grafo.")
 
-    targets = {target for target in targets if graph.has_node(target)}
-    if not targets:
-        return [], float("inf"), None
-
     if source in targets:
+        _count_expanded(stats, 1)
         return [source], 0, source
 
-    def estimate(node: object) -> float:
-        return min(heuristic(node, target) for target in targets)
+    prev = {source: source}    # también sirve como "visitados"
+    cola = deque([source])
+    expanded = 0
 
-    # El contador desempata sin comparar nodos, que pueden ser de
-    # cualquier tipo hashable y no necesariamente ordenables.
-    order = 0
-    heap = [(estimate(source), order, 0.0, source)]
-    dist = {source: 0.0}
+    while len(cola) > 0:
+        u = cola.popleft()
+        expanded = expanded + 1
+        for v in graph.neighbors(u):
+            if v not in prev:
+                prev[v] = u
+                if v in targets:
+                    path, distance = _reconstruct(prev, v)
+                    _count_expanded(stats, expanded)
+                    return path, distance, v
+                cola.append(v)
+
+    _count_expanded(stats, expanded)
+    return [], INFINITO, None
+
+
+def bfs_shortest_path(graph, source, target):
+    """Camino mínimo de source a target con BFS. Devuelve (camino, distancia)."""
+    if not graph.has_node(target):
+        raise KeyError(f"Nodo destino {target} no existe en el grafo.")
+    path, distance, alcanzado = bfs_to_any(graph, source, {target})
+    return path, distance
+
+
+# ===========================================================================
+# A* hacia uno o varios destinos
+# ===========================================================================
+
+def _estimate(node, targets, heuristic):
+    """Estimación de A* para varios destinos: la menor heurística hacia alguno."""
+    menor = INFINITO
+    for target in targets:
+        valor = heuristic(node, target)
+        if valor < menor:
+            menor = valor
+    return menor
+
+
+def astar_to_any(graph, source, targets, heuristic, stats=None):
+    """
+    A*: busca el camino de menor costo hacia alguno de los destinos.
+
+    Siempre expande primero el nodo con menor f = g + h, donde
+        g = costo real desde source hasta el nodo,
+        h = heuristic(nodo, destino), una estimación de lo que falta.
+    Si h nunca sobreestima (por ejemplo Manhattan en una grilla con
+    movimientos de costo 1), el camino encontrado es mínimo, igual que BFS,
+    pero suele expandir menos nodos porque se orienta hacia el destino.
+
+    Cada elemento del heap es la tupla (f, orden, g, nodo). heapq saca la
+    tupla menor comparando primero f; "orden" es un contador que desempata
+    para que nunca tenga que comparar dos nodos.
+
+    Args:
+        heuristic: Función heuristic(nodo, destino) que devuelve un número.
+        stats    : Diccionario opcional donde se suma "nodos_expandidos".
+
+    Returns:
+        (camino, costo, destino alcanzado), o ([], infinito, None) si no llega.
+
+    Raises:
+        KeyError: Si source no existe.
+    """
+    if not graph.has_node(source):
+        raise KeyError(f"Nodo origen {source} no existe en el grafo.")
+
+    destinos = set()
+    for target in targets:
+        if graph.has_node(target):
+            destinos.add(target)
+    if len(destinos) == 0:
+        return [], INFINITO, None
+
+    if source in destinos:
+        _count_expanded(stats, 1)
+        return [source], 0, source
+
+    orden = 0
+    heap = [(_estimate(source, destinos, heuristic), orden, 0.0, source)]
+    dist = {source: 0.0}       # mejor costo conocido hasta cada nodo (g)
     prev = {source: source}
+    expanded = 0
 
-    while heap:
-        _, _, cost, u = heapq.heappop(heap)
+    while len(heap) > 0:
+        f, orden_sacado, cost, u = heapq.heappop(heap)
 
-        # Entrada obsoleta: ya existe un camino más corto conocido.
+        # Si ya encontramos un camino mejor a u, esta entrada quedó vieja.
         if cost > dist[u]:
             continue
 
-        if u in targets:
-            path, _ = _reconstruct(prev, u)
+        expanded = expanded + 1
+        if u in destinos:
+            path, aristas = _reconstruct(prev, u)
+            _count_expanded(stats, expanded)
             return path, cost, u
 
-        for v, weight in graph.neighbors(u).items():
-            alternative = cost + weight
-            if alternative < dist.get(v, float("inf")):
-                dist[v] = alternative
+        vecinos = graph.neighbors(u)
+        for v in vecinos:
+            alternativa = cost + vecinos[v]
+            costo_conocido = dist.get(v, INFINITO)
+            if alternativa < costo_conocido:
+                dist[v] = alternativa
                 prev[v] = u
-                # Un nodo puede reabrirse si se encuentra un camino mejor.
-                order += 1
-                heapq.heappush(
-                    heap,
-                    (alternative + estimate(v), order, alternative, v),
-                )
+                orden = orden + 1
+                f_nuevo = alternativa + _estimate(v, destinos, heuristic)
+                heapq.heappush(heap, (f_nuevo, orden, alternativa, v))
 
-    return [], float("inf"), None
+    _count_expanded(stats, expanded)
+    return [], INFINITO, None
 
 
-# ===========================================================================
-# 5. A* entre dos nodos
-# ===========================================================================
-
-
-def astar_shortest_path(
-    graph: Graph,
-    source: object,
-    target: object,
-    heuristic,
-) -> tuple[list[object], float]:
-    """Retorna (camino, costo) usando A* con la heurística recibida."""
+def astar_shortest_path(graph, source, target, heuristic):
+    """Camino mínimo de source a target con A*. Devuelve (camino, costo)."""
     if not graph.has_node(target):
         raise KeyError(f"Nodo destino {target} no existe en el grafo.")
-
-    path, distance, _ = astar_to_any(graph, source, {target}, heuristic)
+    path, distance, alcanzado = astar_to_any(graph, source, {target}, heuristic)
     return path, distance
