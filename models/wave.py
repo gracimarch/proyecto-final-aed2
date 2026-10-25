@@ -5,7 +5,12 @@ Una wave es un grupo de ítems de pedidos que prepara un solo picker en
 una misma pasada por el warehouse (consigna §6).
 """
 
+from __future__ import annotations
+
 from enum import Enum
+
+from models.order import Order, OrderItem
+from models.warehouse import Picker
 
 
 class WaveStatus(Enum):
@@ -28,31 +33,31 @@ class WaveOrderEntry:
         items (list[OrderItem]) : Ítems de ese pedido que están en esta wave.
     """
 
-    def __init__(self, order, items):
+    def __init__(self, order: Order, items: list[OrderItem]):
         self.order = order
         self.items = list(items)
 
     @property
-    def units(self):
+    def units(self) -> int:
         total = 0
         for item in self.items:
             total = total + item.cantidad
         return total
 
     @property
-    def weight(self):
+    def weight(self) -> float:
         total = 0
         for item in self.items:
             total = total + item.total_weight
         return total
 
-    def get_locations(self):
+    def get_locations(self) -> list[tuple]:
         ubicaciones = []
         for item in self.items:
             ubicaciones.append(tuple(item.product.location))
         return ubicaciones
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"WaveOrderEntry(order='{self.order.order_id}', "
             f"items={len(self.items)}, peso={self.weight:.2f}kg)"
@@ -73,7 +78,7 @@ class Wave:
         picker        (Picker o None)        : Picker que prepara la wave.
     """
 
-    def __init__(self, wave_id, max_pedidos, max_productos):
+    def __init__(self, wave_id: str, max_pedidos: int, max_productos: int):
         if max_pedidos <= 0:
             raise ValueError("max_pedidos debe ser mayor a 0.")
         if max_productos <= 0:
@@ -92,7 +97,7 @@ class Wave:
     # ------------------------------------------------------------------
 
     @property
-    def orders(self):
+    def orders(self) -> list[Order]:
         """Pedidos que tienen ítems en esta wave."""
         pedidos = []
         for entry in self.entries:
@@ -100,15 +105,15 @@ class Wave:
         return pedidos
 
     @property
-    def is_started(self):
+    def is_started(self) -> bool:
         """True si la wave ya empezó (en proceso o completada)."""
         return self.status != WaveStatus.ABIERTA
 
     @property
-    def is_completed(self):
+    def is_completed(self) -> bool:
         return self.status == WaveStatus.COMPLETADA
 
-    def priority(self):
+    def priority(self) -> int:
         """Prioridad de la wave: la mayor de sus pedidos (0 si está vacía)."""
         mayor = 0
         for entry in self.entries:
@@ -116,25 +121,25 @@ class Wave:
                 mayor = entry.order.prioridad
         return mayor
 
-    def current_orders(self):
+    def current_orders(self) -> int:
         """Cantidad de pedidos distintos en la wave."""
         return len(self.entries)
 
-    def current_units(self):
+    def current_units(self) -> int:
         """Total de unidades en la wave."""
         total = 0
         for entry in self.entries:
             total = total + entry.units
         return total
 
-    def total_weight(self):
+    def total_weight(self) -> float:
         """Peso total de la wave (kg)."""
         total = 0
         for entry in self.entries:
             total = total + entry.weight
         return total
 
-    def get_items(self):
+    def get_items(self) -> list[OrderItem]:
         """Todos los ítems de la wave, en el orden en que entraron sus pedidos."""
         todos = []
         for entry in self.entries:
@@ -142,7 +147,12 @@ class Wave:
                 todos.append(item)
         return todos
 
-    def can_add_items(self, order, items, max_peso=None):
+    def can_add_items(
+        self,
+        order: Order,
+        items: list[OrderItem],
+        max_peso: float | None = None,
+    ) -> bool:
         """
         True si los ítems entran en la wave sin pasar sus límites.
 
@@ -172,7 +182,7 @@ class Wave:
             return False
         return True
 
-    def get_all_locations(self):
+    def get_all_locations(self) -> list[tuple]:
         """Ubicaciones (x, y, z) distintas de todos los ítems, en orden de aparición."""
         vistas = set()
         ubicaciones = []
@@ -187,7 +197,12 @@ class Wave:
     # Agregar ítems
     # ------------------------------------------------------------------
 
-    def add_items(self, order, items, max_peso=None):
+    def add_items(
+        self,
+        order: Order,
+        items: list[OrderItem],
+        max_peso: float | None = None,
+    ) -> None:
         """
         Agrega ítems de un pedido a la wave y los marca como asignados.
 
@@ -202,7 +217,7 @@ class Wave:
         order.assign_items(items, self)
         self._register(order, items)
 
-    def add_order(self, order, max_peso=None):
+    def add_order(self, order: Order, max_peso: float | None = None) -> None:
         """
         Agrega todos los ítems pendientes de un pedido.
 
@@ -214,14 +229,14 @@ class Wave:
             raise ValueError(f"El pedido '{order.order_id}' no tiene ítems pendientes.")
         self.add_items(order, items, max_peso)
 
-    def _entry_for(self, order):
+    def _entry_for(self, order: Order) -> WaveOrderEntry | None:
         """Devuelve la entrada de este pedido en la wave, o None si no está."""
         for entry in self.entries:
             if entry.order.order_id == order.order_id:
                 return entry
         return None
 
-    def _register(self, order, items):
+    def _register(self, order: Order, items: list[OrderItem]) -> None:
         """Anota los ítems en la entrada del pedido (la crea si no existe)."""
         entry = self._entry_for(order)
         if entry is None:
@@ -234,7 +249,7 @@ class Wave:
     # Picker y recorrido
     # ------------------------------------------------------------------
 
-    def assign_picker(self, picker):
+    def assign_picker(self, picker: Picker) -> None:
         """
         Asigna el picker que va a preparar la wave.
 
@@ -262,7 +277,7 @@ class Wave:
         self.picker = picker
         picker.assign_wave(self.wave_id)
 
-    def set_route(self, route):
+    def set_route(self, route: list[tuple[int, int]]) -> None:
         """Guarda el recorrido calculado para la wave."""
         self.route = route
 
@@ -270,7 +285,7 @@ class Wave:
     # Cambios de estado
     # ------------------------------------------------------------------
 
-    def start(self):
+    def start(self) -> None:
         """
         Empieza la preparación. Necesita un picker asignado.
 
@@ -290,7 +305,7 @@ class Wave:
             )
         self.status = WaveStatus.EN_PROCESO
 
-    def complete(self):
+    def complete(self) -> None:
         """
         Termina la wave y libera a su picker. El estado de los pedidos se
         actualiza solo (ver Order.status).
@@ -309,14 +324,14 @@ class Wave:
     # Guardar y cargar
     # ------------------------------------------------------------------
 
-    def _index_in_order(self, order, item):
+    def _index_in_order(self, order: Order, item: OrderItem) -> int:
         """Posición (0, 1, 2...) del ítem dentro de order.items."""
         for i in range(len(order.items)):
             if order.items[i] is item:
                 return i
         raise ValueError("El ítem no pertenece al pedido.")
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Devuelve la wave como diccionario para guardarla.
 
@@ -350,7 +365,12 @@ class Wave:
         }
 
     @classmethod
-    def from_dict(cls, data, order_registry, picker_registry=None):
+    def from_dict(
+        cls,
+        data: dict,
+        order_registry: dict[str, Order],
+        picker_registry: dict[str, Picker] | None = None,
+    ) -> Wave:
         """
         Reconstruye una wave guardada.
 
@@ -400,7 +420,7 @@ class Wave:
         wave.status = WaveStatus(data["status"])
         return wave
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         texto_picker = ""
         if self.picker is not None:
             texto_picker = f", picker={self.picker.picker_id}"

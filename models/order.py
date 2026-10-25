@@ -7,7 +7,17 @@ Un pedido tiene varias líneas (OrderItem). Cada línea recuerda en qué wave
 quedó, y con eso se calcula el estado del pedido.
 """
 
+from __future__ import annotations
+
 from enum import Enum
+from typing import TYPE_CHECKING
+
+from models.product import Product
+
+if TYPE_CHECKING:
+    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
+    # estos imports no pueden armar un import circular (ver GUIA.md).
+    from models.wave import Wave
 
 
 class OrderStatus(Enum):
@@ -35,7 +45,7 @@ class OrderItem:
                                  None mientras está pendiente.
     """
 
-    def __init__(self, product, cantidad):
+    def __init__(self, product: Product, cantidad: int):
         if cantidad <= 0:
             raise ValueError("La cantidad solicitada debe ser mayor a 0.")
         self.product = product
@@ -43,17 +53,17 @@ class OrderItem:
         self.wave = None
 
     @property
-    def total_weight(self):
+    def total_weight(self) -> float:
         """Peso de la línea: peso por unidad × cantidad."""
         return self.product.peso_kg * self.cantidad
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "producto_id": self.product.product_id,
             "cantidad": self.cantidad,
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"OrderItem(product='{self.product.product_id}', cantidad={self.cantidad})"
 
 
@@ -74,7 +84,7 @@ class Order:
     MIN_PRIORIDAD = 1
     MAX_PRIORIDAD = 5
 
-    def __init__(self, order_id, items, prioridad):
+    def __init__(self, order_id: str, items: list[OrderItem], prioridad: int):
         if prioridad < self.MIN_PRIORIDAD or prioridad > self.MAX_PRIORIDAD:
             raise ValueError(
                 f"La prioridad debe estar entre {self.MIN_PRIORIDAD} y "
@@ -92,7 +102,7 @@ class Order:
     # ------------------------------------------------------------------
 
     @property
-    def status(self):
+    def status(self) -> OrderStatus:
         """
         Estado del pedido según dónde están sus ítems.
 
@@ -125,7 +135,7 @@ class Order:
         return OrderStatus.EN_WAVE
 
     @property
-    def pending_items(self):
+    def pending_items(self) -> list[OrderItem]:
         """Ítems que todavía no tienen wave."""
         pendientes = []
         for item in self.items:
@@ -137,25 +147,25 @@ class Order:
     # Totales del pedido
     # ------------------------------------------------------------------
 
-    def get_locations(self):
+    def get_locations(self) -> list[tuple]:
         """Ubicaciones (x, y, z) de los productos del pedido."""
         ubicaciones = []
         for item in self.items:
             ubicaciones.append(tuple(item.product.location))
         return ubicaciones
 
-    def total_units(self):
+    def total_units(self) -> int:
         """Cantidad total de unidades pedidas."""
         total = 0
         for item in self.items:
             total = total + item.cantidad
         return total
 
-    def total_lines(self):
+    def total_lines(self) -> int:
         """Cantidad de líneas (productos distintos) del pedido."""
         return len(self.items)
 
-    def total_weight(self):
+    def total_weight(self) -> float:
         """Peso total del pedido (kg)."""
         total = 0
         for item in self.items:
@@ -166,22 +176,22 @@ class Order:
     # Totales de lo que falta asignar
     # ------------------------------------------------------------------
 
-    def pending_units(self):
+    def pending_units(self) -> int:
         total = 0
         for item in self.pending_items:
             total = total + item.cantidad
         return total
 
-    def pending_lines(self):
+    def pending_lines(self) -> int:
         return len(self.pending_items)
 
-    def pending_weight(self):
+    def pending_weight(self) -> float:
         total = 0
         for item in self.pending_items:
             total = total + item.total_weight
         return total
 
-    def is_fully_assigned(self):
+    def is_fully_assigned(self) -> bool:
         """True si todos los ítems ya tienen wave."""
         return len(self.pending_items) == 0
 
@@ -189,7 +199,7 @@ class Order:
     # Asignación de ítems a una wave
     # ------------------------------------------------------------------
 
-    def _owns_item(self, item):
+    def _owns_item(self, item: OrderItem) -> bool:
         """
         True si item es uno de los ítems de este pedido.
 
@@ -202,7 +212,7 @@ class Order:
                 return True
         return False
 
-    def assign_items(self, items, wave):
+    def assign_items(self, items: list[OrderItem], wave: Wave) -> None:
         """
         Marca los ítems como asignados a la wave.
 
@@ -230,7 +240,7 @@ class Order:
     # Serealización
     # ------------------------------------------------------------------
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         items_dict = []
         for item in self.items:
             items_dict.append(item.to_dict())
@@ -242,7 +252,7 @@ class Order:
         }
 
     @classmethod
-    def from_dict(cls, data, product_registry):
+    def from_dict(cls, data: dict, product_registry: dict[str, Product]) -> Order:
         """
         Crea un Order a partir del JSON del escenario.
 
@@ -269,7 +279,7 @@ class Order:
 
         return cls(order_id=data["id"], items=items, prioridad=data["prioridad"])
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Order(id='{self.order_id}', prioridad={self.prioridad}, "
             f"status={self.status.value}, items={len(self.items)}, "

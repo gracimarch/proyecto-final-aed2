@@ -8,15 +8,17 @@ Cada elemento se valida al agregarlo: si no cumple la consigna, se lanza
 ValueError con un mensaje que dice qué falló y dónde.
 """
 
+from __future__ import annotations
+
 from models.product import Product
 
 
-def _capitalize_first(texto):
+def _capitalize_first(texto: str) -> str:
     """Devuelve el texto con la primera letra en mayúscula ("rack 'R1'" -> "Rack 'R1'")."""
     return texto[:1].upper() + texto[1:]
 
 
-def _rectangle_cells(x, y, ancho, alto):
+def _rectangle_cells(x: int, y: int, ancho: int, alto: int) -> list[tuple[int, int]]:
     """Lista de celdas (cx, cy) de un rectángulo, desde (x, y) hasta (x+ancho-1, y+alto-1)."""
     celdas = []
     for dx in range(ancho):
@@ -42,7 +44,7 @@ class Rack:
         _slots  (dict) : {(cx, cy, z): Product}
     """
 
-    def __init__(self, rack_id, x, y, ancho, alto):
+    def __init__(self, rack_id: str, x: int, y: int, ancho: int, alto: int):
         self.rack_id = rack_id
         self.x = x
         self.y = y
@@ -51,21 +53,21 @@ class Rack:
         self._slots = {}
 
     @property
-    def position(self):
+    def position(self) -> tuple[int, int]:
         return (self.x, self.y)
 
     @property
-    def total_slots(self):
+    def total_slots(self) -> int:
         """Cantidad de posiciones ocupadas."""
         return len(self._slots)
 
-    def contains_cell(self, cx, cy):
+    def contains_cell(self, cx: int, cy: int) -> bool:
         """True si la celda (cx, cy) está dentro del rack."""
         dentro_en_x = self.x <= cx < self.x + self.ancho
         dentro_en_y = self.y <= cy < self.y + self.alto
         return dentro_en_x and dentro_en_y
 
-    def add_product(self, cx, cy, z, product):
+    def add_product(self, cx: int, cy: int, z: int, product: Product) -> None:
         """
         Pone un producto en la celda (cx, cy), nivel z.
 
@@ -89,7 +91,7 @@ class Rack:
         product.location[1] = cy
         product.location[2] = z
 
-    def remove_product(self, cx, cy, z):
+    def remove_product(self, cx: int, cy: int, z: int) -> Product:
         """
         Retira el producto de (cx, cy, z) y baja un nivel los que estaban
         encima en la misma celda.
@@ -118,18 +120,18 @@ class Rack:
         self._slots = nuevos_slots
         return retirado
 
-    def get_product_at(self, cx, cy, z):
+    def get_product_at(self, cx: int, cy: int, z: int) -> Product | None:
         """El producto en (cx, cy, z), o None si está vacío."""
         return self._slots.get((cx, cy, z))
 
-    def get_all_products(self):
+    def get_all_products(self) -> dict[tuple[int, int, int], Product]:
         """Copia del diccionario {(cx, cy, z): Product}."""
         return dict(self._slots)
 
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return len(self._slots) == 0
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Solo los datos del rack; los productos se guardan aparte en "productos"."""
         return {
             "id": self.rack_id,
@@ -139,11 +141,11 @@ class Rack:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> Rack:
         ub = data["ubicacion"]
         return cls(rack_id=data["id"], x=ub["x"], y=ub["y"], ancho=data["ancho"], alto=data["alto"])
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Rack(id='{self.rack_id}', pos=({self.x},{self.y}), "
             f"{self.ancho}x{self.alto}, slots={self.total_slots})"
@@ -165,7 +167,16 @@ class DispatchZone:
         peso_actual (float) : Peso depositado ahora.
     """
 
-    def __init__(self, zone_id, puerta_id, x, y, ancho, alto, peso_max_kg):
+    def __init__(
+        self,
+        zone_id: str,
+        puerta_id: str,
+        x: int,
+        y: int,
+        ancho: int,
+        alto: int,
+        peso_max_kg: float,
+    ):
         self.zone_id = zone_id
         self.puerta_id = puerta_id
         self.x = x
@@ -175,12 +186,12 @@ class DispatchZone:
         self.peso_max_kg = peso_max_kg
         self.peso_actual = 0.0
 
-    def contains_cell(self, cx, cy):
+    def contains_cell(self, cx: int, cy: int) -> bool:
         dentro_en_x = self.x <= cx < self.x + self.ancho
         dentro_en_y = self.y <= cy < self.y + self.alto
         return dentro_en_x and dentro_en_y
 
-    def receive(self, peso):
+    def receive(self, peso: float) -> None:
         """
         Registra peso que deja un picker.
 
@@ -195,11 +206,11 @@ class DispatchZone:
             )
         self.peso_actual = self.peso_actual + peso
 
-    def dispatch(self):
+    def dispatch(self) -> None:
         """Se cargó el camión y salió por la puerta: la zona queda vacía."""
         self.peso_actual = 0.0
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "id": self.zone_id,
             "puerta_id": self.puerta_id,
@@ -210,7 +221,7 @@ class DispatchZone:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> DispatchZone:
         ub = data["ubicacion"]
         return cls(
             zone_id=data["id"],
@@ -222,7 +233,7 @@ class DispatchZone:
             peso_max_kg=data["peso_max_kg"],
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"DispatchZone(id='{self.zone_id}', puerta='{self.puerta_id}', "
             f"pos=({self.x},{self.y}), {self.ancho}x{self.alto}, "
@@ -242,14 +253,14 @@ class Door:
 
     VALID_TIPOS = ["INBOUND", "OUTBOUND", "AMBOS"]
 
-    def __init__(self, door_id, position, tipo="AMBOS"):
+    def __init__(self, door_id: str, position: tuple[int, int], tipo: str = "AMBOS"):
         if tipo not in self.VALID_TIPOS:
             raise ValueError(f"Tipo inválido '{tipo}'. Opciones: {self.VALID_TIPOS}")
         self.door_id = door_id
         self.position = tuple(position)
         self.tipo = tipo
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "id": self.door_id,
             "tipo": self.tipo,
@@ -257,11 +268,11 @@ class Door:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> Door:
         ub = data["ubicacion"]
         return cls(door_id=data["id"], position=(ub["x"], ub["y"]), tipo=data.get("tipo", "AMBOS"))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Door(id='{self.door_id}', pos={self.position}, tipo='{self.tipo}')"
 
 
@@ -279,7 +290,7 @@ class Aisle:
 
     VALID_SENTIDOS = ["N", "S", "E", "O", "AMBOS"]
 
-    def __init__(self, aisle_id, x, y, ancho, alto, sentido):
+    def __init__(self, aisle_id: str, x: int, y: int, ancho: int, alto: int, sentido: str):
         if sentido not in self.VALID_SENTIDOS:
             raise ValueError(
                 f"Sentido inválido '{sentido}'. Opciones: {self.VALID_SENTIDOS}"
@@ -291,12 +302,12 @@ class Aisle:
         self.alto = alto
         self.sentido = sentido
 
-    def contains_cell(self, cx, cy):
+    def contains_cell(self, cx: int, cy: int) -> bool:
         dentro_en_x = self.x <= cx < self.x + self.ancho
         dentro_en_y = self.y <= cy < self.y + self.alto
         return dentro_en_x and dentro_en_y
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "id": self.aisle_id,
             "ubicacion": {"x": self.x, "y": self.y},
@@ -306,7 +317,7 @@ class Aisle:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> Aisle:
         ub = data["ubicacion"]
         return cls(
             aisle_id=data["id"],
@@ -317,7 +328,7 @@ class Aisle:
             sentido=data["sentido"],
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Aisle(id='{self.aisle_id}', pos=({self.x},{self.y}), "
             f"{self.ancho}x{self.alto}, sentido='{self.sentido}')"
@@ -340,7 +351,12 @@ class Picker:
         assigned_wave_id   (str)   : Id de esa wave, o None.
     """
 
-    def __init__(self, picker_id, posicion_inicial, capacidad_carga_kg):
+    def __init__(
+        self,
+        picker_id: str,
+        posicion_inicial: tuple[int, int],
+        capacidad_carga_kg: float,
+    ):
         if capacidad_carga_kg <= 0:
             raise ValueError(
                 f"La capacidad de carga debe ser positiva: {capacidad_carga_kg}"
@@ -351,17 +367,17 @@ class Picker:
         self.is_busy = False
         self.assigned_wave_id = None
 
-    def assign_wave(self, wave_id):
+    def assign_wave(self, wave_id: str) -> None:
         """Lo marca como ocupado con esa wave."""
         self.is_busy = True
         self.assigned_wave_id = wave_id
 
-    def release(self):
+    def release(self) -> None:
         """Lo deja libre otra vez."""
         self.is_busy = False
         self.assigned_wave_id = None
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """El picker en el formato del escenario JSON."""
         return {
             "id": self.picker_id,
@@ -370,7 +386,7 @@ class Picker:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> Picker:
         """Crea un Picker a partir del JSON."""
         pos = data["posicion_inicial"]
         return cls(
@@ -379,7 +395,7 @@ class Picker:
             capacidad_carga_kg=data["capacidad_carga_kg"],
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Picker(id={self.picker_id!r}, pos={self.posicion_inicial}, "
             f"cap={self.capacidad_carga_kg}kg)"
@@ -414,7 +430,14 @@ class Warehouse:
         así que validar un rectángulo cuesta O(celdas del rectángulo).
     """
 
-    def __init__(self, warehouse_id, ancho_x, largo_y, wave_max_pedidos=5, wave_max_productos=20):
+    def __init__(
+        self,
+        warehouse_id: str,
+        ancho_x: int,
+        largo_y: int,
+        wave_max_pedidos: int = 5,
+        wave_max_productos: int = 20,
+    ):
         if ancho_x <= 0 or largo_y <= 0:
             raise ValueError("Las dimensiones del warehouse deben ser positivas.")
 
@@ -445,22 +468,22 @@ class Warehouse:
     # ------------------------------------------------------------------
 
     @property
-    def dispatch_zones(self):
+    def dispatch_zones(self) -> tuple[DispatchZone, ...]:
         return tuple(self._dispatch_zones)
 
     @property
-    def doors(self):
+    def doors(self) -> tuple[Door, ...]:
         return tuple(self._doors)
 
     @property
-    def aisles(self):
+    def aisles(self) -> tuple[Aisle, ...]:
         return tuple(self._aisles)
 
     @property
-    def pickers(self):
+    def pickers(self) -> tuple[Picker, ...]:
         return tuple(self._pickers)
 
-    def seal(self):
+    def seal(self) -> None:
         """
         Cierra la configuración: después no se pueden agregar zonas, puertas,
         pasillos ni pickers.
@@ -471,7 +494,7 @@ class Warehouse:
         self._validate_every_door_has_zone()
         self._sealed = True
 
-    def _check_not_sealed(self, que):
+    def _check_not_sealed(self, que: str) -> None:
         if self._sealed:
             raise RuntimeError(f"El warehouse ya fue sellado; no se pueden agregar {que}.")
 
@@ -479,7 +502,7 @@ class Warehouse:
     # Productos
     # ------------------------------------------------------------------
 
-    def add_product(self, product):
+    def add_product(self, product: Product) -> None:
         """
         Raises:
             ValueError: Si ya existe un producto con ese id.
@@ -488,7 +511,7 @@ class Warehouse:
             raise ValueError(f"Ya existe un producto con id '{product.product_id}'.")
         self.products[product.product_id] = product
 
-    def get_product(self, product_id):
+    def get_product(self, product_id: str) -> Product:
         """
         Raises:
             KeyError: Si el producto no existe.
@@ -501,7 +524,7 @@ class Warehouse:
     # Racks
     # ------------------------------------------------------------------
 
-    def add_rack(self, rack):
+    def add_rack(self, rack: Rack) -> None:
         """
         Validaciones: id único, un lado vale 2 (§3.2), dentro del warehouse,
         sin solaparse con otro rack, puerta, zona, pasillo ni picker.
@@ -519,7 +542,7 @@ class Warehouse:
         self.racks[rack.rack_id] = rack
         self._mark_blocking(label, rack.x, rack.y, rack.ancho, rack.alto)
 
-    def get_rack(self, rack_id):
+    def get_rack(self, rack_id: str) -> Rack:
         """
         Raises:
             KeyError: Si el rack no existe.
@@ -528,7 +551,7 @@ class Warehouse:
             raise KeyError(f"No hay rack con id '{rack_id}'.")
         return self.racks[rack_id]
 
-    def get_rack_at(self, x, y):
+    def get_rack_at(self, x: int, y: int) -> Rack | None:
         """El rack que contiene la celda (x, y), o None."""
         for rack in self.racks.values():
             if rack.contains_cell(x, y):
@@ -539,7 +562,7 @@ class Warehouse:
     # Zonas de despacho
     # ------------------------------------------------------------------
 
-    def add_dispatch_zone(self, zone):
+    def add_dispatch_zone(self, zone: DispatchZone) -> None:
         """
         Validaciones: id único, dentro, sin solaparse; su puerta existe, no
         tiene otra zona y la zona queda delante (§3.4). La puerta tiene que
@@ -565,7 +588,7 @@ class Warehouse:
     # Puertas
     # ------------------------------------------------------------------
 
-    def add_door(self, door):
+    def add_door(self, door: Door) -> None:
         """
         Validaciones: id único, sobre el borde (§3.3), celda libre.
 
@@ -591,7 +614,7 @@ class Warehouse:
     # Pasillos
     # ------------------------------------------------------------------
 
-    def add_aisle(self, aisle):
+    def add_aisle(self, aisle: Aisle) -> None:
         """
         Validaciones: id único, dentro, sin solaparse con racks, puertas,
         zonas ni otros pasillos (§3.5). Un picker sí puede estar en un pasillo.
@@ -612,7 +635,7 @@ class Warehouse:
         for celda in _rectangle_cells(aisle.x, aisle.y, aisle.ancho, aisle.alto):
             self._aisle_cells[celda] = aisle
 
-    def get_aisle_direction(self, x, y):
+    def get_aisle_direction(self, x: int, y: int) -> str:
         """Sentido de la celda (x, y); "AMBOS" si no está en ningún pasillo declarado."""
         aisle = self._aisle_cells.get((x, y))
         if aisle is None:
@@ -623,7 +646,7 @@ class Warehouse:
     # Pickers
     # ------------------------------------------------------------------
 
-    def add_picker(self, picker):
+    def add_picker(self, picker: Picker) -> None:
         """
         Validaciones: id único, empieza en una celda de pasillo (§3.6) y no
         hay otro picker en esa celda.
@@ -645,18 +668,25 @@ class Warehouse:
     # Validaciones
     # ------------------------------------------------------------------
 
-    def is_valid_position(self, x, y):
+    def is_valid_position(self, x: int, y: int) -> bool:
         """True si (x, y) está dentro del warehouse."""
         return 0 <= x < self.ancho_x and 0 <= y < self.largo_y
 
-    def _validate_position(self, x, y):
+    def _validate_position(self, x: int, y: int) -> None:
         if not self.is_valid_position(x, y):
             raise ValueError(
                 f"Posición ({x},{y}) fuera de los límites del warehouse "
                 f"({self.ancho_x}x{self.largo_y})."
             )
 
-    def _validate_rect_inside(self, label, x, y, ancho, alto):
+    def _validate_rect_inside(
+        self,
+        label: str,
+        x: int,
+        y: int,
+        ancho: int,
+        alto: int,
+    ) -> None:
         """
         El rectángulo tiene tamaño positivo y queda dentro del warehouse.
         Alcanza con revisar dos esquinas opuestas.
@@ -669,7 +699,15 @@ class Warehouse:
         self._validate_position(x, y)
         self._validate_position(x + ancho - 1, y + alto - 1)
 
-    def _validate_rect_free(self, label, x, y, ancho, alto, allow_pickers):
+    def _validate_rect_free(
+        self,
+        label: str,
+        x: int,
+        y: int,
+        ancho: int,
+        alto: int,
+        allow_pickers: bool,
+    ) -> None:
         """
         Ninguna celda del rectángulo está ocupada por un rack, puerta, zona o
         pasillo. Si allow_pickers es False, tampoco puede haber un picker.
@@ -690,12 +728,12 @@ class Warehouse:
                     f"{_capitalize_first(label)} se solapa con {ocupante} en la celda {celda}."
                 )
 
-    def _mark_blocking(self, label, x, y, ancho, alto):
+    def _mark_blocking(self, label: str, x: int, y: int, ancho: int, alto: int) -> None:
         """Anota las celdas de un rack, puerta o zona como no transitables."""
         for celda in _rectangle_cells(x, y, ancho, alto):
             self._blocking_cells[celda] = label
 
-    def _validate_rack_has_side_2(self, rack):
+    def _validate_rack_has_side_2(self, rack: Rack) -> None:
         """§3.2: uno de los lados del rack vale 2."""
         if rack.ancho != 2 and rack.alto != 2:
             raise ValueError(
@@ -703,10 +741,10 @@ class Warehouse:
                 f"(ancho={rack.ancho}, alto={rack.alto})."
             )
 
-    def _is_on_border(self, x, y):
+    def _is_on_border(self, x: int, y: int) -> bool:
         return x == 0 or x == self.ancho_x - 1 or y == 0 or y == self.largo_y - 1
 
-    def _validate_door_on_border(self, door):
+    def _validate_door_on_border(self, door: Door) -> None:
         """§3.3: la puerta está sobre el borde."""
         x = door.position[0]
         y = door.position[1]
@@ -716,7 +754,7 @@ class Warehouse:
                 f"del warehouse ({self.ancho_x}x{self.largo_y})."
             )
 
-    def _validate_zone_faces_its_door(self, zone):
+    def _validate_zone_faces_its_door(self, zone: DispatchZone) -> None:
         """
         §3.4: la puerta de la zona existe, no tiene otra zona, y al menos una
         celda de la zona está pegada a la puerta.
@@ -752,7 +790,7 @@ class Warehouse:
                 f"'{door.door_id}' en {door.position}: ninguna celda es adyacente."
             )
 
-    def _validate_picker_on_aisle_cell(self, picker):
+    def _validate_picker_on_aisle_cell(self, picker: Picker) -> None:
         """§3.6: el picker empieza en una celda de pasillo y sin otro picker."""
         x = picker.posicion_inicial[0]
         y = picker.posicion_inicial[1]
@@ -769,7 +807,7 @@ class Warehouse:
                 f"el picker '{self._picker_cells[celda].picker_id}'."
             )
 
-    def _validate_every_door_has_zone(self):
+    def _validate_every_door_has_zone(self) -> None:
         """§3.3: frente a cada puerta hay una zona de despacho."""
         puertas_con_zona = set()
         for zona in self._dispatch_zones:
@@ -789,7 +827,7 @@ class Warehouse:
     # Serialización
     # ------------------------------------------------------------------
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         El warehouse en el formato del escenario JSON. Los pedidos y las waves
         se guardan con WaveManager.to_dict().
@@ -830,7 +868,7 @@ class Warehouse:
         }
 
     @classmethod
-    def from_dict(cls, data, warehouse_id="warehouse"):
+    def from_dict(cls, data: dict, warehouse_id: str = "warehouse") -> Warehouse:
         """
         Arma el warehouse completo desde el JSON del escenario y lo sella.
 
@@ -871,7 +909,7 @@ class Warehouse:
         wh.seal()
         return wh
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Warehouse(id='{self.warehouse_id}', size={self.ancho_x}x{self.largo_y}, "
             f"racks={len(self.racks)}, products={len(self.products)}, "

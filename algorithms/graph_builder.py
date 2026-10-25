@@ -21,7 +21,16 @@ Regla de circulación (una sola):
     un pasillo AMBOS no prohíbe nada.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from algorithms.graph import Graph
+
+if TYPE_CHECKING:
+    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
+    # estos imports no pueden armar un import circular (ver GUIA.md).
+    from models import Warehouse
 
 
 # Los cuatro pasos posibles (dx, dy). El orden define el orden de los vecinos
@@ -37,7 +46,7 @@ AVANCE = {
 }
 
 
-def _goes_against(sentido, dx, dy):
+def _goes_against(sentido: str, dx: int, dy: int) -> bool:
     """True si el paso (dx, dy) es justo el opuesto al sentido del pasillo."""
     if sentido == "AMBOS":
         return False
@@ -45,7 +54,7 @@ def _goes_against(sentido, dx, dy):
     return dx == -avance_x and dy == -avance_y
 
 
-def _blocked_cells(warehouse):
+def _blocked_cells(warehouse: Warehouse) -> set[tuple[int, int]]:
     """Conjunto de celdas ocupadas por racks, puertas y zonas de despacho."""
     bloqueadas = set()
 
@@ -65,7 +74,7 @@ def _blocked_cells(warehouse):
     return bloqueadas
 
 
-def _cell_directions(warehouse):
+def _cell_directions(warehouse: Warehouse) -> dict[tuple[int, int], str]:
     """
     Diccionario {(x, y): sentido} con las celdas de los pasillos declarados.
     Las celdas que no aparecen son AMBOS. Si dos pasillos se pisaran (el
@@ -79,14 +88,14 @@ def _cell_directions(warehouse):
     return sentidos
 
 
-def _direction_of(sentidos, celda):
+def _direction_of(sentidos: dict[tuple[int, int], str], celda: tuple[int, int]) -> str:
     """Sentido de una celda: el de su pasillo declarado, o AMBOS si no tiene."""
     if celda in sentidos:
         return sentidos[celda]
     return "AMBOS"
 
 
-def generate_graph(warehouse):
+def generate_graph(warehouse: Warehouse) -> Graph:
     """
     Construye el grafo de circulación del warehouse.
 

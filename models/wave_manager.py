@@ -32,20 +32,23 @@ Ordenar con tuplas:
     la prioridad 5. Se usa -prioridad para que la prioridad MAYOR quede primero.
 """
 
-from models.order import Order
+from __future__ import annotations
+
+from models.order import Order, OrderItem
+from models.warehouse import Picker, Warehouse
 from models.wave import Wave, WaveStatus
-from algorithms import bfs_distances, generate_graph, pickup_cells
+from algorithms import Graph, bfs_distances, generate_graph, pickup_cells
 
 
 INFINITO = float("inf")
 
 
-def _order_key(order):
+def _order_key(order: Order) -> tuple[int, str]:
     """Orden de los pedidos pendientes: mayor prioridad primero, después por id."""
     return (-order.prioridad, order.order_id)
 
 
-def _picker_key(picker):
+def _picker_key(picker: Picker) -> tuple[float, str]:
     """Orden de los pickers libres: menor capacidad primero, después por id."""
     return (picker.capacidad_carga_kg, picker.picker_id)
 
@@ -68,7 +71,14 @@ class WaveManager:
     queda guiado solo por prioridad e id.
     """
 
-    def __init__(self, warehouse=None, orders=None, max_pedidos=None, max_productos=None, graph=None):
+    def __init__(
+        self,
+        warehouse: Warehouse | None = None,
+        orders: list[Order] | None = None,
+        max_pedidos: int | None = None,
+        max_productos: int | None = None,
+        graph: Graph | None = None,
+    ):
         self.warehouse = warehouse
 
         self.orders = []
@@ -117,14 +127,14 @@ class WaveManager:
     # Pedidos y pickers
     # ------------------------------------------------------------------
 
-    def add_order(self, order):
+    def add_order(self, order: Order) -> None:
         self.orders.append(order)
 
-    def add_orders(self, orders):
+    def add_orders(self, orders: list[Order]) -> None:
         for order in orders:
             self.add_order(order)
 
-    def get_pending_orders(self):
+    def get_pending_orders(self) -> list[Order]:
         """Pedidos con al menos un ítem sin wave (PENDIENTE o PARCIAL)."""
         pendientes = []
         for order in self.orders:
@@ -132,7 +142,7 @@ class WaveManager:
                 pendientes.append(order)
         return pendientes
 
-    def _register_pickers(self, pickers):
+    def _register_pickers(self, pickers: list[Picker] | None) -> list[Picker]:
         """Suma los pickers nuevos (los que no conocía) y devuelve todos."""
         if pickers is not None:
             ids_conocidos = set()
@@ -143,7 +153,7 @@ class WaveManager:
                     self.pickers.append(p)
         return self.pickers
 
-    def _max_capacity(self, pickers):
+    def _max_capacity(self, pickers: list[Picker]) -> float:
         """Capacidad del picker más grande (0 si no hay pickers)."""
         mayor = 0.0
         for p in pickers:
@@ -151,7 +161,12 @@ class WaveManager:
                 mayor = p.capacidad_carga_kg
         return mayor
 
-    def _validate_item_feasibility(self, order, item, max_picker_cap):
+    def _validate_item_feasibility(
+        self,
+        order: Order,
+        item: OrderItem,
+        max_picker_cap: float,
+    ) -> tuple[bool, str]:
         """
         Revisa si un ítem puede entrar en alguna wave: no tiene más unidades
         que max_productos ni pesa más que el picker más grande.
@@ -179,7 +194,7 @@ class WaveManager:
     # Distancias (etapa 1)
     # ------------------------------------------------------------------
 
-    def _pickup_cells(self, item):
+    def _pickup_cells(self, item: OrderItem) -> set[tuple[int, int]]:
         """Celdas de pasillo desde las que se recoge el producto del ítem."""
         pid = item.product.product_id
         if pid not in self._pickup_cache:
@@ -187,7 +202,7 @@ class WaveManager:
             self._pickup_cache[pid] = set(celdas)
         return self._pickup_cache[pid]
 
-    def _distances_from_wave(self, wave):
+    def _distances_from_wave(self, wave: Wave) -> dict[tuple[int, int], int] | None:
         """
         BFS multi-origen desde todas las celdas de recogida de la wave.
         Devuelve {celda: distancia}, o None si no hay grafo.
@@ -202,7 +217,11 @@ class WaveManager:
                 origenes.add(celda)
         return bfs_distances(self.graph, origenes)
 
-    def _distance(self, items, dist):
+    def _distance(
+        self,
+        items: list[OrderItem],
+        dist: dict[tuple[int, int], int] | None,
+    ) -> float:
         """
         Distancia de la wave a un pedido: la menor distancia a alguna celda
         de recogida de sus ítems. 0 si no hay grafo; infinito si no llega.
@@ -220,7 +239,11 @@ class WaveManager:
     # Etapa 1: armar waves
     # ------------------------------------------------------------------
 
-    def generate_waves(self, pickers=None, prefix="WAVE_"):
+    def generate_waves(
+        self,
+        pickers: list[Picker] | None = None,
+        prefix: str = "WAVE_",
+    ) -> list[Wave]:
         """
         Arma waves con los ítems pendientes (etapa 1) y después asigna
         pickers libres a la cola (etapa 2).
@@ -299,7 +322,15 @@ class WaveManager:
         self.assign_pickers()
         return new_waves
 
-    def _best_candidate(self, wave, pending, seed, viable, dist, max_peso):
+    def _best_candidate(
+        self,
+        wave: Wave,
+        pending: list[Order],
+        seed: Order,
+        viable: dict[str, list[OrderItem]],
+        dist: dict[tuple[int, int], int] | None,
+        max_peso: float,
+    ) -> Order | None:
         """
         Entre los pedidos que entran completos en la wave, devuelve el de
         menor clave (-prioridad, distancia, order_id), o None si no entra ninguno.
@@ -318,7 +349,13 @@ class WaveManager:
                 mejor_clave = clave
         return mejor
 
-    def _add_seed(self, wave, seed, viable, max_peso):
+    def _add_seed(
+        self,
+        wave: Wave,
+        seed: Order,
+        viable: dict[str, list[OrderItem]],
+        max_peso: float,
+    ) -> None:
         """
         Pone el pedido semilla en una wave vacía. Si no entra completo, se
         agregan sus ítems de a uno mientras quepan, y el resto queda en
@@ -345,11 +382,11 @@ class WaveManager:
     # Etapa 2: asignar pickers
     # ------------------------------------------------------------------
 
-    def _queue_key(self, wave):
+    def _queue_key(self, wave: Wave) -> tuple[int, int]:
         """Orden de la cola: mayor prioridad primero, después la más antigua."""
         return (-wave.priority(), self.waves.index(wave))
 
-    def assign_pickers(self, pickers=None):
+    def assign_pickers(self, pickers: list[Picker] | None = None) -> list[Wave]:
         """
         Recorre la cola en orden y le da a cada wave el picker libre más chico
         que la pueda cargar. Una wave que no encuentra picker sigue esperando,
@@ -379,7 +416,7 @@ class WaveManager:
             assigned.append(wave)
         return assigned
 
-    def complete_wave(self, wave):
+    def complete_wave(self, wave: Wave) -> list[Wave]:
         """
         Termina una wave en proceso, libera su picker y vuelve a repartir
         pickers en la cola.
@@ -394,20 +431,20 @@ class WaveManager:
     # Consultas
     # ------------------------------------------------------------------
 
-    def get_waves(self):
+    def get_waves(self) -> list[Wave]:
         return list(self.waves)
 
-    def get_queued_waves(self):
+    def get_queued_waves(self) -> list[Wave]:
         return list(self.queue)
 
-    def get_unprocessable_orders(self):
+    def get_unprocessable_orders(self) -> list[tuple[Order, str]]:
         return list(self.unprocessable_orders)
 
     # ------------------------------------------------------------------
     # Guardar y cargar 
     # ------------------------------------------------------------------
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Pedidos y waves, para guardarlos junto al escenario."""
         pedidos = []
         for o in self.orders:
@@ -418,7 +455,7 @@ class WaveManager:
         return {"pedidos": pedidos, "waves": waves}
 
     @classmethod
-    def from_dict(cls, data, warehouse):
+    def from_dict(cls, data: dict, warehouse: Warehouse) -> WaveManager:
         """
         Vuelve a cargar pedidos y waves guardados. Pedidos y pickers quedan
         como estaban al guardar, y las waves sin picker vuelven a la cola.
@@ -444,7 +481,7 @@ class WaveManager:
         manager.queue = sorted(manager.queue, key=manager._queue_key)
         return manager
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"WaveManager(pedidos_totales={len(self.orders)}, "
             f"con_pendientes={len(self.get_pending_orders())}, "

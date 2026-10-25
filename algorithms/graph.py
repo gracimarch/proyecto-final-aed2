@@ -15,8 +15,11 @@ Estructuras de Python que se usan:
         heappush agrega y heappop saca el MENOR, los dos en O(log n). Lo usa A*.
 """
 
+from __future__ import annotations
+
 import heapq
 from collections import deque
+from collections.abc import Callable
 
 
 INFINITO = float("inf")
@@ -33,7 +36,7 @@ class Graph:
     usa un grafo dirigido porque los pasillos tienen sentido de circulación.
     """
 
-    def __init__(self, directed=False):
+    def __init__(self, directed: bool = False):
         self._directed = directed
         self._adj = {}
         self._node_count = 0
@@ -43,13 +46,13 @@ class Graph:
     # Construcción
     # ------------------------------------------------------------------
 
-    def add_node(self, node):
+    def add_node(self, node: object) -> None:
         """Agrega un nodo. Si ya existe, no hace nada."""
         if node not in self._adj:
             self._adj[node] = {}
             self._node_count = self._node_count + 1
 
-    def add_edge(self, u, v, weight=1.0):
+    def add_edge(self, u: object, v: object, weight: float = 1.0) -> None:
         """
         Agrega la arista u -> v (y v -> u si el grafo no es dirigido).
         Si ya existía, actualiza su peso.
@@ -67,7 +70,7 @@ class Graph:
         if not self._directed:
             self._adj[v][u] = weight
 
-    def remove_edge(self, u, v):
+    def remove_edge(self, u: object, v: object) -> None:
         """Borra la arista u -> v (y v -> u si no es dirigido). Si no existe, no hace nada."""
         if self.has_edge(u, v):
             del self._adj[u][v]
@@ -79,13 +82,13 @@ class Graph:
     # Consultas
     # ------------------------------------------------------------------
 
-    def has_node(self, node):
+    def has_node(self, node: object) -> bool:
         return node in self._adj
 
-    def has_edge(self, u, v):
+    def has_edge(self, u: object, v: object) -> bool:
         return u in self._adj and v in self._adj[u]
 
-    def weight(self, u, v):
+    def weight(self, u: object, v: object) -> float:
         """
         Raises:
             KeyError: Si la arista no existe.
@@ -94,7 +97,7 @@ class Graph:
             raise KeyError(f"No existe arista entre {u} y {v}.")
         return self._adj[u][v]
 
-    def neighbors(self, node):
+    def neighbors(self, node: object) -> dict[object, float]:
         """
         Vecinos del nodo como diccionario {vecino: peso}. Recorrerlo con un
         for da los vecinos.
@@ -106,20 +109,20 @@ class Graph:
             raise KeyError(f"Nodo '{node}' no existe en el grafo.")
         return dict(self._adj[node])
 
-    def nodes(self):
+    def nodes(self) -> list[object]:
         return list(self._adj.keys())
 
-    def node_count(self):
+    def node_count(self) -> int:
         return self._node_count
 
-    def edge_count(self):
+    def edge_count(self) -> int:
         return self._edge_count
 
     # ------------------------------------------------------------------
     # BFS desde un nodo
     # ------------------------------------------------------------------
 
-    def bfs(self, source):
+    def bfs(self, source: object) -> dict[object, int]:
         """
         Recorrido en anchura desde source.
 
@@ -145,14 +148,14 @@ class Graph:
                     cola.append(v)
         return nivel
 
-    def reachable_from(self, source):
+    def reachable_from(self, source: object) -> set[object]:
         """Conjunto de nodos a los que se puede llegar desde source."""
         alcanzables = set()
         for nodo in self.bfs(source):
             alcanzables.add(nodo)
         return alcanzables
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Graph(nodes={self._node_count}, edges={self._edge_count}, "
             f"directed={self._directed})"
@@ -163,7 +166,7 @@ class Graph:
 # Ayudas
 # ===========================================================================
 
-def _reconstruct(prev, target):
+def _reconstruct(prev: dict[object, object], target: object) -> tuple[list[object], int]:
     """
     Arma el camino desde el origen hasta target usando prev.
 
@@ -184,7 +187,7 @@ def _reconstruct(prev, target):
     return path, len(path) - 1
 
 
-def _count_expanded(stats, expanded):
+def _count_expanded(stats: dict | None, expanded: int) -> None:
     """Suma nodos expandidos en stats["nodos_expandidos"], si se pasó stats."""
     if stats is not None:
         anterior = stats.get("nodos_expandidos", 0)
@@ -195,7 +198,7 @@ def _count_expanded(stats, expanded):
 # BFS multi-origen: distancia desde un conjunto de nodos
 # ===========================================================================
 
-def bfs_distances(graph, sources):
+def bfs_distances(graph: Graph, sources: set[object]) -> dict[object, int]:
     """
     BFS que arranca a la vez desde todos los nodos de sources.
 
@@ -228,7 +231,12 @@ def bfs_distances(graph, sources):
 # BFS hacia uno o varios destinos
 # ===========================================================================
 
-def bfs_to_any(graph, source, targets, stats=None):
+def bfs_to_any(
+    graph: Graph,
+    source: object,
+    targets: set[object],
+    stats: dict | None = None,
+) -> tuple[list[object], float, object | None]:
     """
     BFS desde source hasta el destino de targets que esté más cerca.
 
@@ -274,7 +282,11 @@ def bfs_to_any(graph, source, targets, stats=None):
     return [], INFINITO, None
 
 
-def bfs_shortest_path(graph, source, target):
+def bfs_shortest_path(
+    graph: Graph,
+    source: object,
+    target: object,
+) -> tuple[list[object], float]:
     """Camino mínimo de source a target con BFS. Devuelve (camino, distancia)."""
     if not graph.has_node(target):
         raise KeyError(f"Nodo destino {target} no existe en el grafo.")
@@ -286,7 +298,11 @@ def bfs_shortest_path(graph, source, target):
 # A* hacia uno o varios destinos
 # ===========================================================================
 
-def _estimate(node, targets, heuristic):
+def _estimate(
+    node: object,
+    targets: set[object],
+    heuristic: Callable[[object, object], float],
+) -> float:
     """Estimación de A* para varios destinos: la menor heurística hacia alguno."""
     menor = INFINITO
     for target in targets:
@@ -296,7 +312,13 @@ def _estimate(node, targets, heuristic):
     return menor
 
 
-def astar_to_any(graph, source, targets, heuristic, stats=None):
+def astar_to_any(
+    graph: Graph,
+    source: object,
+    targets: set[object],
+    heuristic: Callable[[object, object], float],
+    stats: dict | None = None,
+) -> tuple[list[object], float, object | None]:
     """
     A*: busca el camino de menor costo hacia alguno de los destinos.
 
@@ -369,7 +391,12 @@ def astar_to_any(graph, source, targets, heuristic, stats=None):
     return [], INFINITO, None
 
 
-def astar_shortest_path(graph, source, target, heuristic):
+def astar_shortest_path(
+    graph: Graph,
+    source: object,
+    target: object,
+    heuristic: Callable[[object, object], float],
+) -> tuple[list[object], float]:
     """Camino mínimo de source a target con A*. Devuelve (camino, costo)."""
     if not graph.has_node(target):
         raise KeyError(f"Nodo destino {target} no existe en el grafo.")

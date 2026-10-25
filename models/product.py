@@ -4,6 +4,8 @@ models/product.py
 Un producto guardado en un rack del warehouse (consigna §4).
 """
 
+from __future__ import annotations
+
 
 class Product:
     """
@@ -20,7 +22,15 @@ class Product:
         peso_kg             (float) : Peso por unidad, en kilogramos.
     """
 
-    def __init__(self, product_id, name, rack_id, location, cantidad_disponible, peso_kg):
+    def __init__(
+        self,
+        product_id: str,
+        name: str,
+        rack_id: str,
+        location: list[int],
+        cantidad_disponible: int,
+        peso_kg: float,
+    ):
         if cantidad_disponible < 0:
             raise ValueError(f"El stock no puede ser negativo: {cantidad_disponible}")
         if len(location) != 3:
@@ -45,18 +55,18 @@ class Product:
     # ------------------------------------------------------------------
 
     @property
-    def x(self):
+    def x(self) -> int:
         return self.location[0]
 
     @property
-    def y(self):
+    def y(self) -> int:
         return self.location[1]
 
     @property
-    def z(self):
+    def z(self) -> int:
         return self.location[2]
 
-    def drop_z(self):
+    def drop_z(self) -> None:
         """
         Baja el producto un nivel (z - 1). Se usa cuando se retira el
         producto que estaba justo debajo en la misma celda del rack.
@@ -71,7 +81,7 @@ class Product:
     # Stock
     # ------------------------------------------------------------------
 
-    def reduce_stock(self, quantity):
+    def reduce_stock(self, quantity: int) -> None:
         """
         Descuenta quantity unidades del stock.
 
@@ -91,7 +101,7 @@ class Product:
     # Serialización
     # ------------------------------------------------------------------
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Devuelve el producto como diccionario, en el formato del escenario JSON."""
         return {
             "id": self.product_id,
@@ -107,7 +117,7 @@ class Product:
         }
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> Product:
         """
         Crea un Product a partir de un diccionario del escenario JSON.
 
@@ -124,7 +134,7 @@ class Product:
             peso_kg=data["peso_kg"],
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         # __repr__ define cómo se muestra el objeto al imprimirlo.
         return (
             f"Product(id='{self.product_id}', name='{self.name}', "

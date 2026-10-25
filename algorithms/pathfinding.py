@@ -14,14 +14,27 @@ Funciones:
     manhattan             : heurística que usa A*.
 """
 
-from algorithms.graph import bfs_to_any, astar_to_any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from algorithms.graph import Graph, bfs_to_any, astar_to_any
+
+if TYPE_CHECKING:
+    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
+    # estos imports no pueden armar un import circular (ver GUIA.md).
+    from models import Product, Warehouse
 
 
 # ===========================================================================
 # 1. Celdas de recogida de un producto
 # ===========================================================================
 
-def pickup_cells(product, warehouse, graph):
+def pickup_cells(
+    product: Product,
+    warehouse: Warehouse,
+    graph: Graph,
+) -> list[tuple[int, int]]:
     """
     Lista de celdas de pasillo desde las que se puede recoger el producto.
 
@@ -83,7 +96,12 @@ def pickup_cells(product, warehouse, graph):
     return celdas
 
 
-def _pickup_targets(graph, source, product, warehouse):
+def _pickup_targets(
+    graph: Graph,
+    source: tuple[int, int],
+    product: Product,
+    warehouse: Warehouse,
+) -> set[tuple[int, int]]:
     """
     Controles comunes de BFS y A*: que source sea un nodo y que el producto
     tenga al menos una celda de recogida. Devuelve esas celdas como conjunto.
@@ -105,7 +123,13 @@ def _pickup_targets(graph, source, product, warehouse):
 # 2. Camino con BFS
 # ===========================================================================
 
-def path_to_product_bfs(graph, source, product, warehouse, stats=None):
+def path_to_product_bfs(
+    graph: Graph,
+    source: tuple[int, int],
+    product: Product,
+    warehouse: Warehouse,
+    stats: dict | None = None,
+) -> tuple[list[tuple[int, int]], float, tuple[int, int] | None]:
     """
     Camino mínimo desde source hasta alguna celda de recogida del producto.
 
@@ -120,7 +144,7 @@ def path_to_product_bfs(graph, source, product, warehouse, stats=None):
 # 3. Heurística y camino con A*
 # ===========================================================================
 
-def manhattan(source, target):
+def manhattan(source: tuple[int, int], target: tuple[int, int]) -> int:
     """
     Distancia Manhattan: |x1 - x2| + |y1 - y2|.
 
@@ -131,7 +155,13 @@ def manhattan(source, target):
     return abs(source[0] - target[0]) + abs(source[1] - target[1])
 
 
-def path_to_product_astar(graph, source, product, warehouse, stats=None):
+def path_to_product_astar(
+    graph: Graph,
+    source: tuple[int, int],
+    product: Product,
+    warehouse: Warehouse,
+    stats: dict | None = None,
+) -> tuple[list[tuple[int, int]], float, tuple[int, int] | None]:
     """
     Igual que path_to_product_bfs, pero con A* y la heurística Manhattan.
 
