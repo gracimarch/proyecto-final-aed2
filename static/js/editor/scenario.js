@@ -233,11 +233,30 @@ class Scenario {
 
 
     // ── Products ─────────────────────────────────────────────────────
-    addProduct(rackId, { name, sku, quantity, cantidad, pesoKg = 1.0 } = {}) {
+    addProduct(rackId, { name, sku, quantity, cantidad, pesoKg, x, y, z } = {}) {
         const rack = this.getRackById(rackId); if (!rack) return null;
         const qty = cantidad != null ? cantidad : (quantity != null ? quantity : 1);
-        const pz = rack.products.filter(p => p.x === rack.x && p.y === rack.y).length + 1;
-        const product = new Product({ name, sku, rackId, x: rack.x, y: rack.y, z: pz, quantity: qty, pesoKg });
+        const weight = (pesoKg != null && !isNaN(parseFloat(pesoKg))) ? parseFloat(pesoKg) : 1.0;
+
+        // Determinar celda destino: usar (x, y) si pertenece al rack, sino esquina inferior-izquierda
+        let targetX = rack.x;
+        let targetY = rack.y;
+        if (x != null && y != null && rack.containsCell(x, y)) {
+            targetX = x;
+            targetY = y;
+        }
+
+        // Nivel Z: usar el provisto (si válido) o calcular el siguiente libre en la celda
+        const cellProducts = rack.products.filter(p => p.x === targetX && p.y === targetY);
+        const targetZ = (z != null && Number.isInteger(+z) && +z >= 1) ? +z : cellProducts.length + 1;
+
+        // Validar que el slot (x, y, z) no esté ya ocupado
+        const slotOccupied = rack.products.some(p => p.x === targetX && p.y === targetY && p.z === targetZ);
+        if (slotOccupied) {
+            return { error: `La posición (${targetX}, ${targetY}) Z:${targetZ} ya está ocupada. Elegí un nivel Z diferente.` };
+        }
+
+        const product = new Product({ name, sku, rackId, x: targetX, y: targetY, z: targetZ, quantity: qty, pesoKg: weight });
         rack.products.push(product); return product;
     }
     removeProduct(productId) { for (const r of this.racks) { const i = r.products.findIndex(p => p.id === productId); if (i !== -1) { r.products.splice(i, 1); return true; } } return false; }

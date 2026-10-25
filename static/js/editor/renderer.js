@@ -221,6 +221,7 @@ class WarehouseRenderer {
         this._drawAisles();
         this._drawDoors();
         this._drawRacks();
+        this._drawHoverCell();   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
         this._drawPickers();
         this._drawCursorPreview();
 
@@ -296,20 +297,35 @@ class WarehouseRenderer {
             ctx.stroke();
         }
 
-        // Hover cell
-        if (this.hoverCell && s.isInBounds(this.hoverCell.x, this.hoverCell.y)) {
-            const hx = this.hoverCell.x * CELL;
-            const hy = this._wy(this.hoverCell.y);   // y lógica → world y (invertido)
-            ctx.fillStyle = 'rgba(79, 156, 249, 0.12)';
-            ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
+        // ── El hover de celda se dibuja por separado en _drawHoverCell() ──────────────
+    }
 
-            // Coordenadas lógicas (y=0 abajo)
-            ctx.fillStyle    = 'rgba(79, 156, 249, 0.6)';
-            ctx.font         = `${Math.max(7, 7)}px "JetBrains Mono", monospace`;
-            ctx.textAlign    = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(`${this.hoverCell.x},${this.hoverCell.y}`, hx + 2, hy + 2);
-        }
+    // ── Hover de celda (sobre todos los elementos, incluso racks) ─────
+
+    _drawHoverCell() {
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        if (!this.hoverCell || !s.isInBounds(this.hoverCell.x, this.hoverCell.y)) return;
+
+        const hx = this.hoverCell.x * CELL;
+        const hy = this._wy(this.hoverCell.y);
+
+        const onRack = !!s.getRackAt(this.hoverCell.x, this.hoverCell.y);
+
+        // Fondo con mayor contraste si está sobre un rack
+        ctx.fillStyle = onRack ? 'rgba(79, 156, 249, 0.25)' : 'rgba(79, 156, 249, 0.12)';
+        ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
+
+        // Coordenadas — fondo oscuro para garantizar legibilidad sobre el color del rack
+        const label = `${this.hoverCell.x},${this.hoverCell.y}`;
+        ctx.font         = `7px "JetBrains Mono", monospace`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(hx + 2, hy + 2, tw + 4, 10);
+        ctx.fillStyle = onRack ? '#93c5fd' : 'rgba(79, 156, 249, 0.9)';
+        ctx.fillText(label, hx + 4, hy + 3);
     }
 
     // ── Zonas de despacho (múltiples) ────────────────────────────
@@ -570,58 +586,69 @@ class WarehouseRenderer {
 
         // Productos
         if (rack.products.length > 0) {
-            this._drawProductsOnRack(rack, rx, ry, rw, rh);
+            this._drawProductsOnRack(rack);
         }
     }
 
-    _drawProductsOnRack(rack, rx, ry, rw, rh) {
+    _drawProductsOnRack(rack) {
         const ctx = this.ctx;
 
-        const maxSpriteSize = Math.min(rw - 10, rh - 18, CELL * 0.65);
-        const sp   = maxSpriteSize;
-        const sx   = rx + (rw - sp) / 2;
-        const sy   = ry + (rh - sp) / 2 + 3;
-
-        if (this.productSprite.complete && this.productSprite.naturalWidth > 0) {
-            // Renderizar sprite pixel art con escalado nítido
-            ctx.save();
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(this.productSprite, sx, sy, sp, sp);
-            ctx.restore();
-        } else {
-            // Fallback: caja dibujada
-            ctx.fillStyle   = '#78350f';
-            ctx.strokeStyle = '#451a03';
-            ctx.lineWidth   = 1.5;
-            ctx.beginPath();
-            ctx.roundRect(sx, sy, sp, sp, 2);
-            ctx.fill();
-            ctx.stroke();
-            // Cruz (tapa de caja)
-            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-            ctx.lineWidth   = 1;
-            ctx.beginPath();
-            ctx.moveTo(sx, sy); ctx.lineTo(sx + sp, sy + sp);
-            ctx.moveTo(sx + sp, sy); ctx.lineTo(sx, sy + sp);
-            ctx.stroke();
+        // Agrupar productos por celda única (cx, cy)
+        const cellMap = new Map();
+        for (const p of rack.products) {
+            const key = `${p.x},${p.y}`;
+            if (!cellMap.has(key)) cellMap.set(key, []);
+            cellMap.get(key).push(p);
         }
 
-        // Badge con cantidad de productos
-        const count   = rack.products.length;
-        const badgeR  = 7;
-        const bx      = rx + rw - badgeR - 2;
-        const by      = ry + badgeR + 2;
+        const boxSize = Math.round(CELL * 0.58);   // ~21px para CELL=36
 
-        ctx.fillStyle = '#4f9cf9';
-        ctx.beginPath();
-        ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
-        ctx.fill();
+        for (const [, cellProds] of cellMap) {
+            const cx  = cellProds[0].x;
+            const cy  = cellProds[0].y;
+            const px  = cx * CELL;
+            const py  = this._wy(cy);
+            const sx  = px + (CELL - boxSize) / 2;
+            const sy  = py + (CELL - boxSize) / 2;
 
-        ctx.fillStyle    = '#fff';
-        ctx.font         = `bold 8px "JetBrains Mono", monospace`;
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(count, bx, by);
+            if (this.productSprite.complete && this.productSprite.naturalWidth > 0) {
+                ctx.save();
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(this.productSprite, sx, sy, boxSize, boxSize);
+                ctx.restore();
+            } else {
+                // Fallback: caja dibujada
+                ctx.fillStyle   = '#78350f';
+                ctx.strokeStyle = '#451a03';
+                ctx.lineWidth   = 1.5;
+                ctx.beginPath();
+                ctx.roundRect(sx, sy, boxSize, boxSize, 2);
+                ctx.fill();
+                ctx.stroke();
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                ctx.lineWidth   = 1;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy); ctx.lineTo(sx + boxSize, sy + boxSize);
+                ctx.moveTo(sx + boxSize, sy); ctx.lineTo(sx, sy + boxSize);
+                ctx.stroke();
+            }
+
+            // Badge de cantidad si hay más de 1 producto en la celda
+            if (cellProds.length > 1) {
+                const badgeR = 6;
+                const bx     = px + CELL - badgeR - 1;
+                const by     = py + badgeR + 1;
+                ctx.fillStyle = '#4f9cf9';
+                ctx.beginPath();
+                ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle    = '#fff';
+                ctx.font         = `bold 7px "JetBrains Mono", monospace`;
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(cellProds.length, bx, by);
+            }
+        }
     }
 
     // ── Pickers ───────────────────────────────────────────────────
@@ -746,6 +773,18 @@ class WarehouseRenderer {
             ctx.strokeStyle = '#fb923c';
             ctx.lineWidth   = 2;
             ctx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+
+        } else if (this.mode === 'product') {
+            // Resaltar la celda del rack donde se colocará el producto
+            const px = x * CELL;
+            const py = this._wy(y);
+            ctx.fillStyle   = 'rgba(251, 191, 36, 0.18)';
+            ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth   = 1.5;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3);
+            ctx.setLineDash([]);
         }
     }
 

@@ -162,62 +162,134 @@
     display: inline-block;
 }
 
-/* Lista de productos en el rack seleccionado */
+/* ── Lista de productos del rack seleccionado ─────────────────────── */
 .sel-products {
     margin-top: var(--space-xs);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 100px;
+    gap: 3px;
+    max-height: 160px;
     overflow-y: auto;
+    padding-right: 2px;
 }
 
-.sel-products::-webkit-scrollbar { width: 2px; }
-.sel-products::-webkit-scrollbar-thumb { background: var(--color-border-2); }
+.sel-products::-webkit-scrollbar       { width: 4px; }
+.sel-products::-webkit-scrollbar-track { background: transparent; }
+.sel-products::-webkit-scrollbar-thumb { background: var(--color-border-2); border-radius: 2px; }
+.sel-products::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
-.sel-product {
+/* Chip individual de producto */
+.prod-chip {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: 6px;
     background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    padding: 3px 6px;
+    padding: 5px var(--space-sm);
     font-size: var(--font-size-xs);
+    transition: border-color 0.15s, background 0.15s;
+    cursor: default;
 }
 
-.sel-prod-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--color-text);
+.prod-chip:hover {
+    border-color: var(--color-border-2);
+    background: #252525;
 }
 
-.sel-prod-meta {
-    color: var(--color-text-muted);
-    white-space: nowrap;
+/* Chip resaltado cuando su celda coincide con el hover en el canvas */
+.prod-chip--active {
+    border-color: #4f9cf9 !important;
+    background: rgba(79, 156, 249, 0.08) !important;
+}
+
+/* Indicador visual de nivel Z (badge pequeño) */
+.prod-chip__zbadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(79, 156, 249, 0.18);
+    color: #4f9cf9;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 700;
     flex-shrink: 0;
 }
 
-.sel-prod-del {
+/* Cuerpo central del chip */
+.prod-chip__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.prod-chip__name {
+    font-weight: 600;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.prod-chip__meta {
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Badge de celda (x, y) */
+.prod-chip__cell {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(249, 168, 79, 0.15);
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* Botón eliminar del chip */
+.prod-chip__del {
     background: none;
     border: none;
     cursor: pointer;
     color: var(--color-text-dim);
-    font-size: 12px;
-    line-height: 1;
-    padding: 0 1px;
-    flex-shrink: 0;
-    transition: color 0.12s;
-    font-family: var(--font-mono);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 16px;
     height: 16px;
+    flex-shrink: 0;
+    transition: color 0.12s;
+    padding: 0;
+    font-family: var(--font-mono);
+}
+.prod-chip__del:hover { color: var(--color-danger); }
+
+/* Compatibilidad: mantener el botón viejo por si queda alguna referencia */
+.sel-prod-del {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-text-dim); font-size: 12px; line-height: 1;
+    padding: 0 1px; flex-shrink: 0; transition: color 0.12s;
+    font-family: var(--font-mono);
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px;
 }
 .sel-prod-del:hover { color: var(--color-danger); }
+
 
 /* Acciones del panel de selección */
 .sel-actions {

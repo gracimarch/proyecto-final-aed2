@@ -216,6 +216,12 @@ class WarehouseEditor {
             this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
         }
 
+        // Preview celda en modo producto
+        if (this.mode === 'product') {
+            const rackUnder = this.scenario.getRackAt(cell.x, cell.y);
+            this.renderer.cursorRect = rackUnder ? { x: cell.x, y: cell.y, w: 1, h: 1 } : null;
+        }
+
         // Mover elemento: preview en vivo
         if (this.mode === 'move-rack' && this._movingElement) {
             this._isDragging = true;
@@ -382,7 +388,7 @@ class WarehouseEditor {
         if (!this.scenario.isInBounds(cell.x, cell.y)) return;
         const rack = this.scenario.getRackAt(cell.x, cell.y);
         if (rack) {
-            this.onEvent('open-product-form', rack);
+            this.onEvent('open-product-form', { rack, cell });
         } else {
             this.onEvent('hint', 'Hacé click en un rack para agregarle un producto.');
         }

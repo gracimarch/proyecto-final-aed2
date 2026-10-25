@@ -45,6 +45,9 @@ const DOM = {
     inputProdName:  () => document.getElementById('input-prod-name'),
     inputProdSKU:   () => document.getElementById('input-prod-sku'),
     inputProdQty:   () => document.getElementById('input-prod-qty'),
+    inputProdWeight:() => document.getElementById('input-prod-weight'),
+    inputProdZ:     () => document.getElementById('input-prod-z'),
+    labelProdCell:  () => document.getElementById('label-prod-cell'),
     btnAddProd:     () => document.getElementById('btn-add-prod'),
     btnCancelProd:  () => document.getElementById('btn-cancel-prod'),
     modalProdTitle: () => document.getElementById('modal-prod-title'),
@@ -91,6 +94,7 @@ let _renderer = null;
 let _editor   = null;
 let _scenario = null;
 let _productTargetRack  = null;
+let _productTargetCell  = null;
 let _wizardStep         = 0;
 let _wizardScenario     = null;
 
@@ -356,8 +360,8 @@ function _showWizardStep(step) {
 // ─── Panel flotante del wizard (pasos 1-4) ────────────────────────
 
 const WIZARD_HINTS = {
-    1: { icon: 'door_front', color: '#a78bfa', text: 'Haz click en el <strong>borde</strong> del warehouse para colocar puertas. Necesitas ≥ 1.', tip: 'Cambia el tipo (IN/OUT/IO) en la barra superior.' },
-    2: { icon: 'inventory_2',  color: '#4fc97f', text: 'Arrastra en el canvas para colocar una <strong>Zona de Despacho</strong>. Necesitas ≥ 1.', tip: 'Cada puerta debe tener exactamente una zona de despacho frente a ella.' },
+    1: { icon: 'garage_door', color: '#a78bfa', text: 'Haz click en el <strong>borde</strong> del warehouse para colocar puertas. Necesitas ≥ 1.', tip: 'Cambia el tipo (IN/OUT/IO) en la barra superior.' },
+    2: { icon: 'home_storage',  color: '#4fc97f', text: 'Arrastra en el canvas para colocar una <strong>Zona de Despacho</strong>. Necesitas ≥ 1.', tip: 'Cada puerta debe tener exactamente una zona de despacho frente a ella.' },
     3: { icon: 'shelves',    color: '#4f9cf9', text: 'Haz click o arrastra para colocar <strong>Racks</strong>. Necesitas ≥ 1.', tip: 'Exactamente una dimensión debe ser igual a 2 (ancho o alto).' },
     4: { icon: 'route',      color: '#fbbf24', text: 'Opcional: arrastra para definir <strong>Pasillos</strong> con dirección.', tip: 'Si omitís, todas las celdas transitables serán AMBOS.' },
 };
@@ -539,46 +543,94 @@ function createScenario() {
 
 // ── Modal: Agregar Producto ───────────────────────────────────────
 
-function openModalProduct(rack) {
+function openModalProduct(rack, targetCell = null) {
     _productTargetRack = rack;
+    _productTargetCell = targetCell;
+
     DOM.modalProdTitle().textContent = `Agregar producto → ${rack.id}`;
-    DOM.inputProdName().value = '';
-    DOM.inputProdSKU().value  = '';
-    DOM.inputProdQty().value  = '1';
+    DOM.inputProdName().value  = '';
+    DOM.inputProdSKU().value   = '';
+    DOM.inputProdQty().value   = '1';
+    DOM.inputProdWeight().value = '1.0';
+
+    if (targetCell) {
+        // Mostrar celda y calcular el siguiente nivel Z libre
+        DOM.labelProdCell().textContent = `Celda: (${targetCell.x}, ${targetCell.y})`;
+        const existingInCell = rack.products.filter(p => p.x === targetCell.x && p.y === targetCell.y);
+        DOM.inputProdZ().value = existingInCell.length + 1;
+    } else {
+        // Fallback: primera celda del rack
+        DOM.labelProdCell().textContent = `Celda: (${rack.x}, ${rack.y})`;
+        const existingInCell = rack.products.filter(p => p.x === rack.x && p.y === rack.y);
+        DOM.inputProdZ().value = existingInCell.length + 1;
+    }
+
     DOM.modalProduct().classList.add('open');
     DOM.inputProdName().focus();
 }
 
 function closeModalProduct() {
     _productTargetRack = null;
+    _productTargetCell = null;
     DOM.modalProduct().classList.remove('open');
 }
 
 function submitProduct() {
     if (!_productTargetRack) return;
 
-    const name = DOM.inputProdName().value.trim();
-    const sku  = DOM.inputProdSKU().value.trim();
-    const qty  = parseInt(DOM.inputProdQty().value) || 1;
+    const name   = DOM.inputProdName().value.trim();
+    const sku    = DOM.inputProdSKU().value.trim();
+    const qty    = parseInt(DOM.inputProdQty().value)  || 1;
+    const weight = parseFloat(DOM.inputProdWeight().value);
+    const zVal   = parseInt(DOM.inputProdZ().value)    || 1;
 
     if (!name) {
         DOM.inputProdName().classList.add('input--error');
         DOM.inputProdName().focus();
         return;
     }
+    if (isNaN(weight) || weight <= 0) {
+        DOM.inputProdWeight().classList.add('input--error');
+        DOM.inputProdWeight().focus();
+        return;
+    }
+    if (zVal < 1) {
+        DOM.inputProdZ().classList.add('input--error');
+        DOM.inputProdZ().focus();
+        return;
+    }
     DOM.inputProdName().classList.remove('input--error');
+    DOM.inputProdWeight().classList.remove('input--error');
+    DOM.inputProdZ().classList.remove('input--error');
+
+    const targetX = _productTargetCell ? _productTargetCell.x : _productTargetRack.x;
+    const targetY = _productTargetCell ? _productTargetCell.y : _productTargetRack.y;
 
     const product = _activeScenario().addProduct(_productTargetRack.id, {
-        name, sku: sku || name.toUpperCase().replace(/\s/g, '_'), quantity: qty
+        name,
+        sku: sku || name.toUpperCase().replace(/\s/g, '_'),
+        quantity: qty,
+        pesoKg: weight,
+        x: targetX,
+        y: targetY,
+        z: zVal,
     });
 
-    if (product) {
-        _showSelectionRack(_productTargetRack);
-        _productTargetRack = null;
-        closeModalProduct();
-        _updateSidebarInfo();
-        showToast(`Producto "${name}" agregado`, 'success');
+    if (!product) { showToast('Error al agregar el producto.', 'error'); return; }
+
+    // addProduct devuelve {error} si el slot Z está ocupado
+    if (product.error) {
+        DOM.inputProdZ().classList.add('input--error');
+        DOM.inputProdZ().focus();
+        showToast(product.error, 'warning');
+        return;
     }
+
+    const rack = _productTargetRack;
+    _showSelectionRack(rack);
+    closeModalProduct();
+    _updateSidebarInfo();
+    showToast(`Producto "${name}" (${weight} kg) agregado en (${targetX}, ${targetY}) Z:${zVal}`, 'success');
 }
 
 // ── Editor events ─────────────────────────────────────────────────
@@ -675,9 +727,12 @@ function _onEditorEvent(event, data) {
             _hideSelection();
             break;
 
-        case 'open-product-form':
-            openModalProduct(data);
+        case 'open-product-form': {
+            // data puede ser {rack, cell} (clic en canvas) o directamente un rack (botón lateral)
+            const isRichData = data && data.rack;
+            openModalProduct(isRichData ? data.rack : data, isRichData ? data.cell : null);
             break;
+        }
 
         case 'error':
             showToast(data, 'error');
@@ -716,19 +771,34 @@ function _onEditorEvent(event, data) {
 
 // ── Panel de selección ────────────────────────────────────────────
 
-function _showSelectionRack(rack) {
+function _showSelectionRack(rack, highlightCell = null) {
     const panel = DOM.selectionPanel();
     const body  = DOM.selectionBody();
 
-    const prods = rack.products.map(p =>
-        `<div class="sel-product">
-            <span class="sel-prod-name">${p.name}</span>
-            <span class="sel-prod-meta">${p.sku} · ×${p.quantity}</span>
-            <button class="sel-prod-del" data-pid="${p.id}" title="Eliminar producto" aria-label="Eliminar ${p.name}">
+    // Ordenar productos por celda y luego por Z
+    const sorted = [...rack.products].sort((a, b) =>
+        a.x !== b.x ? a.x - b.x : a.y !== b.y ? a.y - b.y : a.z - b.z
+    );
+
+    const chips = sorted.map(p => {
+        const isActive = highlightCell && p.x === highlightCell.x && p.y === highlightCell.y;
+        return `
+        <div class="prod-chip${isActive ? ' prod-chip--active' : ''}" data-px="${p.x}" data-py="${p.y}">
+            <span class="prod-chip__zbadge" title="Nivel Z">Z${p.z}</span>
+            <div class="prod-chip__body">
+                <span class="prod-chip__name">${p.name}</span>
+                <span class="prod-chip__meta">${p.sku} &middot; ${p.pesoKg}&thinsp;kg &middot; &times;${p.quantity}</span>
+            </div>
+            <span class="prod-chip__cell" title="Celda">(${p.x},${p.y})</span>
+            <button class="prod-chip__del" data-pid="${p.id}" title="Eliminar" aria-label="Eliminar ${p.name}">
                 <span class="icon icon--sm" aria-hidden="true">close</span>
             </button>
-         </div>`
-    ).join('');
+        </div>`;
+    }).join('');
+
+    const emptyMsg = rack.products.length === 0
+        ? '<p class="empty-msg" style="margin:4px 0 0">Sin productos.</p>'
+        : '';
 
     body.innerHTML = `
         <div class="sel-header">
@@ -738,7 +808,7 @@ function _showSelectionRack(rack) {
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${rack.x}, ${rack.y})</span></div>
         <div class="sel-row"><span class="sel-label">Tamaño</span><span class="sel-value">${rack.width}×${rack.height} celdas</span></div>
         <div class="sel-row"><span class="sel-label">Productos</span><span class="sel-value">${rack.products.length}</span></div>
-        <div class="sel-products">${prods}</div>
+        <div class="sel-products">${chips}${emptyMsg}</div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--ghost" id="sel-add-product-btn">
                 <span class="icon icon--sm" aria-hidden="true">add</span> Producto
@@ -770,13 +840,25 @@ function _showSelectionRack(rack) {
         showToast(`Rack ${rack.id} eliminado`, 'warning');
     });
 
-    body.querySelectorAll('.sel-prod-del').forEach(btn => {
+    body.querySelectorAll('.prod-chip__del').forEach(btn => {
         btn.addEventListener('click', () => {
             const pid = btn.dataset.pid;
             _activeScenario().removeProduct(pid);
             _updateSidebarInfo();
             _showSelectionRack(rack);
             showToast('Producto eliminado', 'warning');
+        });
+    });
+
+    // Hover sobre chips → resaltar celda en el canvas
+    body.querySelectorAll('.prod-chip').forEach(chip => {
+        const cx = parseInt(chip.dataset.px);
+        const cy = parseInt(chip.dataset.py);
+        chip.addEventListener('mouseenter', () => {
+            if (_renderer) _renderer.hoverCell = { x: cx, y: cy };
+        });
+        chip.addEventListener('mouseleave', () => {
+            if (_renderer) _renderer.hoverCell = null;
         });
     });
 
@@ -851,7 +933,7 @@ function _showSelectionDoor(door) {
     const c = doorColors[door.tipo] || '#a78bfa';
     body.innerHTML = `
         <div class="sel-header">
-            <span class="sel-icon" aria-hidden="true" style="color:${c}"><span class="icon icon--18 icon--filled">door_front</span></span>
+            <span class="sel-icon" aria-hidden="true" style="color:${c}"><span class="icon icon--18 icon--filled">garage_door</span></span>
             <span class="sel-title">${door.id}</span>
         </div>
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${door.x}, ${door.y})</span></div>
