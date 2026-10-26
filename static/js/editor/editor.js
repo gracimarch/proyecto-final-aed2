@@ -380,7 +380,7 @@ class WarehouseEditor {
             this.renderer.selectedElement = { type: 'rack', element: rack };
             this.onEvent('add-rack', rack);
         } else {
-            this.onEvent('error', 'No se pudo colocar el rack. Verificá que: no esté ocupado, tenga distancia ≥ 1 con otros racks, y no quede pegado a la pared (debe haber al menos 1 celda libre en cada cara).');
+            this.onEvent('error', 'No se pudo colocar el rack. Verificá que: no esté ocupado, tenga distancia ≥ 1 con otros racks, y que todas sus celdas queden accesibles para los pickers (sin celdas bloqueadas por paredes, puertas o zonas de despacho en todos sus costados).');
         }
     }
 
@@ -547,7 +547,7 @@ class WarehouseEditor {
                 this.renderer.selectedElement = { type: 'rack', element };
                 this.onEvent('move-rack', element);
             } else {
-                this.onEvent('error', 'No se pudo mover el rack. Verificá que: la posición esté libre, haya distancia ≥ 1 con otros racks, y no quede pegado a la pared.');
+                this.onEvent('error', 'No se pudo mover el rack. Verificá que: la posición esté libre, haya distancia ≥ 1 con otros racks, y que todas sus celdas queden accesibles para los pickers (sin celdas bloqueadas por paredes, puertas o zonas de despacho).');
             }
         } else if (type === 'picker') {
             const moved = this.scenario.movePicker(element.id, cell.x, cell.y);
