@@ -967,20 +967,33 @@ function _showSelectionDoor(door) {
 function _showSelectionDispatch(dz) {
     const panel = DOM.selectionPanel();
     const body  = DOM.selectionBody();
-    const doors = _activeScenario()?.doors || [];
-    const doorOpts = doors.map(d =>
-        `<option value="${d.id}" ${dz.puertaId === d.id ? 'selected' : ''}>${d.id} (${d.tipo})</option>`
-    ).join('');
+    const sc    = _activeScenario();
+    const allDoors = sc?.doors || [];
+
+    // Solo puertas físicamente adyacentes a esta zona
+    const adjDoors = allDoors.filter(d =>
+        sc._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, d.id)
+    );
+
+    let doorOpts;
+    if (adjDoors.length === 0) {
+        doorOpts = `<option value="" disabled>— Sin puertas adyacentes —</option>`;
+    } else {
+        doorOpts = adjDoors.map(d =>
+            `<option value="${d.id}" ${dz.puertaId === d.id ? 'selected' : ''}>${d.id} (${d.tipo})</option>`
+        ).join('');
+    }
+
     body.innerHTML = `
         <div class="sel-header">
-            <span class="sel-icon" aria-hidden="true"><span class="icon icon--18 icon--filled">package_2</span></span>
+            <span class="sel-icon" aria-hidden="true"><span class="icon icon--18 icon--filled">home_storage</span></span>
             <span class="sel-title">${dz.id}</span>
         </div>
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${dz.x}, ${dz.y})</span></div>
         <div class="sel-row"><span class="sel-label">Tamaño</span><span class="sel-value">${dz.width}×${dz.height} celdas</span></div>
         <div class="sel-row">
             <span class="sel-label">Puerta</span>
-            <select class="sel-value" id="sel-dz-door">
+            <select class="sel-value" id="sel-dz-door" ${adjDoors.length === 0 ? 'disabled' : ''}>
                 <option value="">— Sin asignar —</option>
                 ${doorOpts}
             </select>
@@ -1002,14 +1015,23 @@ function _showSelectionDispatch(dz) {
     `;
     body.querySelector('#sel-dz-door')?.addEventListener('change', e => {
         const newId = e.target.value || null;
-        const sc = _activeScenario();
+        const sc2 = _activeScenario();
+        // Verificar que la puerta sea adyacente a esta zona
+        if (newId && sc2 && !sc2._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, newId)) {
+            showToast('Esa puerta no es adyacente a la zona de despacho.', 'error');
+            e.target.value = dz.puertaId || '';
+            return;
+        }
         // Verificar unicidad: una puerta no puede estar asignada a más de una zona
-        if (newId && sc && sc.dispatchZones.some(z => z.id !== dz.id && z.puertaId === newId)) {
+        if (newId && sc2 && sc2.dispatchZones.some(z => z.id !== dz.id && z.puertaId === newId)) {
             showToast('Esa puerta ya está asignada a otra zona de despacho.', 'error');
-            e.target.value = dz.puertaId || ''; // revertir el selector
+            e.target.value = dz.puertaId || '';
             return;
         }
         dz.puertaId = newId;
+        _renderer?.render();
+        _updateSidebarInfo();
+        if (_wizardScenario) _updateWizardValidMsg();
     });
 
     body.querySelector('#sel-dz-weight-btn')?.addEventListener('click', () => {
