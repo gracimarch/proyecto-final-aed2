@@ -135,7 +135,14 @@ function initEditorUI() {
 
     // Selects de herramientas
     const doorEl = DOM.doorTipoSelect();
-    if (doorEl) doorEl.addEventListener('change', () => { if (_editor) _editor._doorTipo = doorEl.value; });
+    if (doorEl) {
+        doorEl.addEventListener('change', () => {
+            if (_editor) {
+                _editor._doorTipo         = doorEl.value;
+                _editor.renderer.doorTipo = doorEl.value;
+            }
+        });
+    }
     const aisleEl = DOM.aisleSentidoSelect();
     if (aisleEl) aisleEl.addEventListener('change', () => { if (_editor) _editor._aisleSentido = aisleEl.value; });
 
@@ -871,25 +878,22 @@ function _showSelectionPicker(picker) {
 
     body.innerHTML = `
         <div class="sel-header">
-            <span class="sel-icon sel-picker-dot" style="background:${picker.color}" aria-hidden="true"></span>
+            <span class="sel-icon" style="color:${picker.color}" aria-hidden="true"><span class="icon icon--18 icon--filled">person</span></span>
             <span class="sel-title">${picker.name}</span>
         </div>
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${picker.x}, ${picker.y})</span></div>
         <div class="sel-row"><span class="sel-label">ID</span><span class="sel-value">${picker.id}</span></div>
+
         <div class="sel-row">
-            <span class="sel-label">Color</span>
-            <span class="sel-value">
-                <span class="sel-color-dot" style="background:${picker.color}" aria-hidden="true"></span>${picker.color}
-            </span>
-        </div>
-        <div class="sel-row" style="align-items:center;gap:8px">
             <span class="sel-label">Capacidad (kg)</span>
-            <input class="form-input form-input--num" type="number" id="sel-picker-cap"
-                   min="1" max="9999" value="${picker.capacidadKg}"
-                   style="width:72px;padding:3px 6px;font-size:.8rem">
-            <button class="btn btn--sm btn--ghost" id="sel-picker-cap-btn" title="Aplicar">
-                <span class="icon icon--sm" aria-hidden="true">check</span>
-            </button>
+            <div style="display:flex;align-items:center;gap:4px">
+                <input class="form-input form-input--num" type="number" id="sel-picker-cap"
+                       min="1" max="9999" value="${picker.capacidadKg}"
+                       style="width:72px;height:28px;box-sizing:border-box;padding:3px 6px;font-size:.8rem">
+                <button class="btn btn--sm btn--ghost" id="sel-picker-cap-btn" title="Aplicar">
+                    <span class="icon icon--sm" aria-hidden="true">check</span>
+                </button>
+            </div>
         </div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--danger" id="sel-del-picker-btn">
@@ -986,7 +990,7 @@ function _showSelectionDispatch(dz) {
 
     body.innerHTML = `
         <div class="sel-header">
-            <span class="sel-icon" aria-hidden="true"><span class="icon icon--18 icon--filled">home_storage</span></span>
+            <span class="sel-icon" style="color:#4fc97f" aria-hidden="true"><span class="icon icon--18 icon--filled">home_storage</span></span>
             <span class="sel-title">${dz.id}</span>
         </div>
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${dz.x}, ${dz.y})</span></div>
@@ -998,14 +1002,16 @@ function _showSelectionDispatch(dz) {
                 ${doorOpts}
             </select>
         </div>
-        <div class="sel-row" style="align-items:center;gap:8px">
+        <div class="sel-row">
             <span class="sel-label">Peso Máx. (kg)</span>
-            <input class="form-input form-input--num" type="number" id="sel-dz-weight"
-                   min="1" max="99999" value="${dz.pesoMaxKg || 500}"
-                   style="width:72px;padding:3px 6px;font-size:.8rem">
-            <button class="btn btn--sm btn--ghost" id="sel-dz-weight-btn" title="Aplicar">
-                <span class="icon icon--sm" aria-hidden="true">check</span>
-            </button>
+            <div style="display:flex;align-items:center;gap:4px">
+                <input class="form-input form-input--num" type="number" id="sel-dz-weight"
+                       min="1" max="99999" value="${dz.pesoMaxKg || 500}"
+                       style="width:72px;height:28px;box-sizing:border-box;padding:3px 6px;font-size:.8rem">
+                <button class="btn btn--sm btn--ghost" id="sel-dz-weight-btn" title="Aplicar">
+                    <span class="icon icon--sm" aria-hidden="true">check</span>
+                </button>
+            </div>
         </div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--danger" id="sel-del-dz-btn">

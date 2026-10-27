@@ -278,6 +278,11 @@ class Scenario {
     addDoor(x, y, tipo = 'AMBOS') {
         if (!(x === 0 || x === this.width - 1 || y === 0 || y === this.height - 1)) return null;
         if (this.doors.find(d => d.x === x && d.y === y)) return null;
+        // Verificar que la celda no esté ocupada por otro elemento
+        if (this.getRackAt(x, y))          return null;
+        if (this._isInDispatchZone(x, y))  return null;
+        if (this.getAisleAt(x, y))         return null;
+        if (this.getPickerAt(x, y))        return null;
         const door = new Door({ x, y, tipo }); this.doors.push(door);
         // Auto-asignar zonas huérfanas adyacentes a la nueva puerta
         for (const dz of this.dispatchZones) {
@@ -302,6 +307,11 @@ class Scenario {
         if (!(nx === 0 || nx === this.width - 1 || ny === 0 || ny === this.height - 1)) return false;
         // No puede estar donde ya hay otra puerta
         if (this.doors.some(d => d.id !== id && d.x === nx && d.y === ny)) return false;
+        // No puede solaparse con rack, zona de despacho, pasillo o picker
+        if (this.getRackAt(nx, ny))         return false;
+        if (this._isInDispatchZone(nx, ny)) return false;
+        if (this.getAisleAt(nx, ny))        return false;
+        if (this.getPickerAt(nx, ny))       return false;
         door.x = nx; door.y = ny;
         // Detectar zonas que quedan despegadas de la puerta
         const orphanedZones = [];
@@ -397,6 +407,7 @@ class Scenario {
                 if (existingDz && existingDz.id !== id) return false;
                 if (this.getDoorAt(cx, cy)) return false;
                 if (this.getAisleAt(cx, cy)) return false;
+                if (this.getPickerAt(cx, cy)) return false;
             }
         }
         // Debe quedar adyacente a exactamente la puerta asignada (si tiene)

@@ -66,6 +66,7 @@ class WarehouseEditor {
     setMode(mode) {
         this.mode             = mode;
         this.renderer.mode    = mode;
+        this.renderer.doorTipo = this._doorTipo;
         this.renderer.cursorRect = null;
         this._rackDragStart   = null;
         this._dzDragStart     = null;
