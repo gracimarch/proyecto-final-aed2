@@ -8,9 +8,8 @@ Cada elemento se valida al agregarlo: si no cumple la consigna, se lanza
 ValueError con un mensaje que dice qué falló y dónde.
 """
 
-from __future__ import annotations
-
 from models.product import Product
+from models.picker import Picker
 
 
 def _capitalize_first(texto: str) -> str:
@@ -140,8 +139,10 @@ class Rack:
             "alto": self.alto,
         }
 
+    # El tipo de retorno va entre comillas porque la clase todavía se está
+    # definiendo en este punto (Python no la conoce hasta terminar la clase).
     @classmethod
-    def from_dict(cls, data: dict) -> Rack:
+    def from_dict(cls, data: dict) -> "Rack":
         ub = data["ubicacion"]
         return cls(rack_id=data["id"], x=ub["x"], y=ub["y"], ancho=data["ancho"], alto=data["alto"])
 
@@ -206,10 +207,6 @@ class DispatchZone:
             )
         self.peso_actual = self.peso_actual + peso
 
-    def dispatch(self) -> None:
-        """Se cargó el camión y salió por la puerta: la zona queda vacía."""
-        self.peso_actual = 0.0
-
     def to_dict(self) -> dict:
         return {
             "id": self.zone_id,
@@ -221,7 +218,7 @@ class DispatchZone:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> DispatchZone:
+    def from_dict(cls, data: dict) -> "DispatchZone":
         ub = data["ubicacion"]
         return cls(
             zone_id=data["id"],
@@ -268,7 +265,7 @@ class Door:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> Door:
+    def from_dict(cls, data: dict) -> "Door":
         ub = data["ubicacion"]
         return cls(door_id=data["id"], position=(ub["x"], ub["y"]), tipo=data.get("tipo", "AMBOS"))
 
@@ -317,7 +314,7 @@ class Aisle:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> Aisle:
+    def from_dict(cls, data: dict) -> "Aisle":
         ub = data["ubicacion"]
         return cls(
             aisle_id=data["id"],
@@ -332,73 +329,6 @@ class Aisle:
         return (
             f"Aisle(id='{self.aisle_id}', pos=({self.x},{self.y}), "
             f"{self.ancho}x{self.alto}, sentido='{self.sentido}')"
-        )
-
-
-class Picker:
-    """
-    Operario que recorre el warehouse para recolectar los productos de una wave.
-
-    Esta es la versión básica: solo sabe si está ocupado y con qué wave.
-    Cuando subamos models/picker.py (movimiento, recolección, choques), esta
-    clase se borra de acá y se importa desde ese archivo.
-
-    Atributos:
-        picker_id          (str)   : Identificador del picker.
-        posicion_inicial   (tuple) : Celda de pasillo de partida (x, y).
-        capacidad_carga_kg (float) : Peso máximo que puede transportar (kg).
-        is_busy            (bool)  : True si tiene una wave asignada.
-        assigned_wave_id   (str)   : Id de esa wave, o None.
-    """
-
-    def __init__(
-        self,
-        picker_id: str,
-        posicion_inicial: tuple[int, int],
-        capacidad_carga_kg: float,
-    ):
-        if capacidad_carga_kg <= 0:
-            raise ValueError(
-                f"La capacidad de carga debe ser positiva: {capacidad_carga_kg}"
-            )
-        self.picker_id = picker_id
-        self.posicion_inicial = tuple(posicion_inicial)
-        self.capacidad_carga_kg = capacidad_carga_kg
-        self.is_busy = False
-        self.assigned_wave_id = None
-
-    def assign_wave(self, wave_id: str) -> None:
-        """Lo marca como ocupado con esa wave."""
-        self.is_busy = True
-        self.assigned_wave_id = wave_id
-
-    def release(self) -> None:
-        """Lo deja libre otra vez."""
-        self.is_busy = False
-        self.assigned_wave_id = None
-
-    def to_dict(self) -> dict:
-        """El picker en el formato del escenario JSON."""
-        return {
-            "id": self.picker_id,
-            "posicion_inicial": {"x": self.posicion_inicial[0], "y": self.posicion_inicial[1]},
-            "capacidad_carga_kg": self.capacidad_carga_kg,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Picker:
-        """Crea un Picker a partir del JSON."""
-        pos = data["posicion_inicial"]
-        return cls(
-            picker_id=data["id"],
-            posicion_inicial=(pos["x"], pos["y"]),
-            capacidad_carga_kg=data["capacidad_carga_kg"],
-        )
-
-    def __repr__(self) -> str:
-        return (
-            f"Picker(id={self.picker_id!r}, pos={self.posicion_inicial}, "
-            f"cap={self.capacidad_carga_kg}kg)"
         )
 
 
@@ -868,7 +798,7 @@ class Warehouse:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, warehouse_id: str = "warehouse") -> Warehouse:
+    def from_dict(cls, data: dict, warehouse_id: str = "warehouse") -> "Warehouse":
         """
         Arma el warehouse completo desde el JSON del escenario y lo sella.
 

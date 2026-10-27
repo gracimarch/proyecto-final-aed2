@@ -4,8 +4,6 @@ models/product.py
 Un producto guardado en un rack del warehouse (consigna §4).
 """
 
-from __future__ import annotations
-
 
 class Product:
     """
@@ -116,8 +114,10 @@ class Product:
             "peso_kg": self.peso_kg,
         }
 
+    # El tipo de retorno va entre comillas porque la clase todavía se está
+    # definiendo en este punto (Python no la conoce hasta terminar la clase).
     @classmethod
-    def from_dict(cls, data: dict) -> Product:
+    def from_dict(cls, data: dict) -> "Product":
         """
         Crea un Product a partir de un diccionario del escenario JSON.
 

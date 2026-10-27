@@ -15,8 +15,6 @@ Estructuras de Python que se usan:
         heappush agrega y heappop saca el MENOR, los dos en O(log n). Lo usa A*.
 """
 
-from __future__ import annotations
-
 import heapq
 from collections import deque
 from collections.abc import Callable

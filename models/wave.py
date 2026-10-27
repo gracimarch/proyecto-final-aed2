@@ -5,12 +5,10 @@ Una wave es un grupo de ítems de pedidos que prepara un solo picker en
 una misma pasada por el warehouse (consigna §6).
 """
 
-from __future__ import annotations
-
 from enum import Enum
 
 from models.order import Order, OrderItem
-from models.warehouse import Picker
+from models.picker import Picker
 
 
 class WaveStatus(Enum):
@@ -364,13 +362,15 @@ class Wave:
             "route": route_dict,
         }
 
+    # El tipo de retorno va entre comillas porque la clase todavía se está
+    # definiendo en este punto (Python no la conoce hasta terminar la clase).
     @classmethod
     def from_dict(
         cls,
         data: dict,
         order_registry: dict[str, Order],
         picker_registry: dict[str, Picker] | None = None,
-    ) -> Wave:
+    ) -> "Wave":
         """
         Reconstruye una wave guardada.
 

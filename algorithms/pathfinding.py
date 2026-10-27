@@ -14,16 +14,10 @@ Funciones:
     manhattan             : heurística que usa A*.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from algorithms.graph import Graph, bfs_to_any, astar_to_any
 
-if TYPE_CHECKING:
-    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
-    # estos imports no pueden armar un import circular (ver GUIA.md).
-    from models import Product, Warehouse
+from models.product import Product
+from models.warehouse import Warehouse
 
 
 # ===========================================================================

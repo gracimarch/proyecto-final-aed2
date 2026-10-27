@@ -21,16 +21,9 @@ Regla de circulación (una sola):
     un pasillo AMBOS no prohíbe nada.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from algorithms.graph import Graph
 
-if TYPE_CHECKING:
-    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
-    # estos imports no pueden armar un import circular (ver GUIA.md).
-    from models import Warehouse
+from models.warehouse import Warehouse
 
 
 # Los cuatro pasos posibles (dx, dy). El orden define el orden de los vecinos

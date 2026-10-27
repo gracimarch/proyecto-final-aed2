@@ -32,12 +32,14 @@ Ordenar con tuplas:
     la prioridad 5. Se usa -prioridad para que la prioridad MAYOR quede primero.
 """
 
-from __future__ import annotations
-
 from models.order import Order, OrderItem
-from models.warehouse import Picker, Warehouse
+from models.picker import Picker
+from models.warehouse import Warehouse
 from models.wave import Wave, WaveStatus
-from algorithms import Graph, bfs_distances, generate_graph, pickup_cells
+from algorithms.graph import Graph, bfs_distances
+from algorithms.graph_builder import generate_graph
+from algorithms.pathfinding import pickup_cells
+from algorithms.routing import validate_reachability
 
 
 INFINITO = float("inf")
@@ -118,6 +120,11 @@ class WaveManager:
         self.graph = graph
         if self.graph is None and warehouse is not None:
             self.graph = generate_graph(warehouse)
+
+        # Antes de armar waves, cada producto tiene que poder buscarse
+        # y traerse a la zona de despacho respetando los sentidos.
+        if warehouse is not None:
+            validate_reachability(warehouse, self.graph)
 
         # Guardamos las celdas de recogida de cada producto para no
         # recalcularlas en cada wave: {product_id: set de celdas}.
@@ -441,7 +448,7 @@ class WaveManager:
         return list(self.unprocessable_orders)
 
     # ------------------------------------------------------------------
-    # Guardar y cargar 
+    # Guardar y cargar
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
@@ -454,8 +461,10 @@ class WaveManager:
             waves.append(w.to_dict())
         return {"pedidos": pedidos, "waves": waves}
 
+    # El tipo de retorno va entre comillas porque la clase todavía se está
+    # definiendo en este punto (Python no la conoce hasta terminar la clase).
     @classmethod
-    def from_dict(cls, data: dict, warehouse: Warehouse) -> WaveManager:
+    def from_dict(cls, data: dict, warehouse: Warehouse) -> "WaveManager":
         """
         Vuelve a cargar pedidos y waves guardados. Pedidos y pickers quedan
         como estaban al guardar, y las waves sin picker vuelven a la cola.
