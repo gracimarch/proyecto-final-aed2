@@ -125,13 +125,7 @@
     justify-content: center;
 }
 
-.sel-picker-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-    flex-shrink: 0;
-}
+
 
 .sel-title {
     font-size: var(--font-size-sm);
@@ -217,6 +211,7 @@
     font-family: var(--font-mono);
     font-size: 0.62rem;
     font-weight: 700;
+    line-height: 1;
     flex-shrink: 0;
 }
 
