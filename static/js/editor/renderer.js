@@ -8,6 +8,75 @@
 
 const CELL = 36;   // tamaño base de celda en píxeles (world space)
 
+// ── Paletas de colores para el canvas según tema ─────────────────
+const CANVAS_THEMES = {
+    dark: {
+        floor:          '#12141f',
+        floorLines:     'rgba(255,255,255,0.018)',
+        floorBorder:    'rgba(79,156,249,0.35)',
+        floorVignette:  'rgba(0,0,0,0.3)',
+        grid:           'rgba(255,255,255,0.045)',
+        // Racks
+        rackFill:       'rgba(79,156,249,0.10)',
+        rackFillSel:    'rgba(79,156,249,0.22)',
+        rackBorder:     'rgba(79,156,249,0.55)',
+        rackBorderSel:  'rgba(79,156,249,1.0)',
+        rackCross:      'rgba(79,156,249,0.08)',
+        rackCrossSel:   'rgba(79,156,249,0.18)',
+        rackLines:      'rgba(79,156,249,0.12)',
+        rackLinesSel:   'rgba(79,156,249,0.25)',
+        rackGlow:       'rgba(79,156,249,0.5)',
+        rackGlowStroke: 'rgba(79,156,249,0.8)',
+        rackIdBg:       'rgba(0,0,0,0.45)',
+        rackIdText:     'rgba(79,156,249,0.9)',
+        rackIdTextSel:  'rgba(79,156,249,1.0)',
+        // Hover cell
+        hoverFill:      'rgba(79,156,249,0.12)',
+        hoverFillOnRack:'rgba(79,156,249,0.25)',
+        hoverCoordBg:   'rgba(0,0,0,0.55)',
+        hoverCoordText: 'rgba(79,156,249,0.9)',
+        hoverCoordOnRack:'#93c5fd',
+        // Door ID / label
+        doorIdBg:       'rgba(0,0,0,0.55)',
+    },
+    light: {
+        floor:          '#f0f4f8',
+        floorLines:     'rgba(0,0,0,0.028)',
+        floorBorder:    'rgba(37,99,235,0.40)',
+        floorVignette:  'rgba(0,0,0,0.04)',
+        grid:           'rgba(0,0,0,0.07)',
+        // Racks
+        rackFill:       'rgba(37,99,235,0.08)',
+        rackFillSel:    'rgba(37,99,235,0.20)',
+        rackBorder:     'rgba(37,99,235,0.55)',
+        rackBorderSel:  'rgba(37,99,235,1.0)',
+        rackCross:      'rgba(37,99,235,0.08)',
+        rackCrossSel:   'rgba(37,99,235,0.18)',
+        rackLines:      'rgba(37,99,235,0.14)',
+        rackLinesSel:   'rgba(37,99,235,0.28)',
+        rackGlow:       'rgba(37,99,235,0.35)',
+        rackGlowStroke: 'rgba(37,99,235,0.75)',
+        rackIdBg:       'rgba(255,255,255,0.85)',
+        rackIdText:     '#1d4ed8',
+        rackIdTextSel:  '#1e3a8a',
+        // Hover cell
+        hoverFill:      'rgba(37,99,235,0.10)',
+        hoverFillOnRack:'rgba(37,99,235,0.22)',
+        hoverCoordBg:   'rgba(255,255,255,0.85)',
+        hoverCoordText: '#1d4ed8',
+        hoverCoordOnRack:'#1e3a8a',
+        // Door ID / label
+        doorIdBg:       'rgba(255,255,255,0.85)',
+    },
+};
+
+/** Devuelve la paleta activa leyendo data-theme del <html>. */
+function _getCanvasTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'light'
+        ? CANVAS_THEMES.light
+        : CANVAS_THEMES.dark;
+}
+
 class WarehouseRenderer {
 
     constructor(canvas) {
@@ -25,6 +94,7 @@ class WarehouseRenderer {
         this.cursorRect      = null;   // { x, y, w, h } para preview de rack
         this.selectedElement = null;   // { type, element } | null
         this.mode            = 'select';
+        this.doorTipo        = 'AMBOS'; // sincronizado por el editor al cambiar tipo de puerta
 
         // Sprites
         this._spritesReady = false;
@@ -203,6 +273,9 @@ class WarehouseRenderer {
         const W   = this.canvas.width;
         const H   = this.canvas.height;
 
+        // Paleta del frame actual (se evalúa una vez por frame)
+        const theme = _getCanvasTheme();
+
         // Limpiar
         ctx.clearRect(0, 0, W, H);
         this._drawAppBackground(W, H);
@@ -215,12 +288,13 @@ class WarehouseRenderer {
         ctx.translate(this.panX, this.panY);
         ctx.scale(z, z);
 
-        this._drawFloor();
-        this._drawGrid();
+        this._drawFloor(theme);
+        this._drawGrid(theme);
         this._drawDispatchZone();
         this._drawAisles();
-        this._drawDoors();
-        this._drawRacks();
+        this._drawDoors(theme);
+        this._drawRacks(theme);
+        this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
         this._drawPickers();
         this._drawCursorPreview();
 
@@ -239,19 +313,19 @@ class WarehouseRenderer {
 
     // ── Piso del warehouse ─────────────────────────────────────────
 
-    _drawFloor() {
+    _drawFloor(theme) {
         const ctx = this.ctx;
         const s   = this.scenario;
         const W   = s.width  * CELL;
         const H   = s.height * CELL;
 
         // Base
-        ctx.fillStyle = '#12141f';
+        ctx.fillStyle = theme.floor;
         ctx.fillRect(0, 0, W, H);
 
         // Textura sutil: líneas diagonales
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,0.018)';
+        ctx.strokeStyle = theme.floorLines;
         ctx.lineWidth   = 1;
         for (let i = -H; i < W + H; i += 18) {
             ctx.beginPath();
@@ -262,25 +336,25 @@ class WarehouseRenderer {
         ctx.restore();
 
         // Borde exterior
-        ctx.strokeStyle = 'rgba(79, 156, 249, 0.35)';
+        ctx.strokeStyle = theme.floorBorder;
         ctx.lineWidth   = 2;
         ctx.strokeRect(0, 0, W, H);
 
         // Sombra interna (vignette)
         const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-        grad.addColorStop(0,   'rgba(0,0,0,0)');
-        grad.addColorStop(1,   'rgba(0,0,0,0.3)');
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(1, theme.floorVignette);
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
     }
 
     // ── Grid ──────────────────────────────────────────────────────
 
-    _drawGrid() {
+    _drawGrid(theme) {
         const ctx = this.ctx;
         const s   = this.scenario;
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+        ctx.strokeStyle = theme.grid;
         ctx.lineWidth   = 1;
 
         for (let x = 0; x <= s.width; x++) {
@@ -296,20 +370,35 @@ class WarehouseRenderer {
             ctx.stroke();
         }
 
-        // Hover cell
-        if (this.hoverCell && s.isInBounds(this.hoverCell.x, this.hoverCell.y)) {
-            const hx = this.hoverCell.x * CELL;
-            const hy = this._wy(this.hoverCell.y);   // y lógica → world y (invertido)
-            ctx.fillStyle = 'rgba(79, 156, 249, 0.12)';
-            ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
+        // ── El hover de celda se dibuja por separado en _drawHoverCell() ──────────────
+    }
 
-            // Coordenadas lógicas (y=0 abajo)
-            ctx.fillStyle    = 'rgba(79, 156, 249, 0.6)';
-            ctx.font         = `${Math.max(7, 7)}px "JetBrains Mono", monospace`;
-            ctx.textAlign    = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(`${this.hoverCell.x},${this.hoverCell.y}`, hx + 2, hy + 2);
-        }
+    // ── Hover de celda (sobre todos los elementos, incluso racks) ─────
+
+    _drawHoverCell(theme) {
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        if (!this.hoverCell || !s.isInBounds(this.hoverCell.x, this.hoverCell.y)) return;
+
+        const hx = this.hoverCell.x * CELL;
+        const hy = this._wy(this.hoverCell.y);
+
+        const onRack = !!s.getRackAt(this.hoverCell.x, this.hoverCell.y);
+
+        // Fondo con mayor contraste si está sobre un rack
+        ctx.fillStyle = onRack ? theme.hoverFillOnRack : theme.hoverFill;
+        ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
+
+        // Coordenadas — fondo para garantizar legibilidad sobre el color del rack
+        const label = `${this.hoverCell.x},${this.hoverCell.y}`;
+        ctx.font         = `7px "JetBrains Mono", monospace`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = theme.hoverCoordBg;
+        ctx.fillRect(hx + 2, hy + 2, tw + 4, 10);
+        ctx.fillStyle = onRack ? theme.hoverCoordOnRack : theme.hoverCoordText;
+        ctx.fillText(label, hx + 4, hy + 3);
     }
 
     // ── Zonas de despacho (múltiples) ────────────────────────────
@@ -344,33 +433,86 @@ class WarehouseRenderer {
         ctx.rect(x + 2, y + 2, w - 4, h - 4);
         ctx.clip();
 
-        ctx.fillStyle    = 'rgba(79,201,127,0.9)';
-        ctx.font         = `bold 9px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('DESPACHO', x + w / 2, y + h / 2);
 
-        if (dz.puertaId) {
-            ctx.font      = `7px "JetBrains Mono", monospace`;
-            ctx.fillStyle = 'rgba(79,201,127,0.7)';
-            ctx.fillText(dz.puertaId, x + w / 2, y + h / 2 + 12);
-        }
+        // Calcular cuántas líneas y centrar verticalmente el bloque
+        const lines = ['DESPACHO'];
+        if (dz.puertaId)           lines.push(dz.puertaId);
+        lines.push(`Máx: ${dz.pesoMaxKg || 500} kg`);
+
+        const lineHeight = 11;
+        const totalH     = (lines.length - 1) * lineHeight;
+        const startY     = y + h / 2 - totalH / 2;
+
+        lines.forEach((text, i) => {
+            const cy = startY + i * lineHeight;
+            if (i === 0) {
+                ctx.font      = `bold 9px "JetBrains Mono", monospace`;
+                ctx.fillStyle = 'rgba(79,201,127,0.9)';
+            } else {
+                ctx.font      = `7px "JetBrains Mono", monospace`;
+                ctx.fillStyle = 'rgba(79,201,127,0.7)';
+            }
+            ctx.fillText(text, x + w / 2, cy);
+        });
+
         ctx.restore();
+
+        // El rect del clip queda en el path actual (save/restore no lo limpia).
+        // Lo reiniciamos para que ningún fill/stroke posterior lo repinte.
+        ctx.beginPath();
     }
 
     // ── Pasillos (flechas de dirección) ──────────────────────────
 
     _drawAisles() {
         for (const aisle of this.scenario.aisles) {
-            for (let cx = aisle.x; cx < aisle.x + aisle.width; cx++) {
-                for (let cy = aisle.y; cy < aisle.y + aisle.height; cy++) {
-                    this._drawAisleCell(cx, cy, aisle.sentido);
-                }
-            }
+            this._drawOneAisle(aisle);
         }
     }
 
-    _drawAisleCell(cx, cy, sentido) {
+    _drawOneAisle(aisle) {
+        const isSel = this.selectedElement?.type === 'aisle' &&
+                      this.selectedElement.element.id === aisle.id;
+
+        const ctx = this.ctx;
+        const s   = this.scenario;
+        const x   = aisle.x * CELL;
+        const y   = (s.height - aisle.y - aisle.height) * CELL;
+        const w   = aisle.width  * CELL;
+        const h   = aisle.height * CELL;
+
+        // Si está seleccionado, dibujar fondo iluminado previo
+        if (isSel) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(253, 196, 51, 0.18)';
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+        }
+
+        // Celdas y flechas individuales
+        for (let cx = aisle.x; cx < aisle.x + aisle.width; cx++) {
+            for (let cy = aisle.y; cy < aisle.y + aisle.height; cy++) {
+                this._drawAisleCell(cx, cy, aisle.sentido, isSel);
+            }
+        }
+
+        // Si está seleccionado, dibujar contorno perimetral discontinuo con glow
+        if (isSel) {
+            ctx.save();
+            ctx.shadowColor   = 'rgba(251,191,36,0.45)';
+            ctx.shadowBlur    = 8;
+            ctx.strokeStyle   = 'rgba(251,191,36,1.0)';
+            ctx.lineWidth     = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+    }
+
+    _drawAisleCell(cx, cy, sentido, isSelected = false) {
         const ctx = this.ctx;
         const s   = this.scenario;
         const px  = cx * CELL;
@@ -381,12 +523,15 @@ class WarehouseRenderer {
         ctx.save();
         ctx.translate(px + mid, py + mid);
 
-        ctx.fillStyle = 'rgba(251,191,36,0.07)';
+        ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
         ctx.fillRect(-mid, -mid, CELL, CELL);
 
-        ctx.strokeStyle = 'rgba(251,191,36,0.55)';
-        ctx.fillStyle   = 'rgba(251,191,36,0.55)';
-        ctx.lineWidth   = 1.2;
+        const strokeColor = isSelected ? 'rgba(251,191,36,0.95)' : 'rgba(251,191,36,0.55)';
+        const strokeColorBoth = isSelected ? 'rgba(251,191,36,0.65)' : 'rgba(251,191,36,0.25)';
+
+        ctx.strokeStyle = strokeColor;
+        ctx.fillStyle   = strokeColor;
+        ctx.lineWidth   = isSelected ? 1.6 : 1.2;
 
         const drawArrow = (dx, dy) => {
             const len = ar;
@@ -417,8 +562,8 @@ class WarehouseRenderer {
         else if (sentido === 'E') { drawArrow(1,  0); }
         else if (sentido === 'O') { drawArrow(-1, 0); }
         else {
-            ctx.strokeStyle = 'rgba(251,191,36,0.25)';
-            ctx.fillStyle   = 'rgba(251,191,36,0.25)';
+            ctx.strokeStyle = strokeColorBoth;
+            ctx.fillStyle   = strokeColorBoth;
             drawArrow(0, 1); drawArrow(0, -1);
             drawArrow(1, 0); drawArrow(-1, 0);
         }
@@ -427,13 +572,13 @@ class WarehouseRenderer {
 
     // ── Puertas (muelles) ─────────────────────────────────────────
 
-    _drawDoors() {
+    _drawDoors(theme) {
         for (const door of this.scenario.doors) {
-            this._drawDoor(door);
+            this._drawDoor(door, theme);
         }
     }
 
-    _drawDoor(door) {
+    _drawDoor(door, theme) {
         const ctx = this.ctx;
         const s   = this.scenario;
         const px  = door.x * CELL;
@@ -462,7 +607,7 @@ class WarehouseRenderer {
 
         const labelMap = { INBOUND: 'IN', OUTBOUND: 'OUT', AMBOS: 'IO' };
         ctx.save();
-        // Clip al área de la celda de la puerta
+        // Clip al área de la celda de la puerta (solo para el tag IN/OUT)
         ctx.beginPath(); ctx.rect(px, py, CELL, CELL); ctx.clip();
         // Etiqueta de tipo — siempre visible
         ctx.fillStyle    = base;
@@ -470,144 +615,200 @@ class WarehouseRenderer {
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText(labelMap[door.tipo] || 'IO', px + CELL / 2, py + CELL - 2);
-        // ID de la puerta — siempre visible encima, fondo semi-transparente para legibilidad
+        ctx.restore();
+
+        // ID de la puerta — se dibuja SIN clip: los IDs generados son más anchos
+        // que la celda y antes quedaban cortados por ambos lados.
+        ctx.save();
         ctx.font         = `bold 8px "JetBrains Mono", monospace`;
-        ctx.fillStyle    = 'rgba(0,0,0,0.45)';
-        const idW = ctx.measureText(door.id).width + 4;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'top';
+        const idW = Math.ceil(ctx.measureText(door.id).width) + 4;
+        ctx.fillStyle    = theme.doorIdBg;
         ctx.fillRect(px + CELL / 2 - idW / 2, py + 2, idW, 11);
         ctx.fillStyle    = base;
-        ctx.textBaseline = 'top';
         ctx.fillText(door.id, px + CELL / 2, py + 3);
         ctx.restore();
+
+        // Evitar que el rect del clip quede en el path para el resto del frame
+        ctx.beginPath();
     }
 
     // ── Racks ─────────────────────────────────────────────────────
 
-    _drawRacks() {
+    _drawRacks(theme) {
         for (const rack of this.scenario.racks) {
-            this._drawRack(rack);
+            this._drawRack(rack, theme);
         }
     }
 
-    _drawRack(rack) {
+    _drawRack(rack, theme) {
         const ctx = this.ctx;
         const s   = this.scenario;
-        const rx  = rack.x * CELL + 2;
-        // El borde superior en pantalla = celda lógica superior del rack (rack.y + rack.height - 1)
-        const ry  = (s.height - rack.y - rack.height) * CELL + 2;
-        const rw  = rack.width  * CELL - 4;
-        const rh  = rack.height * CELL - 4;
-        const r   = 4;
+
+        // Coordenadas del bounding box del rack (pegado a la grilla, sin margen)
+        const rx = rack.x * CELL;
+        const ry = (s.height - rack.y - rack.height) * CELL;
+        const rw = rack.width  * CELL;
+        const rh = rack.height * CELL;
+
+        const cols = rack.width;
+        const rows = rack.height;
 
         const isSelected = this.selectedElement?.type === 'rack' &&
                            this.selectedElement.element.id === rack.id;
 
-        // Sombra
+        // Colores del tema activo
+        const border    = isSelected ? theme.rackBorderSel  : theme.rackBorder;
+        const crossCol  = isSelected ? theme.rackCrossSel   : theme.rackCross;
+        const lineCol   = isSelected ? theme.rackLinesSel   : theme.rackLines;
+
+        // ── 1. Fondo fill (igual que dispatch y aisle) ───────────────
+        ctx.fillStyle = isSelected ? theme.rackFillSel : theme.rackFill;
+        ctx.fillRect(rx, ry, rw, rh);
+
+        // ── 2. Clip para los detalles interiores ────────────────────
         ctx.save();
-        ctx.shadowColor   = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur    = 10;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
+        ctx.beginPath();
+        ctx.rect(rx, ry, rw, rh);
+        ctx.clip();
 
-        // Cuerpo (gradiente vertical)
-        const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
-        grad.addColorStop(0, isSelected ? '#3d4470' : '#2e3150');
-        grad.addColorStop(1, isSelected ? '#272b52' : '#1c1f38');
-        ctx.fillStyle = grad;
-        ctx.roundRect(rx, ry, rw, rh, r);
-        ctx.fill();
-
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur  = 0;
-        ctx.restore();
-
-        // Líneas de estante (horizontales cada media celda)
-        const shelfH = CELL * 0.5;
-        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+        // ── 3. Contravientos en X por celda (detalle blueprint sutil) ──
+        ctx.strokeStyle = crossCol;
         ctx.lineWidth   = 1;
-        for (let sy = ry + shelfH; sy < ry + rh - 2; sy += shelfH) {
+        for (let col = 0; col < cols; col++) {
+            for (let row = 0; row < rows; row++) {
+                const cx = rx + col * CELL;
+                const cy = ry + row * CELL;
+                const cw = CELL - 4;
+                const ch = CELL - 4;
+                const ox = cx + 2, oy = cy + 2;
+                ctx.beginPath();
+                ctx.moveTo(ox,      oy);
+                ctx.lineTo(ox + cw, oy + ch);
+                ctx.moveTo(ox + cw, oy);
+                ctx.lineTo(ox,      oy + ch);
+                ctx.stroke();
+            }
+        }
+
+        // ── 4. Líneas de división de celdas (grilla interna) ─────────
+        ctx.strokeStyle = lineCol;
+        ctx.lineWidth   = 1;
+        // Verticales
+        for (let col = 1; col < cols; col++) {
+            const lx = rx + col * CELL;
             ctx.beginPath();
-            ctx.moveTo(rx + 5, sy);
-            ctx.lineTo(rx + rw - 5, sy);
+            ctx.moveTo(lx, ry);
+            ctx.lineTo(lx, ry + rh);
+            ctx.stroke();
+        }
+        // Horizontales
+        for (let row = 1; row < rows; row++) {
+            const ly = ry + row * CELL;
+            ctx.beginPath();
+            ctx.moveTo(rx, ly);
+            ctx.lineTo(rx + rw, ly);
             ctx.stroke();
         }
 
-        // Borde
-        ctx.strokeStyle = isSelected ? '#818cf8' : 'rgba(79, 156, 249, 0.45)';
-        ctx.lineWidth   = isSelected ? 2 : 1;
-        ctx.roundRect(rx, ry, rw, rh, r);
-        ctx.stroke();
+        ctx.restore();  // fin del clip
 
-        // ID del rack — siempre visible, clipeado al rack
+        // ── 5. Borde exterior (igual que dispatch: sólido cuando sel., casi sólido si no) ──
+        ctx.strokeStyle = border;
+        ctx.lineWidth   = isSelected ? 2 : 1.5;
+        ctx.strokeRect(rx, ry, rw, rh);
+
+        // Glow cuando está seleccionado (como el aisle)
+        if (isSelected) {
+            ctx.save();
+            ctx.shadowColor = theme.rackGlow;
+            ctx.shadowBlur  = 8;
+            ctx.strokeStyle = theme.rackGlowStroke;
+            ctx.lineWidth   = 2;
+            ctx.strokeRect(rx, ry, rw, rh);
+            ctx.restore();
+        }
+
+        // ── 6. Etiqueta del ID (misma tipografía y estilo que las puertas) ──
         ctx.save();
-        ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, r); ctx.clip();
-        ctx.fillStyle    = isSelected ? 'rgba(220, 225, 255, 0.98)' : 'rgba(180, 200, 245, 0.92)';
-        ctx.font         = `bold ${Math.max(7, Math.min(9, rw / 4 | 0))}px "JetBrains Mono", monospace`;
+        ctx.font         = `bold 8px "JetBrains Mono", monospace`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'top';
-        // Fondo semi-opaco para garantizar legibilidad sobre el gradiente
-        const idMetrics = ctx.measureText(rack.id);
-        const idW = idMetrics.width + 6;
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillRect(rx + rw / 2 - idW / 2, ry + 2, idW, 12);
-        ctx.fillStyle = isSelected ? 'rgba(220, 225, 255, 0.98)' : 'rgba(180, 200, 245, 0.92)';
+        const idW = Math.ceil(ctx.measureText(rack.id).width) + 6;
+        // Fondo de la etiqueta
+        ctx.fillStyle = theme.rackIdBg;
+        ctx.fillRect(rx + rw / 2 - idW / 2, ry + 3, idW, 11);
+        // Texto
+        ctx.fillStyle = isSelected ? theme.rackIdTextSel : theme.rackIdText;
         ctx.fillText(rack.id, rx + rw / 2, ry + 4);
         ctx.restore();
 
-        // Productos
+        // ── 7. Productos ─────────────────────────────────────────────
         if (rack.products.length > 0) {
-            this._drawProductsOnRack(rack, rx, ry, rw, rh);
+            this._drawProductsOnRack(rack);
         }
     }
 
-    _drawProductsOnRack(rack, rx, ry, rw, rh) {
+    _drawProductsOnRack(rack) {
         const ctx = this.ctx;
 
-        const maxSpriteSize = Math.min(rw - 10, rh - 18, CELL * 0.65);
-        const sp   = maxSpriteSize;
-        const sx   = rx + (rw - sp) / 2;
-        const sy   = ry + (rh - sp) / 2 + 3;
-
-        if (this.productSprite.complete && this.productSprite.naturalWidth > 0) {
-            // Renderizar sprite pixel art con escalado nítido
-            ctx.save();
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(this.productSprite, sx, sy, sp, sp);
-            ctx.restore();
-        } else {
-            // Fallback: caja dibujada
-            ctx.fillStyle   = '#78350f';
-            ctx.strokeStyle = '#451a03';
-            ctx.lineWidth   = 1.5;
-            ctx.beginPath();
-            ctx.roundRect(sx, sy, sp, sp, 2);
-            ctx.fill();
-            ctx.stroke();
-            // Cruz (tapa de caja)
-            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-            ctx.lineWidth   = 1;
-            ctx.beginPath();
-            ctx.moveTo(sx, sy); ctx.lineTo(sx + sp, sy + sp);
-            ctx.moveTo(sx + sp, sy); ctx.lineTo(sx, sy + sp);
-            ctx.stroke();
+        // Agrupar productos por celda única (cx, cy)
+        const cellMap = new Map();
+        for (const p of rack.products) {
+            const key = `${p.x},${p.y}`;
+            if (!cellMap.has(key)) cellMap.set(key, []);
+            cellMap.get(key).push(p);
         }
 
-        // Badge con cantidad de productos
-        const count   = rack.products.length;
-        const badgeR  = 7;
-        const bx      = rx + rw - badgeR - 2;
-        const by      = ry + badgeR + 2;
+        const boxSize = Math.round(CELL * 0.58);   // ~21px para CELL=36
 
-        ctx.fillStyle = '#4f9cf9';
-        ctx.beginPath();
-        ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
-        ctx.fill();
+        for (const [, cellProds] of cellMap) {
+            const cx  = cellProds[0].x;
+            const cy  = cellProds[0].y;
+            const px  = cx * CELL;
+            const py  = this._wy(cy);
+            const sx  = px + (CELL - boxSize) / 2;
+            const sy  = py + (CELL - boxSize) / 2;
 
-        ctx.fillStyle    = '#fff';
-        ctx.font         = `bold 8px "JetBrains Mono", monospace`;
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(count, bx, by);
+            if (this.productSprite.complete && this.productSprite.naturalWidth > 0) {
+                ctx.save();
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(this.productSprite, sx, sy, boxSize, boxSize);
+                ctx.restore();
+            } else {
+                // Fallback: caja dibujada
+                ctx.fillStyle   = '#78350f';
+                ctx.strokeStyle = '#451a03';
+                ctx.lineWidth   = 1.5;
+                ctx.beginPath();
+                ctx.roundRect(sx, sy, boxSize, boxSize, 2);
+                ctx.fill();
+                ctx.stroke();
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                ctx.lineWidth   = 1;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy); ctx.lineTo(sx + boxSize, sy + boxSize);
+                ctx.moveTo(sx + boxSize, sy); ctx.lineTo(sx, sy + boxSize);
+                ctx.stroke();
+            }
+
+            // Badge de cantidad si hay más de 1 producto en la celda
+            if (cellProds.length > 1) {
+                const badgeR = 6;
+                const bx     = px + CELL - badgeR - 1;
+                const by     = py + badgeR + 1;
+                ctx.fillStyle = '#4f9cf9';
+                ctx.beginPath();
+                ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle    = '#fff';
+                ctx.font         = `bold 7px "JetBrains Mono", monospace`;
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(cellProds.length, bx, by);
+            }
+        }
     }
 
     // ── Pickers ───────────────────────────────────────────────────
@@ -727,11 +928,29 @@ class WarehouseRenderer {
         } else if (this.mode === 'door') {
             const px = x * CELL;
             const py = (s.height - 1 - y) * CELL;
-            ctx.fillStyle   = 'rgba(251,146,60,0.35)';
+            const doorColorMap = {
+                AMBOS:    { stroke: '#a78bfa', fill: 'rgba(167,139,250,0.35)' },
+                INBOUND:  { stroke: '#22c55e', fill: 'rgba(34,197,94,0.35)'  },
+                OUTBOUND: { stroke: '#f97316', fill: 'rgba(249,115,22,0.35)' },
+            };
+            const dc = doorColorMap[this.doorTipo || 'AMBOS'] || doorColorMap['AMBOS'];
+            ctx.fillStyle   = dc.fill;
             ctx.fillRect(px, py, CELL, CELL);
-            ctx.strokeStyle = '#fb923c';
+            ctx.strokeStyle = dc.stroke;
             ctx.lineWidth   = 2;
             ctx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
+
+        } else if (this.mode === 'product') {
+            // Resaltar la celda del rack donde se colocará el producto
+            const px = x * CELL;
+            const py = this._wy(y);
+            ctx.fillStyle   = 'rgba(251, 191, 36, 0.18)';
+            ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth   = 1.5;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3);
+            ctx.setLineDash([]);
         }
     }
 

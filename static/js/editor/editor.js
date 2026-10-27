@@ -66,6 +66,7 @@ class WarehouseEditor {
     setMode(mode) {
         this.mode             = mode;
         this.renderer.mode    = mode;
+        this.renderer.doorTipo = this._doorTipo;
         this.renderer.cursorRect = null;
         this._rackDragStart   = null;
         this._dzDragStart     = null;
@@ -91,8 +92,18 @@ class WarehouseEditor {
 
     _startLoop() {
         const loop = () => {
-            this.renderer.render();
+            // Agendar antes de dibujar: si render() lanza una excepción,
+            // el loop no debe morir y dejar el canvas congelado.
             this._animFrame = requestAnimationFrame(loop);
+            try {
+                this.renderer.render();
+                this._renderErrorLogged = false;
+            } catch (err) {
+                if (!this._renderErrorLogged) {
+                    this._renderErrorLogged = true;
+                    console.error('[WarehouseEditor] Error al renderizar:', err);
+                }
+            }
         };
         this._animFrame = requestAnimationFrame(loop);
     }
@@ -204,6 +215,12 @@ class WarehouseEditor {
         // Preview puerta (1 celda)
         if (this.mode === 'door' && this.scenario && this.scenario.isInBounds(cell.x, cell.y)) {
             this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
+        }
+
+        // Preview celda en modo producto
+        if (this.mode === 'product') {
+            const rackUnder = this.scenario.getRackAt(cell.x, cell.y);
+            this.renderer.cursorRect = rackUnder ? { x: cell.x, y: cell.y, w: 1, h: 1 } : null;
         }
 
         // Mover elemento: preview en vivo
@@ -364,7 +381,7 @@ class WarehouseEditor {
             this.renderer.selectedElement = { type: 'rack', element: rack };
             this.onEvent('add-rack', rack);
         } else {
-            this.onEvent('error', 'No se pudo colocar el rack. Verificá que: no esté ocupado, tenga distancia ≥ 1 con otros racks, y no quede pegado a la pared (debe haber al menos 1 celda libre en cada cara).');
+            this.onEvent('error', 'No se pudo colocar el rack. Verificá que: no esté ocupado, tenga distancia ≥ 1 con otros racks, y que todas sus celdas queden accesibles para los pickers (sin celdas bloqueadas por paredes, puertas o zonas de despacho en todos sus costados).');
         }
     }
 
@@ -372,7 +389,7 @@ class WarehouseEditor {
         if (!this.scenario.isInBounds(cell.x, cell.y)) return;
         const rack = this.scenario.getRackAt(cell.x, cell.y);
         if (rack) {
-            this.onEvent('open-product-form', rack);
+            this.onEvent('open-product-form', { rack, cell });
         } else {
             this.onEvent('hint', 'Hacé click en un rack para agregarle un producto.');
         }
@@ -531,7 +548,7 @@ class WarehouseEditor {
                 this.renderer.selectedElement = { type: 'rack', element };
                 this.onEvent('move-rack', element);
             } else {
-                this.onEvent('error', 'No se pudo mover el rack. Verificá que: la posición esté libre, haya distancia ≥ 1 con otros racks, y no quede pegado a la pared.');
+                this.onEvent('error', 'No se pudo mover el rack. Verificá que: la posición esté libre, haya distancia ≥ 1 con otros racks, y que todas sus celdas queden accesibles para los pickers (sin celdas bloqueadas por paredes, puertas o zonas de despacho).');
             }
         } else if (type === 'picker') {
             const moved = this.scenario.movePicker(element.id, cell.x, cell.y);

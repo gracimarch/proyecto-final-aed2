@@ -161,9 +161,9 @@ class Scenario {
         if (!this.isInBounds(nx, ny) || !this.isInBounds(nx + width - 1, ny + height - 1)) return null;
         if (this._isAreaOccupied(nx, ny, width, height)) return null;
         if (this._isRackAdjacentToOtherRack(nx, ny, width, height, null)) return null;
-        // Verificar accesibilidad: ninguna cara del rack puede quedar contra la pared
+        // Verificar accesibilidad: ninguna celda del rack puede quedar encerrada
         const tempRack = { x: nx, y: ny, width, height };
-        if (!this.isRackFullyAccessible(tempRack)) return null;
+        if (!this.isRackFullyAccessible(tempRack, null)) return null;
         const rack = new Rack({ x: nx, y: ny, width, height });
         this.racks.push(rack);
         return rack;
@@ -177,8 +177,8 @@ class Scenario {
         if (!this.isInBounds(nx, ny) || !this.isInBounds(nx + rack.width - 1, ny + rack.height - 1)) return false;
         if (this._isAreaOccupiedExcluding(nx, ny, rack.width, rack.height, rackId)) return false;
         if (this._isRackAdjacentToOtherRack(nx, ny, rack.width, rack.height, rackId)) return false;
-        // Verificar accesibilidad en la nueva posición
-        if (!this.isRackFullyAccessible({ x: nx, y: ny, width: rack.width, height: rack.height })) return false;
+        // Verificar accesibilidad en la nueva posición (excluir el rack que se mueve)
+        if (!this.isRackFullyAccessible({ x: nx, y: ny, width: rack.width, height: rack.height }, rackId)) return false;
         const dx = nx - rack.x; const dy = ny - rack.y;
         rack.x = nx; rack.y = ny;
         for (const p of rack.products) { p.x += dx; p.y += dy; }
@@ -196,8 +196,8 @@ class Scenario {
         if (!this.isInBounds(nx, ny) || !this.isInBounds(nx + newW - 1, ny + newH - 1)) return false;
         if (this._isAreaOccupiedExcluding(nx, ny, newW, newH, rackId)) return false;
         if (this._isRackAdjacentToOtherRack(nx, ny, newW, newH, rackId)) return false;
-        // Verificar accesibilidad tras la rotación
-        if (!this.isRackFullyAccessible({ x: nx, y: ny, width: newW, height: newH })) return false;
+        // Verificar accesibilidad tras la rotación (excluir el rack que se rota)
+        if (!this.isRackFullyAccessible({ x: nx, y: ny, width: newW, height: newH }, rackId)) return false;
         rack.width = newW; rack.height = newH; rack.x = nx; rack.y = ny;
         return true;
     }
@@ -206,22 +206,34 @@ class Scenario {
     getRackById(id) { return this.racks.find(r => r.id === id) || null; }
     getRackAt(cx, cy) { return this.racks.find(r => r.containsCell(cx, cy)) || null; }
     /**
-     * Verifica que cada celda del rack tenga al menos un vecino que esté
-     * dentro del warehouse Y fuera del rack.
-     * Detecta celdas "encerradas" sin rechazar casos válidos como un rack 2×1
-     * en una esquina (accesible desde arriba/abajo).
-     * No verifica otros racks porque ya se garantiza distancia ≥ 1 entre racks.
+     * Verifica que cada celda del rack tenga al menos un vecino ortogonal que sea
+     * una celda de pasillo transitable (dentro del warehouse, fuera del rack,
+     * que no sea otra puerta, zona de despacho u otro rack).
+     *
+     * @param {Object} rack          - Objeto con {x, y, width, height}.
+     * @param {string|null} excludeRackId - ID de un rack a ignorar en la comprobación
+     *   (el propio rack cuando se mueve o rota).
      */
-    isRackFullyAccessible(rack) {
+    isRackFullyAccessible(rack, excludeRackId = null) {
         const deltas = [[1,0],[-1,0],[0,1],[0,-1]];
         for (let cy = rack.y; cy < rack.y + rack.height; cy++) {
             for (let cx = rack.x; cx < rack.x + rack.width; cx++) {
                 let hasAccess = false;
                 for (const [dx, dy] of deltas) {
                     const nx = cx + dx, ny = cy + dy;
+                    // Debe estar dentro del warehouse
                     if (nx < 0 || nx >= this.width || ny < 0 || ny >= this.height) continue;
+                    // Debe ser exterior al rack evaluado
                     if (nx >= rack.x && nx < rack.x + rack.width &&
                         ny >= rack.y && ny < rack.y + rack.height) continue;
+                    // No puede ser una puerta (no transitable)
+                    if (this.getDoorAt(nx, ny)) continue;
+                    // No puede ser una zona de despacho (no transitable)
+                    if (this._isInDispatchZone(nx, ny)) continue;
+                    // No puede ser otro rack (no transitable para el picker)
+                    const neighborRack = this.getRackAt(nx, ny);
+                    if (neighborRack && neighborRack.id !== excludeRackId) continue;
+                    // Esta celda vecina es transitable: la celda del rack tiene acceso
                     hasAccess = true;
                     break;
                 }
@@ -233,11 +245,30 @@ class Scenario {
 
 
     // ── Products ─────────────────────────────────────────────────────
-    addProduct(rackId, { name, sku, quantity, cantidad, pesoKg = 1.0 } = {}) {
+    addProduct(rackId, { name, sku, quantity, cantidad, pesoKg, x, y, z } = {}) {
         const rack = this.getRackById(rackId); if (!rack) return null;
         const qty = cantidad != null ? cantidad : (quantity != null ? quantity : 1);
-        const pz = rack.products.filter(p => p.x === rack.x && p.y === rack.y).length + 1;
-        const product = new Product({ name, sku, rackId, x: rack.x, y: rack.y, z: pz, quantity: qty, pesoKg });
+        const weight = (pesoKg != null && !isNaN(parseFloat(pesoKg))) ? parseFloat(pesoKg) : 1.0;
+
+        // Determinar celda destino: usar (x, y) si pertenece al rack, sino esquina inferior-izquierda
+        let targetX = rack.x;
+        let targetY = rack.y;
+        if (x != null && y != null && rack.containsCell(x, y)) {
+            targetX = x;
+            targetY = y;
+        }
+
+        // Nivel Z: usar el provisto (si válido) o calcular el siguiente libre en la celda
+        const cellProducts = rack.products.filter(p => p.x === targetX && p.y === targetY);
+        const targetZ = (z != null && Number.isInteger(+z) && +z >= 1) ? +z : cellProducts.length + 1;
+
+        // Validar que el slot (x, y, z) no esté ya ocupado
+        const slotOccupied = rack.products.some(p => p.x === targetX && p.y === targetY && p.z === targetZ);
+        if (slotOccupied) {
+            return { error: `La posición (${targetX}, ${targetY}) Z:${targetZ} ya está ocupada. Elegí un nivel Z diferente.` };
+        }
+
+        const product = new Product({ name, sku, rackId, x: targetX, y: targetY, z: targetZ, quantity: qty, pesoKg: weight });
         rack.products.push(product); return product;
     }
     removeProduct(productId) { for (const r of this.racks) { const i = r.products.findIndex(p => p.id === productId); if (i !== -1) { r.products.splice(i, 1); return true; } } return false; }
@@ -247,7 +278,20 @@ class Scenario {
     addDoor(x, y, tipo = 'AMBOS') {
         if (!(x === 0 || x === this.width - 1 || y === 0 || y === this.height - 1)) return null;
         if (this.doors.find(d => d.x === x && d.y === y)) return null;
-        const door = new Door({ x, y, tipo }); this.doors.push(door); return door;
+        // Verificar que la celda no esté ocupada por otro elemento
+        if (this.getRackAt(x, y))          return null;
+        if (this._isInDispatchZone(x, y))  return null;
+        if (this.getAisleAt(x, y))         return null;
+        if (this.getPickerAt(x, y))        return null;
+        const door = new Door({ x, y, tipo }); this.doors.push(door);
+        // Auto-asignar zonas huérfanas adyacentes a la nueva puerta
+        for (const dz of this.dispatchZones) {
+            if (!dz.puertaId && this._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, door.id)) {
+                dz.puertaId = door.id;
+                break; // una puerta ↔ una zona
+            }
+        }
+        return door;
     }
     removeDoor(id) {
         const i = this.doors.findIndex(d => d.id === id);
@@ -263,6 +307,11 @@ class Scenario {
         if (!(nx === 0 || nx === this.width - 1 || ny === 0 || ny === this.height - 1)) return false;
         // No puede estar donde ya hay otra puerta
         if (this.doors.some(d => d.id !== id && d.x === nx && d.y === ny)) return false;
+        // No puede solaparse con rack, zona de despacho, pasillo o picker
+        if (this.getRackAt(nx, ny))         return false;
+        if (this._isInDispatchZone(nx, ny)) return false;
+        if (this.getAisleAt(nx, ny))        return false;
+        if (this.getPickerAt(nx, ny))       return false;
         door.x = nx; door.y = ny;
         // Detectar zonas que quedan despegadas de la puerta
         const orphanedZones = [];
@@ -271,6 +320,16 @@ class Scenario {
             if (!this._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, id)) {
                 dz.puertaId = null;
                 orphanedZones.push(dz);
+            }
+        }
+        // Auto-asignar zonas huérfanas adyacentes a la nueva posición de la puerta
+        const alreadyOwned = this.dispatchZones.some(dz => dz.puertaId === id);
+        if (!alreadyOwned) {
+            for (const dz of this.dispatchZones) {
+                if (!dz.puertaId && this._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, id)) {
+                    dz.puertaId = id;
+                    break;
+                }
             }
         }
         return { moved: true, orphanedZones };
@@ -348,6 +407,7 @@ class Scenario {
                 if (existingDz && existingDz.id !== id) return false;
                 if (this.getDoorAt(cx, cy)) return false;
                 if (this.getAisleAt(cx, cy)) return false;
+                if (this.getPickerAt(cx, cy)) return false;
             }
         }
         // Debe quedar adyacente a exactamente la puerta asignada (si tiene)
