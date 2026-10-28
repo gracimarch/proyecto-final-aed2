@@ -1,40 +1,76 @@
-from __future__ import annotations
+"""
+models/wave_manager.py
 
-from typing import TYPE_CHECKING
-from models.order import Order, OrderItem, OrderStatus
+Arma las waves a partir de los pedidos pendientes y les asigna pickers
+(consigna §6 y §7). Trabaja en dos etapas que nunca se deshacen.
+
+Etapa 1: armar waves (generate_waves). Algoritmo greedy y determinista:
+    1. Se ordenan los pedidos pendientes: mayor prioridad primero y, si
+       empatan, por id.
+    2. Se abre una wave con el primero (la "semilla"). Si no entra completo,
+       se divide por ítems; es el único caso en que un pedido se divide.
+    3. Se calcula, con un BFS que arranca desde todas las celdas de recogida
+       de la wave a la vez, la distancia de la wave a cada celda.
+    4. Entre los pedidos que entran completos, se agrega el mejor: el de
+       mayor prioridad y, si empatan, el más cercano (y si también empatan,
+       el de menor id). La prioridad manda; la distancia solo desempata.
+    5. Se repiten 3 y 4 hasta que no entre ninguno, y se vuelve a 2.
+    El peso máximo de una wave es la capacidad del picker más grande, así
+    siempre hay algún picker que puede prepararla.
+
+Etapa 2: asignar pickers (assign_pickers y complete_wave).
+    Las waves sin picker esperan en una cola ordenada por prioridad y, si
+    empatan, por orden de creación. Cada wave recibe el picker libre de
+    MENOR capacidad que la pueda cargar (best fit), así los grandes quedan
+    para las waves pesadas. Cuando un picker termina su wave, queda libre
+    y toma la siguiente de la cola.
+
+Ordenar con tuplas:
+    Las funciones _order_key, _picker_key y _queue_key devuelven tuplas como (-prioridad, order_id).
+    Python compara tuplas elemento por elemento: primero el primero, y solo
+    si son iguales mira el segundo. Por eso (-5, "P2") < (-3, "P1"): gana
+    la prioridad 5. Se usa -prioridad para que la prioridad MAYOR quede primero.
+"""
+
+from models.order import Order, OrderItem
+from models.picker import Picker
+from models.warehouse import Warehouse
 from models.wave import Wave, WaveStatus
+from algorithms.graph import Graph, bfs_distances
+from algorithms.graph_builder import generate_graph
+from algorithms.pathfinding import pickup_cells
+from algorithms.routing import validate_reachability
 
-if TYPE_CHECKING:
-    from models.warehouse import Warehouse, Picker
+
+INFINITO = float("inf")
+
+
+def _order_key(order: Order) -> tuple[int, str]:
+    """Orden de los pedidos pendientes: mayor prioridad primero, después por id."""
+    return (-order.prioridad, order.order_id)
+
+
+def _picker_key(picker: Picker) -> tuple[float, str]:
+    """Orden de los pickers libres: menor capacidad primero, después por id."""
+    return (picker.capacidad_carga_kg, picker.picker_id)
 
 
 class WaveManager:
     """
-    Gestiona la formación de waves a partir de pedidos pendientes y la
-    asignación voraz y determinista de pickers disponibles.
-
-    Novedades respecto a la versión anterior:
-    - Se permite dividir pedidos entre varias waves a nivel de OrderItem
-      (líneas completas; no se parten unidades de un mismo ítem).
-    - Cada wave puede tener varios pickers asignados.
-    - La asignación de pickers prioriza las waves de mayor peso total y
-      acumula pickers por capacidad descendente hasta cubrir el peso.
-
-    ADVERTENCIA sobre la capacidad múltiple de pickers:
-        La suma de capacidades de los pickers de una wave se usa como
-        estimación operativa. No garantiza que cualquier distribución
-        de productos sea transportable, dado que cada picker solo puede
-        cargar individualmente hasta su límite. La distribución real de
-        carga entre pickers queda a cargo del módulo de pathfinding.
-
     Atributos:
-        warehouse             (Warehouse | None)         : Warehouse asociado.
-        max_pedidos           (int)                      : Límite de pedidos distintos por wave.
-        max_productos         (int)                      : Límite de unidades totales por wave.
-        orders                (list[Order])              : Registro total de pedidos.
-        waves                 (list[Wave])               : Waves con al menos un picker asignado.
-        unassigned_waves      (list[Wave])               : Waves sin picker suficiente.
-        unprocessable_orders  (list[tuple[Order, str]])  : Ítems/pedidos irrecuperables con motivo.
+        warehouse            (Warehouse o None) : Warehouse asociado.
+        graph                (Graph o None)     : Grafo para medir distancias.
+        max_pedidos          (int)              : Máximo de pedidos por wave.
+        max_productos        (int)              : Máximo de UNIDADES por wave.
+        orders               (list[Order])      : Todos los pedidos.
+        pickers              (list[Picker])     : Pickers que conoce el manager.
+        waves                (list[Wave])       : Todas las waves, en orden de creación.
+        queue                (list[Wave])       : Waves esperando picker, en orden de atención.
+        unprocessable_orders (list)             : Ítems imposibles de la última generación,
+                                                  como pares (pedido, motivo).
+
+    Sin warehouse (o sin grafo), la distancia vale 0 para todos y el armado
+    queda guiado solo por prioridad e id.
     """
 
     def __init__(
@@ -43,13 +79,25 @@ class WaveManager:
         orders: list[Order] | None = None,
         max_pedidos: int | None = None,
         max_productos: int | None = None,
+        graph: Graph | None = None,
     ):
         self.warehouse = warehouse
-        self.orders: list[Order] = list(orders) if orders else []
-        self.waves: list[Wave] = []
-        self.unassigned_waves: list[Wave] = []
-        self.unprocessable_orders: list[tuple[Order, str]] = []
 
+        self.orders = []
+        if orders is not None:
+            for order in orders:
+                self.orders.append(order)
+
+        self.pickers = []
+        if warehouse is not None:
+            for picker in warehouse.pickers:
+                self.pickers.append(picker)
+
+        self.waves = []
+        self.queue = []
+        self.unprocessable_orders = []
+
+        # Límites: los recibidos, o los del warehouse, o los valores por defecto.
         if max_pedidos is not None:
             self.max_pedidos = max_pedidos
         elif warehouse is not None:
@@ -69,57 +117,133 @@ class WaveManager:
         if self.max_productos <= 0:
             raise ValueError("max_productos debe ser mayor a 0.")
 
+        self.graph = graph
+        if self.graph is None and warehouse is not None:
+            self.graph = generate_graph(warehouse)
+
+        # Antes de armar waves, cada producto tiene que poder buscarse
+        # y traerse a la zona de despacho respetando los sentidos.
+        if warehouse is not None:
+            validate_reachability(warehouse, self.graph)
+
+        # Guardamos las celdas de recogida de cada producto para no
+        # recalcularlas en cada wave: {product_id: set de celdas}.
+        self._pickup_cache = {}
+
     # ------------------------------------------------------------------
-    # Gestión de pedidos
+    # Pedidos y pickers
     # ------------------------------------------------------------------
 
     def add_order(self, order: Order) -> None:
-        """Agrega un pedido al registro del manager."""
         self.orders.append(order)
 
     def add_orders(self, orders: list[Order]) -> None:
-        """Agrega una lista de pedidos al registro del manager."""
         for order in orders:
             self.add_order(order)
 
     def get_pending_orders(self) -> list[Order]:
-        """Retorna los pedidos con al menos un ítem pendiente (PENDIENTE o PARCIAL)."""
-        return [
-            o for o in self.orders
-            if o.status in (OrderStatus.PENDIENTE, OrderStatus.PARCIAL)
-            and o.items_pendientes
-        ]
+        """Pedidos con al menos un ítem sin wave (PENDIENTE o PARCIAL)."""
+        pendientes = []
+        for order in self.orders:
+            if len(order.pending_items) > 0:
+                pendientes.append(order)
+        return pendientes
+
+    def _register_pickers(self, pickers: list[Picker] | None) -> list[Picker]:
+        """Suma los pickers nuevos (los que no conocía) y devuelve todos."""
+        if pickers is not None:
+            ids_conocidos = set()
+            for p in self.pickers:
+                ids_conocidos.add(p.picker_id)
+            for p in pickers:
+                if p.picker_id not in ids_conocidos:
+                    self.pickers.append(p)
+        return self.pickers
+
+    def _max_capacity(self, pickers: list[Picker]) -> float:
+        """Capacidad del picker más grande (0 si no hay pickers)."""
+        mayor = 0.0
+        for p in pickers:
+            if p.capacidad_carga_kg > mayor:
+                mayor = p.capacidad_carga_kg
+        return mayor
 
     def _validate_item_feasibility(
-        self, order: Order, item: OrderItem, max_picker_cap: float
+        self,
+        order: Order,
+        item: OrderItem,
+        max_picker_cap: float,
     ) -> tuple[bool, str]:
         """
-        Verifica si un OrderItem individual puede caber en alguna wave.
-
-        Un ítem es inviable si su peso solo, con el mayor picker disponible,
-        supera la capacidad provisional, o si su cantidad sola supera max_productos.
+        Revisa si un ítem puede entrar en alguna wave: no tiene más unidades
+        que max_productos ni pesa más que el picker más grande.
 
         Returns:
-            (es_factible, motivo_si_no)
+            (True, "") si puede, o (False, motivo) si no.
         """
         if item.cantidad > self.max_productos:
-            return (
-                False,
+            motivo = (
                 f"El ítem '{item.product.product_id}' del pedido '{order.order_id}' "
                 f"tiene {item.cantidad} unidades, que superan el máximo por wave "
-                f"({self.max_productos}).",
+                f"({self.max_productos})."
             )
-        if max_picker_cap > 0 and item.peso_total > max_picker_cap:
-            return (
-                False,
+            return False, motivo
+        if item.total_weight > max_picker_cap:
+            motivo = (
                 f"El ítem '{item.product.product_id}' del pedido '{order.order_id}' "
-                f"pesa {item.peso_total:.2f} kg, superando la capacidad del picker "
-                f"más capaz ({max_picker_cap:.2f} kg).",
+                f"pesa {item.total_weight:.2f} kg, superando la capacidad del picker "
+                f"más capaz ({max_picker_cap:.2f} kg)."
             )
+            return False, motivo
         return True, ""
 
     # ------------------------------------------------------------------
-    # Generación de waves
+    # Distancias (etapa 1)
+    # ------------------------------------------------------------------
+
+    def _pickup_cells(self, item: OrderItem) -> set[tuple[int, int]]:
+        """Celdas de pasillo desde las que se recoge el producto del ítem."""
+        pid = item.product.product_id
+        if pid not in self._pickup_cache:
+            celdas = pickup_cells(item.product, self.warehouse, self.graph)
+            self._pickup_cache[pid] = set(celdas)
+        return self._pickup_cache[pid]
+
+    def _distances_from_wave(self, wave: Wave) -> dict[tuple[int, int], int] | None:
+        """
+        BFS multi-origen desde todas las celdas de recogida de la wave.
+        Devuelve {celda: distancia}, o None si no hay grafo.
+
+        Complejidad: O(V + E).
+        """
+        if self.graph is None or self.warehouse is None:
+            return None
+        origenes = set()
+        for item in wave.get_items():
+            for celda in self._pickup_cells(item):
+                origenes.add(celda)
+        return bfs_distances(self.graph, origenes)
+
+    def _distance(
+        self,
+        items: list[OrderItem],
+        dist: dict[tuple[int, int], int] | None,
+    ) -> float:
+        """
+        Distancia de la wave a un pedido: la menor distancia a alguna celda
+        de recogida de sus ítems. 0 si no hay grafo; infinito si no llega.
+        """
+        if dist is None:
+            return 0
+        menor = INFINITO
+        for item in items:
+            for celda in self._pickup_cells(item):
+                if celda in dist and dist[celda] < menor:
+                    menor = dist[celda]
+        return menor
+
+    # ------------------------------------------------------------------
+    # Etapa 1: armar waves
     # ------------------------------------------------------------------
 
     def generate_waves(
@@ -128,214 +252,247 @@ class WaveManager:
         prefix: str = "WAVE_",
     ) -> list[Wave]:
         """
-        Genera waves a partir de pedidos pendientes (con posibilidad de dividirlos)
-        y luego asigna pickers disponibles.
-
-        Estrategia de formación (voraz, determinista):
-            1. Determina los pickers libres y el límite provisional de peso
-               (mayor capacidad individual entre ellos).
-            2. Valida viabilidad de cada ítem individual. Los ítems que
-               individualmente superan los límites configurados se reportan como
-               inasimilables y se excluyen sin generar bucles infinitos.
-            3. Ordena los pedidos por prioridad descendente, con desempate por
-               order_id ascendente (determinista).
-            4. En cada wave, recorre los pedidos en orden e intenta incorporar
-               todos sus ítems pendientes. Si el pedido completo no entra, intenta
-               incorporar los ítems que sí quepan (greedy por ítem). Si ningún ítem
-               entra, el pedido se omite para esta wave y se evalúa en la siguiente.
-               La wave se cierra cuando no hay más ítems que incorporar.
-            5. Si al terminar un ciclo completo sobre todos los pedidos ningún ítem
-               se incorporó, se rompe el loop para evitar bucles infinitos.
-
-        Estrategia de asignación de pickers (voraz, determinista):
-            1. Las waves se ordenan por peso total descendente (las más pesadas primero).
-            2. Para cada wave, se acumulan pickers libres en orden de capacidad
-               descendente hasta que la suma de capacidades cubra el peso total de la wave.
-            3. Un picker que no alcanza por sí solo a cubrir el peso restante de la wave
-               puede combinarse con otros.
-            4. Si no hay suficiente capacidad disponible, la wave queda sin asignar.
-            5. La estrategia NO garantiza una asignación globalmente óptima; es heurística.
+        Arma waves con los ítems pendientes (etapa 1) y después asigna
+        pickers libres a la cola (etapa 2).
 
         Args:
-            pickers: Lista de pickers a considerar. Si es None usa los del warehouse.
-            prefix:  Prefijo de los IDs generados de las waves.
+            pickers: Pickers extra a considerar (por defecto, los del warehouse).
+            prefix : Prefijo de los ids de las waves ("WAVE_01", "WAVE_02"...).
 
         Returns:
-            Lista de waves con al menos un picker asignado.
+            Las waves nuevas, en orden de creación. Las que no consiguieron
+            picker quedan en la cola (get_queued_waves).
+
+        Complejidad: con P pedidos pendientes, agregar cada pedido cuesta un
+        BFS O(V + E) más recorrer los candidatos O(P): en total O(P · (V + E + P)).
         """
-        # ── Paso 1: pickers libres y límite provisional de peso ────────
-        if pickers is not None:
-            available_pickers = [p for p in pickers if not p.is_busy]
-        elif self.warehouse is not None:
-            available_pickers = [p for p in self.warehouse.pickers if not p.is_busy]
-        else:
-            available_pickers = []
-
-        max_provisional_peso = max(
-            (p.capacidad_carga_kg for p in available_pickers), default=0.0
-        )
-
-        # ── Paso 2: Validar ítems individuales ────────────────────────
-        # Separamos los ítems inviables del resto. Solo los ítems viables
-        # participan en la formación de waves.
-        # Pedidos que pierden todos sus ítems pendientes por inviabilidad
-        # se reportan pero no se modifican (permanecen PENDIENTE).
-        viable_items_by_order: dict[str, list[OrderItem]] = {}
-        for order in self.get_pending_orders():
-            viable = []
-            for item in order.items_pendientes:
-                ok, reason = self._validate_item_feasibility(
-                    order, item, max_provisional_peso
-                )
-                if not ok:
-                    self.unprocessable_orders.append((order, reason))
-                else:
-                    viable.append(item)
-            if viable:
-                viable_items_by_order[order.order_id] = viable
-
-        if not viable_items_by_order:
+        self.unprocessable_orders = []
+        todos_los_pickers = self._register_pickers(pickers)
+        max_peso = self._max_capacity(todos_los_pickers)
+        if max_peso <= 0:
             return []
 
-        # ── Paso 3: Ordenar pedidos (prioridad desc, order_id asc) ────
-        pending_orders = [
-            o for o in self.get_pending_orders()
-            if o.order_id in viable_items_by_order
-        ]
-        pending_orders.sort(key=lambda o: (-o.prioridad, o.order_id))
+        # 1. Ítems posibles de cada pedido. Los imposibles se informan y no se usan.
+        viable = {}    # {order_id: lista de ítems que sí pueden entrar}
+        for order in self.get_pending_orders():
+            posibles = []
+            for item in order.pending_items:
+                ok, motivo = self._validate_item_feasibility(order, item, max_peso)
+                if ok:
+                    posibles.append(item)
+                else:
+                    self.unprocessable_orders.append((order, motivo))
+            if len(posibles) > 0:
+                viable[order.order_id] = posibles
 
-        # ── Paso 4: Formación voraz de waves ──────────────────────────
-        generated_waves: list[Wave] = []
-        wave_seq = len(self.waves) + len(self.unassigned_waves) + 1
+        # 2. Pedidos a repartir, del más prioritario al menos prioritario.
+        pending = []
+        for order in self.get_pending_orders():
+            if order.order_id in viable:
+                pending.append(order)
+        pending = sorted(pending, key=_order_key)
 
-        # Trabajamos con los ítems viables pendientes por pedido
-        # (copia para no alterar viable_items_by_order que puede necesitarse)
-        remaining_viable: dict[str, list[OrderItem]] = {
-            oid: list(items) for oid, items in viable_items_by_order.items()
-        }
-
-        while any(remaining_viable.values()):
-            wave_id = f"{prefix}{wave_seq:02d}"
+        new_waves = []
+        while len(pending) > 0:
+            numero = len(self.waves) + len(new_waves) + 1
             wave = Wave(
-                wave_id=wave_id,
+                wave_id=prefix + str(numero).zfill(2),   # zfill(2): 1 -> "01"
                 max_pedidos=self.max_pedidos,
                 max_productos=self.max_productos,
             )
 
-            added_any_in_wave = False
+            # 3. La semilla: el pedido más prioritario que queda.
+            seed = pending[0]
+            self._add_seed(wave, seed, viable, max_peso)
 
-            for order in pending_orders:
-                oid = order.order_id
-                if oid not in remaining_viable or not remaining_viable[oid]:
-                    continue
-
-                candidate_items = remaining_viable[oid]
-
-                # Intentar meter todos los ítems pendientes del pedido
-                if wave.can_add_items(order, candidate_items, max_peso=max_provisional_peso):
-                    wave.add_items(order, candidate_items, max_peso=max_provisional_peso)
-                    remaining_viable[oid] = []
-                    added_any_in_wave = True
-                else:
-                    # División: intentar meter los ítems que quepan uno a uno
-                    items_to_add: list[OrderItem] = []
-                    for item in candidate_items:
-                        if wave.can_add_items(order, [item], max_peso=max_provisional_peso):
-                            # Verificar que sumando este ítem a los ya seleccionados sigue cabiendo
-                            if wave.can_add_items(order, items_to_add + [item], max_peso=max_provisional_peso):
-                                items_to_add.append(item)
-
-                    if items_to_add:
-                        wave.add_items(order, items_to_add, max_peso=max_provisional_peso)
-                        remaining_viable[oid] = [
-                            it for it in candidate_items if it not in items_to_add
-                        ]
-                        added_any_in_wave = True
-
-            # Salvaguarda: si no se agregó nada en este ciclo, salir
-            if not added_any_in_wave:
-                break
-
-            if wave.entries:
-                generated_waves.append(wave)
-            wave_seq += 1
-
-        # ── Paso 5: Asignación de pickers ─────────────────────────────
-        # Ordenar waves por peso total descendente (las más pesadas primero)
-        generated_waves_sorted = sorted(
-            generated_waves, key=lambda w: (-w.peso_total(), w.wave_id)
-        )
-
-        free_pickers_pool = sorted(
-            available_pickers,
-            key=lambda p: (-p.capacidad_carga_kg, p.picker_id),
-        )
-
-        assigned_waves: list[Wave] = []
-
-        for wave in generated_waves_sorted:
-            peso_restante = wave.peso_total()
-            pickers_for_wave: list[Picker] = []
-            used: list[Picker] = []
-
-            for picker in free_pickers_pool:
-                if peso_restante <= 0:
+            # 4. Agregar el mejor candidato mientras entre alguno.
+            while True:
+                dist = self._distances_from_wave(wave)
+                best = self._best_candidate(wave, pending, seed, viable, dist, max_peso)
+                if best is None:
                     break
-                pickers_for_wave.append(picker)
-                used.append(picker)
-                peso_restante -= picker.capacidad_carga_kg
+                wave.add_items(best, viable[best.order_id], max_peso)
+                viable[best.order_id] = []
 
-            if peso_restante <= 0:
-                # Asignación exitosa
-                for picker in pickers_for_wave:
-                    wave.add_picker(picker)
-                    free_pickers_pool.remove(picker)
-                self.waves.append(wave)
-                assigned_waves.append(wave)
-            else:
-                # Capacidad insuficiente
-                self.unassigned_waves.append(wave)
-                # Revertir los ítems de pedidos PARCIAL o EN_WAVE a PENDIENTE
-                # para que puedan incluirse en futuras invocaciones
-                for entry in wave.entries:
-                    order = entry.order
-                    # Devolver los ítems asignados en esta wave a items_pendientes
-                    for it in entry.items:
-                        if it not in order.items_pendientes:
-                            order.items_pendientes.append(it)
-                    # Ajustar estado
-                    if order.esta_completamente_asignado() is False:
-                        if not order.items_pendientes:
-                            pass  # mantener EN_WAVE
-                        else:
-                            order.status = OrderStatus.PENDIENTE if len(order.items_pendientes) == len(order.items) else OrderStatus.PARCIAL
+            # 5. Quedan solo los pedidos con ítems sin wave.
+            quedan = []
+            for order in pending:
+                if len(viable[order.order_id]) > 0:
+                    quedan.append(order)
+            pending = quedan
+            new_waves.append(wave)
 
-        # Reordenar this.waves por orden de creación (wave_id) para consistencia
-        self.waves.sort(key=lambda w: w.wave_id)
-        assigned_waves.sort(key=lambda w: w.wave_id)
+        for wave in new_waves:
+            self.waves.append(wave)
+            self.queue.append(wave)
+        self.queue = sorted(self.queue, key=self._queue_key)
+        self.assign_pickers()
+        return new_waves
 
-        return assigned_waves
+    def _best_candidate(
+        self,
+        wave: Wave,
+        pending: list[Order],
+        seed: Order,
+        viable: dict[str, list[OrderItem]],
+        dist: dict[tuple[int, int], int] | None,
+        max_peso: float,
+    ) -> Order | None:
+        """
+        Entre los pedidos que entran completos en la wave, devuelve el de
+        menor clave (-prioridad, distancia, order_id), o None si no entra ninguno.
+        """
+        mejor = None
+        mejor_clave = None
+        for order in pending:
+            if order is seed:
+                continue
+            items = viable[order.order_id]
+            if not wave.can_add_items(order, items, max_peso):
+                continue
+            clave = (-order.prioridad, self._distance(items, dist), order.order_id)
+            if mejor is None or clave < mejor_clave:
+                mejor = order
+                mejor_clave = clave
+        return mejor
+
+    def _add_seed(
+        self,
+        wave: Wave,
+        seed: Order,
+        viable: dict[str, list[OrderItem]],
+        max_peso: float,
+    ) -> None:
+        """
+        Pone el pedido semilla en una wave vacía. Si no entra completo, se
+        agregan sus ítems de a uno mientras quepan, y el resto queda en
+        viable para la wave siguiente. Como cada ítem posible entra solo en
+        una wave vacía, siempre entra al menos uno y el armado avanza.
+        """
+        items = viable[seed.order_id]
+        if wave.can_add_items(seed, items, max_peso):
+            wave.add_items(seed, items, max_peso)
+            viable[seed.order_id] = []
+            return
+
+        for item in items:
+            if wave.can_add_items(seed, [item], max_peso):
+                wave.add_items(seed, [item], max_peso)
+
+        sin_wave = []
+        for item in items:
+            if item.wave is None:
+                sin_wave.append(item)
+        viable[seed.order_id] = sin_wave
 
     # ------------------------------------------------------------------
-    # Consultas y resumen
+    # Etapa 2: asignar pickers
+    # ------------------------------------------------------------------
+
+    def _queue_key(self, wave: Wave) -> tuple[int, int]:
+        """Orden de la cola: mayor prioridad primero, después la más antigua."""
+        return (-wave.priority(), self.waves.index(wave))
+
+    def assign_pickers(self, pickers: list[Picker] | None = None) -> list[Wave]:
+        """
+        Recorre la cola en orden y le da a cada wave el picker libre más chico
+        que la pueda cargar. Una wave que no encuentra picker sigue esperando,
+        y las siguientes pueden tomar pickers más chicos mientras tanto.
+
+        Returns:
+            Las waves que recibieron picker en esta llamada.
+        """
+        libres = []
+        for p in self._register_pickers(pickers):
+            if not p.is_busy:
+                libres.append(p)
+        libres = sorted(libres, key=_picker_key)
+
+        assigned = []
+        for wave in list(self.queue):    # copia: vamos a sacar elementos de self.queue
+            elegido = None
+            for p in libres:
+                if p.capacidad_carga_kg >= wave.total_weight():
+                    elegido = p
+                    break
+            if elegido is None:
+                continue
+            wave.assign_picker(elegido)
+            libres.remove(elegido)
+            self.queue.remove(wave)
+            assigned.append(wave)
+        return assigned
+
+    def complete_wave(self, wave: Wave) -> list[Wave]:
+        """
+        Termina una wave en proceso, libera su picker y vuelve a repartir
+        pickers en la cola.
+
+        Returns:
+            Las waves que recibieron picker al liberarse el de esta wave.
+        """
+        wave.complete()
+        return self.assign_pickers()
+
+    # ------------------------------------------------------------------
+    # Consultas
     # ------------------------------------------------------------------
 
     def get_waves(self) -> list[Wave]:
-        """Retorna las waves asignadas a al menos un picker."""
         return list(self.waves)
 
-    def get_unassigned_waves(self) -> list[Wave]:
-        """Retorna las waves sin asignación de picker suficiente."""
-        return list(self.unassigned_waves)
+    def get_queued_waves(self) -> list[Wave]:
+        return list(self.queue)
 
     def get_unprocessable_orders(self) -> list[tuple[Order, str]]:
-        """Retorna los ítems/pedidos descartados por inviabilidad con su motivo."""
         return list(self.unprocessable_orders)
+
+    # ------------------------------------------------------------------
+    # Guardar y cargar
+    # ------------------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Pedidos y waves, para guardarlos junto al escenario."""
+        pedidos = []
+        for o in self.orders:
+            pedidos.append(o.to_dict())
+        waves = []
+        for w in self.waves:
+            waves.append(w.to_dict())
+        return {"pedidos": pedidos, "waves": waves}
+
+    # El tipo de retorno va entre comillas porque la clase todavía se está
+    # definiendo en este punto (Python no la conoce hasta terminar la clase).
+    @classmethod
+    def from_dict(cls, data: dict, warehouse: Warehouse) -> "WaveManager":
+        """
+        Vuelve a cargar pedidos y waves guardados. Pedidos y pickers quedan
+        como estaban al guardar, y las waves sin picker vuelven a la cola.
+        """
+        orders = []
+        for o_data in data.get("pedidos", []):
+            orders.append(Order.from_dict(o_data, warehouse.products))
+        manager = cls(warehouse=warehouse, orders=orders)
+
+        pedidos_por_id = {}
+        for o in orders:
+            pedidos_por_id[o.order_id] = o
+        pickers_por_id = {}
+        for p in manager.pickers:
+            pickers_por_id[p.picker_id] = p
+
+        for w_data in data.get("waves", []):
+            manager.waves.append(Wave.from_dict(w_data, pedidos_por_id, pickers_por_id))
+
+        for w in manager.waves:
+            if w.status == WaveStatus.ABIERTA and w.picker is None:
+                manager.queue.append(w)
+        manager.queue = sorted(manager.queue, key=manager._queue_key)
+        return manager
 
     def __repr__(self) -> str:
         return (
             f"WaveManager(pedidos_totales={len(self.orders)}, "
             f"con_pendientes={len(self.get_pending_orders())}, "
-            f"waves_asignadas={len(self.waves)}, "
-            f"waves_sin_picker={len(self.unassigned_waves)})"
+            f"waves={len(self.waves)}, en_cola={len(self.queue)})"
         )

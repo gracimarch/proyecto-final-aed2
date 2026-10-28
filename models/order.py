@@ -1,23 +1,48 @@
+"""
+models/order.py
+
+Pedidos de los clientes (consigna §5).
+
+Un pedido tiene varias líneas (OrderItem). Cada línea recuerda en qué wave
+quedó, y con eso se calcula el estado del pedido.
+"""
+
+from __future__ import annotations
+
 from enum import Enum
+from typing import TYPE_CHECKING
+
 from models.product import Product
+
+if TYPE_CHECKING:
+    # Solo para las anotaciones de tipo. Python no ejecuta este bloque, así que
+    # estos imports no pueden armar un import circular (ver GUIA.md).
+    from models.wave import Wave
 
 
 class OrderStatus(Enum):
-    """Estados posibles de un pedido."""
-    PENDIENTE      = "PENDIENTE"
-    PARCIAL        = "PARCIAL"       # algunos ítems asignados a waves, otros pendientes
-    EN_WAVE        = "EN_WAVE"       # todos los ítems asignados a una o más waves
-    EN_PREPARACION = "EN_PREPARACION"
-    PREPARADO      = "PREPARADO"
+    """
+    Estados posibles de un pedido.
+
+    Un Enum es una lista cerrada de valores con nombre. Se usa así:
+    OrderStatus.PENDIENTE, y OrderStatus.PENDIENTE.value es el texto "PENDIENTE".
+    """
+    PENDIENTE      = "PENDIENTE"       # ningún ítem está en una wave
+    PARCIAL        = "PARCIAL"         # algunos ítems están en waves y otros no
+    EN_WAVE        = "EN_WAVE"         # todos en waves que todavía no empezaron
+    EN_PREPARACION = "EN_PREPARACION"  # alguna de sus waves ya empezó
+    PREPARADO      = "PREPARADO"       # todas sus waves están completadas
 
 
 class OrderItem:
     """
-    Línea de un pedido: un producto específico y la cantidad solicitada.
+    Línea de un pedido: un producto y la cantidad pedida.
 
     Atributos:
-        product  (Product) : Producto solicitado.
-        cantidad (int)     : Cantidad de unidades requeridas.
+        product  (Product)     : Producto solicitado.
+        cantidad (int)         : Cantidad de unidades pedidas.
+        wave     (Wave o None) : Wave a la que se asignó la línea.
+                                 None mientras está pendiente.
     """
 
     def __init__(self, product: Product, cantidad: int):
@@ -25,227 +50,222 @@ class OrderItem:
             raise ValueError("La cantidad solicitada debe ser mayor a 0.")
         self.product = product
         self.cantidad = cantidad
+        self.wave = None
 
     @property
-    def peso_total(self) -> float:
-        """Peso total de esta línea (peso unitario × cantidad)."""
+    def total_weight(self) -> float:
+        """Peso de la línea: peso por unidad × cantidad."""
         return self.product.peso_kg * self.cantidad
 
     def to_dict(self) -> dict:
-        """
-        Serializa la línea al formato del escenario JSON.
-        """
         return {
             "producto_id": self.product.product_id,
             "cantidad": self.cantidad,
         }
 
     def __repr__(self) -> str:
-        return f"OrderItem(product={self.product.product_id!r}, cantidad={self.cantidad})"
+        return f"OrderItem(product='{self.product.product_id}', cantidad={self.cantidad})"
 
 
 class Order:
     """
     Pedido realizado por un cliente.
 
+    El estado NO se guarda en un atributo: se calcula cada vez que se pide
+    (propiedad status), mirando las waves de sus ítems. Así un pedido
+    repartido en dos waves recién queda PREPARADO cuando terminan las dos.
+
     Atributos:
-        order_id         (str)             : Identificador único del pedido.
-        items            (list[OrderItem]) : Líneas de producto con sus cantidades (total del pedido).
-        prioridad        (int)             : Prioridad de 1 (mínima) a 5 (máxima).
-        status           (OrderStatus)     : Estado actual del pedido.
-        items_pendientes (list[OrderItem]) : Ítems que todavía no han sido asignados a ninguna wave.
-                                             Inicialmente es una copia de items. Se vacía conforme
-                                             los ítems se asignan parcialmente a waves.
+        order_id  (str)             : Identificador único del pedido.
+        items     (list[OrderItem]) : Líneas del pedido.
+        prioridad (int)             : De 1 (mínima) a 5 (máxima).
     """
 
     MIN_PRIORIDAD = 1
     MAX_PRIORIDAD = 5
 
-    def __init__(self, order_id: str, items: list, prioridad: int):
-        if not (self.MIN_PRIORIDAD <= prioridad <= self.MAX_PRIORIDAD):
+    def __init__(self, order_id: str, items: list[OrderItem], prioridad: int):
+        if prioridad < self.MIN_PRIORIDAD or prioridad > self.MAX_PRIORIDAD:
             raise ValueError(
                 f"La prioridad debe estar entre {self.MIN_PRIORIDAD} y "
                 f"{self.MAX_PRIORIDAD}: recibido={prioridad}"
             )
-        if not items:
+        if len(items) == 0:
             raise ValueError("Un pedido debe contener al menos un producto.")
 
         self.order_id = order_id
-        self.items: list[OrderItem] = items
+        self.items = items
         self.prioridad = prioridad
-        self.status = OrderStatus.PENDIENTE
-        # items_pendientes rastrea qué ítems todavía no fueron asignados a ninguna wave.
-        # Es una lista de referencias a los mismos OrderItem que componen el pedido.
-        self.items_pendientes: list[OrderItem] = list(items)
 
     # ------------------------------------------------------------------
-    # Consultas totales (sobre el pedido completo)
+    # Estado
+    # ------------------------------------------------------------------
+
+    @property
+    def status(self) -> OrderStatus:
+        """
+        Estado del pedido según dónde están sus ítems.
+
+        Se cuentan los ítems sin wave, en waves completadas y en waves que
+        ya empezaron, y con esos tres números se decide el estado.
+
+        Complejidad: O(cantidad de ítems).
+        """
+        sin_wave = 0
+        completados = 0
+        empezados = 0
+        for item in self.items:
+            if item.wave is None:
+                sin_wave = sin_wave + 1
+            else:
+                if item.wave.is_completed:
+                    completados = completados + 1
+                if item.wave.is_started:
+                    empezados = empezados + 1
+
+        total = len(self.items)
+        if sin_wave == total:
+            return OrderStatus.PENDIENTE
+        if sin_wave > 0:
+            return OrderStatus.PARCIAL
+        if completados == total:
+            return OrderStatus.PREPARADO
+        if empezados > 0:
+            return OrderStatus.EN_PREPARACION
+        return OrderStatus.EN_WAVE
+
+    @property
+    def pending_items(self) -> list[OrderItem]:
+        """Ítems que todavía no tienen wave."""
+        pendientes = []
+        for item in self.items:
+            if item.wave is None:
+                pendientes.append(item)
+        return pendientes
+
+    # ------------------------------------------------------------------
+    # Totales del pedido
     # ------------------------------------------------------------------
 
     def get_locations(self) -> list[tuple]:
-        """Retorna la lista de ubicaciones (x, y, z) de todos los productos del pedido."""
-        return [tuple(item.product.location) for item in self.items]
+        """Ubicaciones (x, y, z) de los productos del pedido."""
+        ubicaciones = []
+        for item in self.items:
+            ubicaciones.append(tuple(item.product.location))
+        return ubicaciones
 
-    def total_unidades(self) -> int:
-        """Cantidad total de unidades solicitadas en el pedido."""
-        return sum(item.cantidad for item in self.items)
+    def total_units(self) -> int:
+        """Cantidad total de unidades pedidas."""
+        total = 0
+        for item in self.items:
+            total = total + item.cantidad
+        return total
 
-    def total_lineas(self) -> int:
-        """Cantidad de líneas de producto distintas en el pedido."""
+    def total_lines(self) -> int:
+        """Cantidad de líneas (productos distintos) del pedido."""
         return len(self.items)
 
-    def peso_total(self) -> float:
-        """Peso total de todos los items del pedido (kg)."""
-        return sum(item.peso_total for item in self.items)
+    def total_weight(self) -> float:
+        """Peso total del pedido (kg)."""
+        total = 0
+        for item in self.items:
+            total = total + item.total_weight
+        return total
 
     # ------------------------------------------------------------------
-    # Consultas sobre ítems pendientes
+    # Totales de lo que falta asignar
     # ------------------------------------------------------------------
 
-    def unidades_pendientes(self) -> int:
-        """Cantidad de unidades aún no asignadas a ninguna wave."""
-        return sum(item.cantidad for item in self.items_pendientes)
+    def pending_units(self) -> int:
+        total = 0
+        for item in self.pending_items:
+            total = total + item.cantidad
+        return total
 
-    def lineas_pendientes(self) -> int:
-        """Número de líneas de producto aún no asignadas."""
-        return len(self.items_pendientes)
+    def pending_lines(self) -> int:
+        return len(self.pending_items)
 
-    def peso_pendiente(self) -> float:
-        """Peso de los ítems aún no asignados a ninguna wave (kg)."""
-        return sum(item.peso_total for item in self.items_pendientes)
+    def pending_weight(self) -> float:
+        total = 0
+        for item in self.pending_items:
+            total = total + item.total_weight
+        return total
 
-    def esta_completamente_asignado(self) -> bool:
-        """True si todos los ítems del pedido han sido asignados a alguna wave."""
-        return len(self.items_pendientes) == 0
+    def is_fully_assigned(self) -> bool:
+        """True si todos los ítems ya tienen wave."""
+        return len(self.pending_items) == 0
 
     # ------------------------------------------------------------------
-    # Asignación parcial de ítems
+    # Asignación de ítems a una wave
     # ------------------------------------------------------------------
 
-    def assign_items(self, items: list) -> None:
+    def _owns_item(self, item: OrderItem) -> bool:
         """
-        Marca una lista de OrderItem como asignados a una wave, retirándolos
-        de items_pendientes y actualizando el estado del pedido.
+        True si item es uno de los ítems de este pedido.
 
-        Args:
-            items: Subconjunto de items_pendientes a asignar. Deben ser
-                   referencias exactas a objetos presentes en items_pendientes.
+        Se compara con "is" (el mismo objeto) y no con "==": dos pedidos
+        pueden tener ítems iguales (mismo producto y cantidad) que son
+        objetos distintos.
+        """
+        for propio in self.items:
+            if propio is item:
+                return True
+        return False
+
+    def assign_items(self, items: list[OrderItem], wave: Wave) -> None:
+        """
+        Marca los ítems como asignados a la wave.
+
+        Primero se validan todos y recién después se asignan, para no dejar
+        el pedido a medio asignar si alguno falla.
 
         Raises:
-            ValueError: Si algún ítem no está en items_pendientes o el pedido
-                        no está en estado PENDIENTE o PARCIAL.
+            ValueError: Si algún ítem no es del pedido o ya tiene wave.
         """
-        if self.status not in (OrderStatus.PENDIENTE, OrderStatus.PARCIAL):
-            raise ValueError(
-                f"Solo pedidos PENDIENTE o PARCIAL pueden tener ítems asignados. "
-                f"Estado actual de '{self.order_id}': {self.status.value}"
-            )
         for item in items:
-            if item not in self.items_pendientes:
+            if not self._owns_item(item):
                 raise ValueError(
-                    f"El ítem '{item.product.product_id}' no está en los ítems "
-                    f"pendientes del pedido '{self.order_id}'."
+                    f"El ítem '{item.product.product_id}' no pertenece al "
+                    f"pedido '{self.order_id}'."
+                )
+            if item.wave is not None:
+                raise ValueError(
+                    f"El ítem '{item.product.product_id}' del pedido '{self.order_id}' "
+                    f"ya está asignado a la wave '{item.wave.wave_id}'."
                 )
         for item in items:
-            self.items_pendientes.remove(item)
-
-        # Actualizar estado según cobertura
-        if self.esta_completamente_asignado():
-            self.status = OrderStatus.EN_WAVE
-        else:
-            self.status = OrderStatus.PARCIAL
-
-    def reset_assignment(self) -> None:
-        """
-        Revierte la asignación parcial o total, devolviendo todos los ítems
-        a items_pendientes y el estado a PENDIENTE.
-
-        Solo válido si el pedido no ha iniciado preparación.
-
-        Raises:
-            ValueError: Si el pedido ya está EN_PREPARACION o PREPARADO.
-        """
-        if self.status in (OrderStatus.EN_PREPARACION, OrderStatus.PREPARADO):
-            raise ValueError(
-                f"No se puede revertir un pedido que ya inició preparación. "
-                f"Estado actual de '{self.order_id}': {self.status.value}"
-            )
-        self.items_pendientes = list(self.items)
-        self.status = OrderStatus.PENDIENTE
-
-    # ------------------------------------------------------------------
-    # Cambios de estado completo (sin división)
-    # ------------------------------------------------------------------
-
-    def mark_in_wave(self) -> None:
-        """
-        Transiciona el pedido a EN_WAVE (todos sus ítems asignados a una wave).
-
-        Raises:
-            ValueError: Si el pedido no está en estado PENDIENTE.
-        """
-        if self.status != OrderStatus.PENDIENTE:
-            raise ValueError(
-                f"Solo pedidos PENDIENTE pueden entrar a una wave de forma completa. "
-                f"Estado actual: {self.status.value}"
-            )
-        self.items_pendientes = []
-        self.status = OrderStatus.EN_WAVE
-
-    def mark_in_preparation(self) -> None:
-        """
-        Transiciona el pedido a EN_PREPARACION.
-
-        Raises:
-            ValueError: Si el pedido no está en estado EN_WAVE.
-        """
-        if self.status != OrderStatus.EN_WAVE:
-            raise ValueError(
-                f"El pedido debe estar EN_WAVE para pasar a EN_PREPARACION. "
-                f"Estado actual: {self.status.value}"
-            )
-        self.status = OrderStatus.EN_PREPARACION
-
-    def mark_prepared(self) -> None:
-        """
-        Transiciona el pedido a PREPARADO.
-
-        Raises:
-            ValueError: Si el pedido no está en estado EN_PREPARACION.
-        """
-        if self.status != OrderStatus.EN_PREPARACION:
-            raise ValueError(
-                f"El pedido debe estar EN_PREPARACION para marcarse como PREPARADO. "
-                f"Estado actual: {self.status.value}"
-            )
-        self.status = OrderStatus.PREPARADO
+            item.wave = wave
 
     # ------------------------------------------------------------------
     # Serialización
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
-        """
-        Serializa el pedido al formato del escenario JSON.
-        """
+        items_dict = []
+        for item in self.items:
+            items_dict.append(item.to_dict())
         return {
             "id": self.order_id,
             "prioridad": self.prioridad,
             "estado": self.status.value,
-            "items": [item.to_dict() for item in self.items],
+            "items": items_dict,
         }
 
     @classmethod
-    def from_dict(cls, data: dict, product_registry: dict) -> "Order":
+    def from_dict(cls, data: dict, product_registry: dict[str, Product]) -> Order:
         """
-        Reconstruye un Order desde un diccionario en formato de escenario JSON.
+        Crea un Order a partir del JSON del escenario.
+
+        El campo "estado" solo se valida (que sea un estado conocido). El
+        estado real se recalcula solo cuando se cargan las waves.
 
         Args:
-            data             : Diccionario con los campos id, prioridad, estado e items.
+            data             : Diccionario con id, prioridad, estado e items.
             product_registry : Diccionario {product_id: Product} del warehouse.
 
         Raises:
-            KeyError: Si algún producto referenciado en los items no existe en el registro.
+            KeyError:   Si un producto no existe en el warehouse.
+            ValueError: Si el estado no es uno de OrderStatus.
         """
         items = []
         for item_data in data["items"]:
@@ -254,17 +274,14 @@ class Order:
                 raise KeyError(f"Producto '{pid}' no encontrado en el registro.")
             items.append(OrderItem(product_registry[pid], item_data["cantidad"]))
 
-        order = cls(
-            order_id=data["id"],
-            items=items,
-            prioridad=data["prioridad"],
-        )
-        order.status = OrderStatus(data["estado"])
-        return order
+        # OrderStatus("XYZ") lanza ValueError si "XYZ" no es un estado válido.
+        OrderStatus(data.get("estado", "PENDIENTE"))
+
+        return cls(order_id=data["id"], items=items, prioridad=data["prioridad"])
 
     def __repr__(self) -> str:
         return (
-            f"Order(id={self.order_id!r}, prioridad={self.prioridad}, "
+            f"Order(id='{self.order_id}', prioridad={self.prioridad}, "
             f"status={self.status.value}, items={len(self.items)}, "
-            f"pendientes={self.lineas_pendientes()})"
+            f"pendientes={self.pending_lines()})"
         )

@@ -1,14 +1,4 @@
-"""
-algorithms/__init__.py
-
-Exporta las clases y funciones públicas del paquete algorithms.
-
-Uso:
-    from algorithms import Graph
-"""
-
-from algorithms.graph import Graph
-
-__all__ = [
-    "Graph"
-]
+# Este archivo marca la carpeta algorithms/ como paquete de Python, para poder
+# escribir "from algorithms.graph import Graph".
+#
+# Lo dejamos vacío a propósito (ver el comentario en models/__init__.py).
