@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    SIM.JS
    Conecta los controles del panel derecho (Simulacion, Metricas,
    Productos recogidos) con el servidor Flask a traves de api.js.
@@ -39,6 +39,12 @@ let _animStep = 0;
 
 /** ID del setTimeout del loop de animacion, o null si esta pausado. */
 let _animTimer = null;
+
+/**
+ * Indica si el usuario cambio manualmente el modo de enfoque durante
+ * la simulacion activa. Evita que simPlanAndPlay lo sobreescriba.
+ */
+let _focusModeUserSet = false;
 
 
 // ---------------------------------------------------------------------------
@@ -100,6 +106,10 @@ function _getStrategyValue() {
     // que corresponden a "orden" y "cercania" en el backend.
     const val = _dom('select-strategy')?.value || 'order';
     return val === 'order' ? 'orden' : 'cercania';
+}
+
+function _getBuscadorValue() {
+    return _dom('select-buscador')?.value || 'bfs';
 }
 
 
@@ -199,22 +209,24 @@ function _renderWaveSelector() {
 // Animacion: avanzar un paso
 // ---------------------------------------------------------------------------
 
-/** Posiciona al picker del canvas en la celda del path indicada por el indice. */
+/** Posiciona al picker del canvas en la celda del path indicada por el índice.
+ * @returns {boolean} true si en esa celda hubo una recogida de productos.
+ */
 function _applyStep(stepIndex) {
-    if (!_routeResult) return;
+    if (!_routeResult) return false;
 
     const path = _routeResult.path;
-    if (stepIndex < 0 || stepIndex >= path.length) return;
+    if (stepIndex < 0 || stepIndex >= path.length) return false;
 
     const celda = path[stepIndex];
 
     // Buscar la wave activa para saber que picker mover.
     const waveId = _getSelectedWaveId();
     const waveInfo = _waves.find(w => w.wave_id === waveId);
-    if (!waveInfo) return;
+    if (!waveInfo) return false;
 
     const sc = _getScenario();
-    if (!sc) return;
+    if (!sc) return false;
 
     // Mover el picker en el escenario JS (el renderer lo leerá en el proximo frame).
     const picker = sc.pickers.find(p => p.id === waveInfo.picker_id);
@@ -224,27 +236,35 @@ function _applyStep(stepIndex) {
         picker.y = celda[1];
     }
 
-    // Resaltar productos recogidos cuando el picker pasa por una parada.
-    _checkPickups(stepIndex);
+    // Actualizar el paso de ruta en el renderer (para el trazado visual).
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.routeStep = stepIndex + 1;
+    }
+
+    // Detectar recogida y devolver si hubo pickup.
+    return _checkPickups(stepIndex);
 }
 
-/**
- * Detecta si el paso actual coincide con alguna parada del recorrido
+/** Detecta si el paso actual coincide con alguna parada del recorrido
  * y actualiza la lista de productos recogidos (#collected-list).
+ * @returns {boolean} true si se recogió algún producto en este paso.
  */
 function _checkPickups(stepIndex) {
-    if (!_routeResult) return;
+    if (!_routeResult) return false;
 
     const path    = _routeResult.path;
     const paradas = _routeResult.paradas;
     const celda   = path[stepIndex];
+    let hitPickup = false;
 
     for (const parada of paradas) {
         // parada.celda es [x, y]
         if (parada.celda[0] === celda[0] && parada.celda[1] === celda[1]) {
             _addCollectedProducts(parada.productos);
+            hitPickup = true;
         }
     }
+    return hitPickup;
 }
 
 /** Agrega una fila por cada producto recogido a la lista #collected-list. */
@@ -279,7 +299,7 @@ function simPlay() {
         return;
     }
     if (_animTimer !== null) return;    // ya esta corriendo
-
+    _updatePlayPauseBtn(true);
     _scheduleNextStep();
 }
 
@@ -288,6 +308,17 @@ function simPause() {
         clearTimeout(_animTimer);
         _animTimer = null;
     }
+    _updatePlayPauseBtn(false);
+}
+
+/** Actualiza el icono y tooltip del botón Play/Pause según el estado. */
+function _updatePlayPauseBtn(isPlaying) {
+    const btn = _dom('btn-play-pause');
+    if (!btn) return;
+    const icon = btn.querySelector('.icon');
+    if (icon) icon.textContent = isPlaying ? 'pause' : 'play_arrow';
+    btn.title = isPlaying ? 'Pausar' : 'Iniciar / Continuar';
+    btn.setAttribute('aria-label', isPlaying ? 'Pausar simulación' : 'Iniciar simulación');
 }
 
 function simStep() {
@@ -307,6 +338,16 @@ function simRestart() {
     _routeResult = null;
     _clearMetrics();
     _clearCollected();
+    // Limpiar trazado de ruta del canvas
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.routePath  = null;
+        _renderer.routeStops = [];
+        _renderer.routeStep  = 0;
+    }
+    _updatePlayPauseBtn(false);
+    // Restaurar modo visual normal al reiniciar
+    _focusModeUserSet = false;
+    _setFocusMode(false);
     showToast('Simulación reiniciada.', 'info');
 }
 
@@ -314,13 +355,44 @@ function _scheduleNextStep() {
     _animTimer = setTimeout(() => {
         if (!_routeResult || _animStep >= _routeResult.path.length) {
             _animTimer = null;
-            showToast('Recorrido completado.', 'success');
+            _onRouteComplete();
             return;
         }
-        _applyStep(_animStep);
+        const wasPickup = _applyStep(_animStep);
         _animStep = _animStep + 1;
-        _scheduleNextStep();
+        if (wasPickup) {
+            _animTimer = setTimeout(() => {
+                _animTimer = null;
+                _scheduleNextStep();
+            }, _stepDelayMs());
+        } else {
+            _scheduleNextStep();
+        }
     }, _stepDelayMs());
+}
+
+/** Llamado al terminar el recorrido: actualiza estado de la wave y limpia el canvas. */
+function _onRouteComplete() {
+    // Marcar la wave como COMPLETA en la lista local
+    const waveId = _getSelectedWaveId();
+    if (waveId) {
+        const wave = _waves.find(w => w.wave_id === waveId);
+        if (wave) {
+            wave.status = 'COMPLETA';
+            _renderWavesList();
+        }
+    }
+    // Limpiar trazado del canvas
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.routePath  = null;
+        _renderer.routeStops = [];
+        _renderer.routeStep  = 0;
+    }
+    _updatePlayPauseBtn(false);
+    // Al completar el recorrido, volver al modo visual normal
+    _focusModeUserSet = false;
+    _setFocusMode(false);
+    showToast('Recorrido completado ✓', 'success');
 }
 
 
@@ -354,15 +426,37 @@ async function simPlanAndPlay() {
     _clearCollected();
 
     const estrategia = _getStrategyValue();
+    const buscador   = _getBuscadorValue();
 
-    const btn = _dom('btn-play');
+    const btn = _dom('btn-play-pause');
     if (btn) btn.disabled = true;
 
     try {
-        _routeResult = await apiPlanRoute(sc.toJSON(), waveId, estrategia, 'bfs');
+        _routeResult = await apiPlanRoute(sc.toJSON(), waveId, estrategia, buscador);
+
+        // Enviar ruta al renderer para dibujarla en el canvas
+        if (typeof _renderer !== 'undefined' && _renderer) {
+            _renderer.routePath  = _routeResult.path;
+            _renderer.routeStops = _routeResult.paradas;
+            _renderer.routeStep  = 0;
+            // Activar modo enfoque automaticamente al iniciar nueva simulacion,
+            // salvo que el usuario lo haya desactivado manualmente en esta sesion.
+            if (!_focusModeUserSet) {
+                _setFocusMode(true);
+            }
+        }
+
+        // Marcar la wave como EN_PROCESO
+        const waveInfo = _waves.find(w => w.wave_id === waveId);
+        if (waveInfo) {
+            waveInfo.status = 'EN_PROCESO';
+            _renderWavesList();
+        }
+
         _renderMetrics(_routeResult);
         showToast('Recorrido calculado. Animando...', 'info');
         simPlay();
+        _updatePlayPauseBtn(true);
     } catch (err) {
         showToast(err.error || 'Error al calcular el recorrido.', 'error');
     } finally {
@@ -386,7 +480,7 @@ async function simCompare() {
     if (btn) btn.disabled = true;
 
     try {
-        const comparacion = await apiCompareStrategies(sc.toJSON(), waveId, 'bfs');
+        const comparacion = await apiCompareStrategies(sc.toJSON(), waveId, _getBuscadorValue());
         _renderComparison(comparacion);
         showToast('Comparacion lista.', 'success');
     } catch (err) {
@@ -406,11 +500,12 @@ function _renderMetrics(resultado) {
     set('metric-distance', resultado.distancia_total + ' celdas');
     set('metric-nodes',    resultado.nodos_visitados);
     set('metric-edges',    resultado.aristas_recorridas);
+    set('metric-expanded', resultado.nodos_expandidos);
     set('metric-time',     resultado.tiempo_ms.toFixed(2) + ' ms');
 }
 
 function _clearMetrics() {
-    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-time'].forEach(id => {
+    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
         const el = _dom(id);
         if (el) el.textContent = '—';
     });
@@ -425,12 +520,13 @@ function _renderComparison(comparacion) {
     const container = _dom('compare-result');
     if (!container) return;
 
-    // Construir una tabla simple con las dos estrategias.
+    // Construir una tabla con las dos estrategias y todas las métricas.
     const filas = Object.entries(comparacion).map(([estrategia, r]) => `
         <tr>
             <td>${estrategia}</td>
             <td>${r.distancia_total}</td>
             <td>${r.nodos_visitados}</td>
+            <td>${r.nodos_expandidos}</td>
             <td>${r.tiempo_ms.toFixed(2)} ms</td>
         </tr>`).join('');
 
@@ -441,6 +537,7 @@ function _renderComparison(comparacion) {
                     <th>Estrategia</th>
                     <th>Distancia</th>
                     <th>Nodos vis.</th>
+                    <th>Nodos exp.</th>
                     <th>Tiempo</th>
                 </tr>
             </thead>
@@ -449,25 +546,114 @@ function _renderComparison(comparacion) {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Reset completo del estado de simulacion
+// ---------------------------------------------------------------------------
+
+/**
+ * Limpia todo el estado de la simulacion anterior: waves, ruta, animacion,
+ * metricas, productos recogidos y tabla de comparacion.
+ * Debe llamarse cada vez que se crea o carga un nuevo escenario.
+ */
+function simReset() {
+    // Detener animacion en curso
+    simPause();
+
+    // Restaurar posiciones de pickers y limpiar mapa de posiciones iniciales
+    _restorePickerPositions();
+    _initialPickerPositions.clear();
+
+    // Resetear estado de la simulacion
+    _waves            = [];
+    _routeResult      = null;
+    _animStep         = 0;
+    _focusModeUserSet = false;
+
+    // Limpiar UI: lista de waves y selector
+    const wavesList = _dom('waves-list');
+    if (wavesList) wavesList.innerHTML = '<p class="empty-msg">Sin waves generadas.</p>';
+
+    const wavesSel = _dom('select-wave');
+    if (wavesSel) wavesSel.innerHTML = '<option value="">— Selecciona una wave —</option>';
+
+    // Limpiar metricas y productos recogidos
+    _clearMetrics();
+    _clearCollected();
+
+    // Limpiar tabla de comparacion
+    const compareResult = _dom('compare-result');
+    if (compareResult) compareResult.innerHTML = '';
+
+    // Limpiar trazado del canvas
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.routePath  = null;
+        _renderer.routeStops = [];
+        _renderer.routeStep  = 0;
+    }
+
+    // Restaurar boton play y modo visual
+    _updatePlayPauseBtn(false);
+    _setFocusMode(false);
+}
+
 // ---------------------------------------------------------------------------
 // Inicializacion: conectar botones con funciones
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Modo de enfoque del recorrido
+// ---------------------------------------------------------------------------
+
+function _setFocusMode(active) {
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.focusMode = active;
+    }
+    const btn = _dom('btn-focus-mode');
+    if (btn) {
+        btn.setAttribute('aria-pressed', String(active));
+        btn.classList.toggle('active', active);
+    }
+}
+
+/**
+ * Toggle manual del modo enfoque (llamado desde el boton de la UI).
+ * Marca que el usuario tomo una decision manual para no sobreescribirla
+ * cuando la simulacion ya esta en curso.
+ */
+function simToggleFocusMode() {
+    const current = (typeof _renderer !== 'undefined' && _renderer) ? _renderer.focusMode : false;
+    const next = !current;
+    // Si la simulacion esta en curso o pausada, marcar como decision manual
+    if (_routeResult) {
+        _focusModeUserSet = true;
+    }
+    _setFocusMode(next);
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
     const btnGenerateWave = _dom('btn-generate-wave');
     if (btnGenerateWave) btnGenerateWave.addEventListener('click', simGenerateWaves);
 
-    const btnPlay    = _dom('btn-play');
-    const btnPause   = _dom('btn-pause');
-    const btnStep    = _dom('btn-step');
-    const btnRestart = _dom('btn-restart');
-    const btnCompare = _dom('btn-compare');
+    const btnPlayPause = _dom('btn-play-pause');
+    const btnStep      = _dom('btn-step');
+    const btnRestart   = _dom('btn-restart');
+    const btnCompare   = _dom('btn-compare');
 
-    if (btnPlay)    btnPlay.addEventListener('click',    simPlanAndPlay);
-    if (btnPause)   btnPause.addEventListener('click',   simPause);
+    if (btnPlayPause) btnPlayPause.addEventListener('click', () => {
+        if (_animTimer !== null) {
+            simPause();
+        } else {
+            simPlanAndPlay();
+        }
+    });
     if (btnStep)    btnStep.addEventListener('click',    simStep);
     if (btnRestart) btnRestart.addEventListener('click', simRestart);
     if (btnCompare) btnCompare.addEventListener('click', simCompare);
+
+    const btnFocusMode = _dom('btn-focus-mode');
+    if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
 
     const rangeSpeed = _dom('range-speed');
     const speedLabel = _dom('speed-label');
