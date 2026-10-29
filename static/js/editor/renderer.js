@@ -96,6 +96,15 @@ class WarehouseRenderer {
         this.mode            = 'select';
         this.doorTipo        = 'AMBOS'; // sincronizado por el editor al cambiar tipo de puerta
 
+        // Estado de ruta de simulación (seteado desde sim.js)
+        this.routePath  = null;   // [[x,y], ...] camino completo devuelto por el backend
+        this.routeStops = [];     // paradas: [{celda:[x,y], productos:[...]}, ...]
+        this.routeStep  = 0;      // índice del paso actual en la animación
+
+        // Modo de enfoque del recorrido (seteado desde sim.js).
+        // Cuando esta activo, el relleno de los pasillos se atenua para destacar
+        // el trazado amarillo y el picker. Las flechas mantienen su opacidad.
+        this.focusMode  = false;
         // Sprites
         this._spritesReady = false;
         this._loadSprites();
@@ -294,6 +303,7 @@ class WarehouseRenderer {
         this._drawAisles();
         this._drawDoors(theme);
         this._drawRacks(theme);
+        this._drawRoutePath();            // trayecto de simulación (bajo el picker)
         this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
         this._drawPickers();
         this._drawCursorPreview();
@@ -523,11 +533,20 @@ class WarehouseRenderer {
         ctx.save();
         ctx.translate(px + mid, py + mid);
 
-        ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
-        ctx.fillRect(-mid, -mid, CELL, CELL);
+        // En modo enfoque no se dibuja el fondo amarillo: solo las flechas.
+        // En modo normal se mantiene el relleno original.
+        if (!this.focusMode) {
+            ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
+            ctx.fillRect(-mid, -mid, CELL, CELL);
+        }
 
+        // En focusMode: flechas menos notorias y AMBOS sin flechas.
+        // En modo normal: opacidad completa y AMBOS con 4 flechas (comportamiento original).
         const strokeColor = isSelected ? 'rgba(251,191,36,0.95)' : 'rgba(251,191,36,0.55)';
         const strokeColorBoth = isSelected ? 'rgba(251,191,36,0.65)' : 'rgba(251,191,36,0.25)';
+
+        // En focusMode las flechas con sentido especifico se dibujan mas tenues
+        const arrowAlpha = this.focusMode ? 0.30 : 1.0;
 
         ctx.strokeStyle = strokeColor;
         ctx.fillStyle   = strokeColor;
@@ -547,7 +566,7 @@ class WarehouseRenderer {
                 ctx.lineTo(sx * (len - hh), -hw);
                 ctx.lineTo(sx * (len - hh),  hw);
             } else {
-                // Norte lógico (+y) = arriba en canvas (-py), Sur lógico (-y) = abajo en canvas (+py)
+                // Norte logico (+y) = arriba en canvas (-py), Sur logico (-y) = abajo en canvas (+py)
                 const sy = dy > 0 ? -1 : 1;
                 ctx.moveTo(0, sy * len);
                 ctx.lineTo(-hw, sy * (len - hh));
@@ -557,17 +576,23 @@ class WarehouseRenderer {
             ctx.fill();
         };
 
-        if      (sentido === 'N') { drawArrow(0,  1); }
-        else if (sentido === 'S') { drawArrow(0, -1); }
-        else if (sentido === 'E') { drawArrow(1,  0); }
-        else if (sentido === 'O') { drawArrow(-1, 0); }
-        else {
+        if (sentido === 'N' || sentido === 'S' || sentido === 'E' || sentido === 'O') {
+            // Sentido especifico: dibujar siempre, pero mas tenue en focusMode
+            ctx.save();
+            ctx.globalAlpha = arrowAlpha;
+            if      (sentido === 'N') { drawArrow(0,  1); }
+            else if (sentido === 'S') { drawArrow(0, -1); }
+            else if (sentido === 'E') { drawArrow(1,  0); }
+            else                     { drawArrow(-1, 0); }
+            ctx.restore();
+        } else if (!this.focusMode) {
+            // AMBOS: solo dibujar las 4 flechas en modo normal (en focusMode desaparecen)
             ctx.strokeStyle = strokeColorBoth;
             ctx.fillStyle   = strokeColorBoth;
             drawArrow(0, 1); drawArrow(0, -1);
             drawArrow(1, 0); drawArrow(-1, 0);
         }
-        ctx.restore();
+        ctx.restore()
     }
 
     // ── Puertas (muelles) ─────────────────────────────────────────
@@ -809,6 +834,82 @@ class WarehouseRenderer {
                 ctx.fillText(cellProds.length, bx, by);
             }
         }
+    }
+
+    // ── Ruta de simulación ────────────────────────────────────────
+
+    /**
+     * Dibuja el trazado del recorrido planificado.
+     * - Tramo ya recorrido: línea sólida color ámbar brillante.
+     * - Tramo pendiente:    línea discontinua ámbar tenue.
+     * - Paradas de recogida: círculo resaltado.
+     */
+    _drawRoutePath() {
+        if (!this.routePath || this.routePath.length === 0) return;
+
+        const ctx  = this.ctx;
+        const step = Math.max(0, this.routeStep);
+
+        const cellCX = ([cx, cy]) => cx * CELL + CELL / 2;
+        const cellCY = ([cx, cy]) => this._wy(cy) + CELL / 2;
+
+        ctx.save();
+
+        // ── Tramo pendiente (desde el paso actual al final) ──────
+        if (step < this.routePath.length) {
+            ctx.beginPath();
+            ctx.setLineDash([4, 5]);
+            ctx.strokeStyle = this.focusMode ? 'rgba(251, 191, 36, 0.50)' : 'rgba(251, 191, 36, 0.28)';
+            ctx.lineWidth   = 2;
+            const start = Math.max(0, step - 1);
+            ctx.moveTo(cellCX(this.routePath[start]), cellCY(this.routePath[start]));
+            for (let i = start + 1; i < this.routePath.length; i++) {
+                ctx.lineTo(cellCX(this.routePath[i]), cellCY(this.routePath[i]));
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // ── Tramo ya recorrido (paso 0 hasta paso actual) ────────
+        if (step > 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = this.focusMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.70)';
+            ctx.lineWidth   = this.focusMode ? 3.5 : 2.5;
+            ctx.moveTo(cellCX(this.routePath[0]), cellCY(this.routePath[0]));
+            for (let i = 1; i < step && i < this.routePath.length; i++) {
+                ctx.lineTo(cellCX(this.routePath[i]), cellCY(this.routePath[i]));
+            }
+            ctx.stroke();
+        }
+
+        // ── Paradas de recogida: círculo ámbar ───────────────────
+        for (const parada of (this.routeStops || [])) {
+            const [cx, cy] = parada.celda;
+            const sx = cx * CELL + CELL / 2;
+            const sy = this._wy(cy) + CELL / 2;
+
+            // Fondo semitransparente
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+            ctx.beginPath();
+            ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Borde
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
+            ctx.lineWidth   = 1.5;
+            ctx.beginPath();
+            ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Estrella / marca de pickup
+            ctx.fillStyle    = 'rgba(251, 191, 36, 0.90)';
+            ctx.font         = `bold 9px "JetBrains Mono", monospace`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✦', sx, sy);
+        }
+
+        ctx.restore();
     }
 
     // ── Pickers ───────────────────────────────────────────────────

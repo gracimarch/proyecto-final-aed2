@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -234,7 +234,7 @@
             </div>
         </section>
 
-        <!-- ─── PANEL DERECHO ──────────────────────────── -->
+        <!-- ─── PANEL DERECHO ──────────────────────── -->
         <aside class="sidebar sidebar--right">
 
             <!-- Simulación -->
@@ -243,42 +243,65 @@
                 <div class="panel__body">
 
                     <!-- Selector de wave -->
-                    <label class="field-label" for="select-wave">Wave activa</label>
-                    <select class="select" id="select-wave">
-                        <option value="">— Seleccioná una wave —</option>
-                    </select>
+                    <div class="field-group">
+                        <label class="field-label" for="select-wave">Wave activa</label>
+                        <select class="select" id="select-wave">
+                            <option value="">— Selecioná una wave —</option>
+                        </select>
+                    </div>
 
-                    <!-- Selector de estrategia -->
-                    <label class="field-label" for="select-strategy">Estrategia de recorrido</label>
-                    <select class="select" id="select-strategy">
-                        <option value="order">A — Orden de pedidos</option>
-                        <option value="nearest">B — Cercanía</option>
-                    </select>
+                    <!-- Selector de estrategia y algoritmo -->
+                    <div class="field-group">
+                        <label class="field-label" for="select-strategy">Estrategia de recorrido</label>
+                        <select class="select" id="select-strategy">
+                            <option value="order">A — Orden de pedidos</option>
+                            <option value="nearest">B — Cercanía</option>
+                        </select>
+                    </div>
+
+                    <div class="field-group">
+                        <label class="field-label" for="select-buscador">Algoritmo de búsqueda</label>
+                        <select class="select" id="select-buscador">
+                            <option value="bfs">BFS — Búsqueda en anchura</option>
+                            <option value="astar">A* — Heurística Manhattan</option>
+                        </select>
+                    </div>
 
                     <!-- Controles de reproducción -->
                     <div class="sim-controls">
                         <button class="btn btn--icon" id="btn-restart" title="Reiniciar" aria-label="Reiniciar">
                             <span class="icon icon--20 icon--filled" aria-hidden="true">restart_alt</span>
                         </button>
-                        <button class="btn btn--icon btn--primary" id="btn-play" title="Iniciar / Continuar" aria-label="Iniciar simulación">
+                        <button class="btn btn--icon btn--primary" id="btn-play-pause" title="Iniciar" aria-label="Iniciar simulación">
                             <span class="icon icon--20 icon--filled" aria-hidden="true">play_arrow</span>
-                        </button>
-                        <button class="btn btn--icon" id="btn-pause" title="Pausar" aria-label="Pausar simulación">
-                            <span class="icon icon--20 icon--filled" aria-hidden="true">pause</span>
                         </button>
                         <button class="btn btn--icon" id="btn-step" title="Paso a paso" aria-label="Avanzar un paso">
                             <span class="icon icon--20 icon--filled" aria-hidden="true">skip_next</span>
                         </button>
                     </div>
 
+                    <!-- Modo de enfoque del recorrido -->
+                    <div class="focus-mode-row">
+                        <button class="btn btn--sm btn--ghost btn--toggle" id="btn-focus-mode"
+                                aria-pressed="false" title="Resaltar el recorrido del picker atenuando los pasillos"
+                                aria-label="Resaltar recorrido">
+                            <span class="icon icon--14 icon--filled" aria-hidden="true">route</span>
+                            Resaltar recorrido
+                        </button>
+                    </div>
+
                     <!-- Velocidad -->
-                    <label class="field-label" for="range-speed">
-                        Velocidad: <span id="speed-label">1×</span>
-                    </label>
-                    <input type="range" class="range" id="range-speed"
-                           min="1" max="5" step="1" value="1">
+                    <div class="field-group">
+                        <label class="field-label" for="range-speed">
+                            Velocidad: <span id="speed-label">1×</span>
+                        </label>
+                        <input type="range" class="range" id="range-speed"
+                               min="1" max="5" step="1" value="1">
+                    </div>
+
                 </div>
             </section>
+
 
             <!-- Métricas -->
             <section class="panel">
@@ -296,6 +319,10 @@
                         <div class="metric-card">
                             <span class="metric-card__label">Aristas recorridas</span>
                             <span class="metric-card__value" id="metric-edges">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Nodos expandidos</span>
+                            <span class="metric-card__value" id="metric-expanded">—</span>
                         </div>
                         <div class="metric-card">
                             <span class="metric-card__label">Tiempo de ejec.</span>
@@ -471,6 +498,72 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════
+         MODAL: AGREGAR PEDIDO
+    ════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-order" role="dialog" aria-modal="true" aria-labelledby="modal-order-title">
+        <div class="modal__overlay"></div>
+        <div class="modal__content modal__content--sm">
+            <div class="modal__header">
+                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">receipt_long</span></span>
+                <h2 class="modal__title" id="modal-order-title">Nuevo Pedido</h2>
+            </div>
+
+            <div class="modal__body">
+
+                <!-- Prioridad -->
+                <div class="order-priority-row">
+                    <label class="form-label" for="input-order-priority">Prioridad</label>
+                    <div class="order-priority-controls">
+                        <input class="form-input form-input--num" type="number" id="input-order-priority"
+                               min="1" max="5" value="3">
+                        <span class="priority-chip priority-chip--1">1 = Baja</span>
+                        <span class="priority-chip priority-chip--5">5 = Alta</span>
+                    </div>
+                </div>
+
+                <!-- Agregar producto -->
+                <div class="form-group order-add-product-section">
+                    <!-- Fila 1: labels alineados sobre cada columna -->
+                    <div class="order-add-labels">
+                        <label class="form-label order-label-producto">Producto</label>
+                        <label class="form-label order-label-cant" for="input-order-item-qty">Cant.</label>
+                        <div class="order-label-btn-spacer"></div>
+                    </div>
+                    <!-- Fila 2: controles a la misma altura -->
+                    <div class="order-add-controls">
+                        <select class="select order-select" id="select-order-product"></select>
+                        <input class="form-input order-qty-input" type="number" id="input-order-item-qty"
+                               min="1" max="999" value="1">
+                        <button class="btn btn--primary order-add-btn" id="btn-order-add-item" title="Agregar al pedido">
+                            <span class="icon icon--sm" aria-hidden="true">add</span>
+                        </button>
+                    </div>
+                    <!-- Badge de stock (debajo del select) -->
+                    <span class="order-stock-badge" id="order-stock-badge" style="display:none"></span>
+                    <p id="order-no-products-msg" class="empty-msg" style="display:none;margin-top:4px">Sin productos disponibles en el escenario.</p>
+                </div>
+
+                <!-- Lista de items del pedido -->
+                <div class="form-group">
+                    <label class="form-label">
+                        Productos en el pedido
+                        <span class="order-items-count" id="order-items-count"></span>
+                    </label>
+                    <div id="order-items-list" class="order-items-list"></div>
+                </div>
+
+            </div>
+
+            <div class="modal__footer">
+                <button class="btn btn--ghost" id="btn-cancel-order">Cancelar</button>
+                <button class="btn btn--primary" id="btn-confirm-order">
+                    Crear pedido <span class="icon icon--16" aria-hidden="true">arrow_forward</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
          TOAST
     ════════════════════════════════════════════════════ -->
     <div class="editor-toast" id="editor-toast" role="status" aria-live="polite"></div>
@@ -482,6 +575,8 @@
     <script src="{{ url_for('static', filename='js/editor/renderer.js') }}"></script>
     <script src="{{ url_for('static', filename='js/editor/editor.js') }}"></script>
     <script src="{{ url_for('static', filename='js/editor/ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/editor/sim.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

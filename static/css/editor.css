@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    EDITOR.CSS
    Estilos del editor de warehouse:
    modales, toolbar de herramientas, panel de selección,
@@ -1094,4 +1094,202 @@ select.sel-value option {
         linear-gradient(to right,  rgba(37,99,235,0.15) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(37,99,235,0.15) 1px, transparent 1px);
     border-color: rgba(37,99,235,0.2);
+}
+
+
+/* ================================================================
+   MODAL PEDIDO — estilos
+================================================================ */
+
+/* Fila de prioridad — label encima, controles en linea */
+.order-priority-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: .9rem;
+}
+
+.order-priority-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Chips de leyenda de prioridad */
+.priority-chip {
+    font-size: .68rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.priority-chip--1 {
+    background: rgba(34, 197, 94, .12);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, .3);
+}
+
+.priority-chip--5 {
+    background: rgba(239, 68, 68, .12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, .3);
+}
+
+/* Seccion agregar producto */
+.order-add-product-section {
+    margin-bottom: .6rem;
+    transition: opacity .2s;
+}
+
+/* Fila de labels: Producto | Cant. | (espaciador boton) */
+.order-add-labels {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    margin-bottom: 4px;
+}
+
+.order-label-producto {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.order-label-cant {
+    width: 68px;
+    flex-shrink: 0;
+    margin-bottom: 0;
+}
+
+.order-label-btn-spacer {
+    width: 36px;
+    flex-shrink: 0;
+}
+
+/* Fila de controles: select | input qty | boton — misma altura exacta */
+.order-add-controls {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.order-select {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    box-sizing: border-box;
+}
+
+.order-qty-input {
+    width: 68px;
+    flex-shrink: 0;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 8px;
+}
+
+.order-add-btn {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+
+/* Badge de stock disponible (debajo del select) */
+.order-stock-badge {
+    font-size: .68rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: rgba(79, 156, 249, .12);
+    color: #4f9cf9;
+    border: 1px solid rgba(79, 156, 249, .2);
+    align-self: flex-start;
+    white-space: nowrap;
+    transition: background .2s, color .2s;
+}
+
+.order-stock-badge--empty {
+    background: rgba(239, 68, 68, .12);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, .2);
+}
+
+/* Lista de items del pedido */
+.order-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-2) transparent;
+}
+
+.order-items-list::-webkit-scrollbar       { width: 4px; }
+.order-items-list::-webkit-scrollbar-thumb { background: var(--color-border-2); border-radius: 2px; }
+
+.order-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .04);
+    border: 1px solid rgba(255, 255, 255, .06);
+    transition: background .15s;
+}
+
+.order-item-row:hover { background: rgba(255, 255, 255, .07); }
+
+.order-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.order-item-name {
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--color-text, #e2e8f0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.order-item-meta {
+    font-size: .68rem;
+    color: var(--color-text-muted, #94a3b8);
+}
+
+.order-item-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.order-item-qty {
+    font-size: .82rem;
+    font-weight: 700;
+    color: #4f9cf9;
+    min-width: 28px;
+    text-align: right;
+}
+
+.order-items-count {
+    font-size: .72rem;
+    font-weight: 400;
+    color: var(--color-text-muted, #94a3b8);
+    margin-left: 4px;
 }

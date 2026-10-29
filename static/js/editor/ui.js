@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    EDITOR UI
    Conecta el WarehouseEditor con los elementos del DOM:
    - Modal "Nuevo Escenario"
@@ -86,6 +86,18 @@ const DOM = {
     // Tool selects
     doorTipoSelect:    () => document.getElementById('door-tipo-select'),
     aisleSentidoSelect:() => document.getElementById('aisle-sentido-select'),
+
+    // Modal pedido
+    modalOrder:         () => document.getElementById('modal-order'),
+    inputOrderPriority: () => document.getElementById('input-order-priority'),
+    orderItemsList:     () => document.getElementById('order-items-list'),
+    selectOrderProduct: () => document.getElementById('select-order-product'),
+    inputOrderItemQty:  () => document.getElementById('input-order-item-qty'),
+    btnOrderAddItem:    () => document.getElementById('btn-order-add-item'),
+    btnConfirmOrder:    () => document.getElementById('btn-confirm-order'),
+    btnCancelOrder:     () => document.getElementById('btn-cancel-order'),
+    orderNoProductsMsg: () => document.getElementById('order-no-products-msg'),
+    ordersList:         () => document.getElementById('orders-list'),
 };
 
 // ── Estado global de la UI ────────────────────────────────────────
@@ -97,6 +109,9 @@ let _productTargetRack  = null;
 let _productTargetCell  = null;
 let _wizardStep         = 0;
 let _wizardScenario     = null;
+
+/** Items temporales del pedido en construcción (array de {productoId, cantidad}). */
+let _orderDraftItems = [];
 
 /** Escenario activo: durante el wizard es _wizardScenario; despues es _scenario */
 function _activeScenario() { return _wizardScenario || _scenario; }
@@ -214,6 +229,14 @@ function initEditorUI() {
 
     DOM.btnSave().addEventListener('click', saveScenario);
     DOM.btnLoad().addEventListener('click', loadScenario);
+
+    // Pedidos
+    const btnAddOrder = document.getElementById('btn-add-order');
+    if (btnAddOrder) btnAddOrder.addEventListener('click', () => openModalOrder());
+    DOM.btnCancelOrder().addEventListener('click', () => closeModalOrder());
+    DOM.modalOrder().addEventListener('click', e => { if (e.target === DOM.modalOrder()) closeModalOrder(); });
+    DOM.btnOrderAddItem().addEventListener('click', () => _orderAddItemFromUI());
+    DOM.btnConfirmOrder().addEventListener('click', () => submitOrder());
 
     // Keyboard shortcuts
     document.addEventListener('keydown', e => _onKeyDown(e));
@@ -512,6 +535,8 @@ function _onWizardFinish() {
     const picker = s.addPicker(100);
     if (!picker) showToast('Advertencia: no se pudo ubicar un picker automaticamente.', 'warning');
 
+    // Limpiar el estado de simulacion del escenario anterior
+    if (typeof simReset === 'function') simReset();
     _scenario = s;
     _wizardScenario = null;
     _editor.setScenario(_scenario);
@@ -638,6 +663,248 @@ function submitProduct() {
     closeModalProduct();
     _updateSidebarInfo();
     showToast(`Producto "${name}" (${weight} kg) agregado en (${targetX}, ${targetY}) Z:${zVal}`, 'success');
+}
+
+// ── Modal: Agregar Pedido ─────────────────────────────────────────
+
+/** Devuelve el stock disponible de un producto descontando lo ya en el draft. */
+function _stockDisponible(productId) {
+    const sc = _activeScenario();
+    if (!sc) return 0;
+    const prod = sc.getAllProducts().find(p => p.id === productId);
+    if (!prod) return 0;
+    const yaEnDraft = _orderDraftItems.filter(it => it.productoId === productId)
+                                      .reduce((s, it) => s + it.cantidad, 0);
+    return Math.max(0, (prod.quantity || 0) - yaEnDraft);
+}
+
+/** Actualiza el badge de stock y el max del input de cantidad segun el producto seleccionado. */
+function _updateStockBadge() {
+    const productId = DOM.selectOrderProduct().value;
+    const badge     = document.getElementById('order-stock-badge');
+    const qtyInput  = DOM.inputOrderItemQty();
+    if (!badge) return;
+    if (!productId) { badge.style.display = 'none'; return; }
+    const stock = _stockDisponible(productId);
+    badge.textContent = `Stock: ${stock}`;
+    badge.className   = 'order-stock-badge' + (stock === 0 ? ' order-stock-badge--empty' : '');
+    badge.style.display = '';
+    if (qtyInput) { qtyInput.max = stock > 0 ? stock : 1; }
+}
+
+
+function openModalOrder() {
+    const sc = _activeScenario();
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+
+    // Limpiar estado del draft
+    _orderDraftItems = [];
+
+    // Resetear prioridad y su badge
+    DOM.inputOrderPriority().value = '3';
+
+    // Limpiar lista de items
+    _renderOrderDraftItems();
+
+    // Poblar select de productos
+    const allProducts = sc.getAllProducts();
+    const sel   = DOM.selectOrderProduct();
+    const noMsg = DOM.orderNoProductsMsg();
+    sel.innerHTML = '';
+
+    const addSection = document.querySelector('.order-add-product-section');
+
+    if (allProducts.length === 0) {
+        noMsg.style.display = '';
+        if (addSection) addSection.style.opacity = '.5';
+    } else {
+        noMsg.style.display = 'none';
+        if (addSection) addSection.style.opacity = '1';
+        for (const p of allProducts) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name} (${p.sku}) — Rack ${p.rackId}`;
+            sel.appendChild(opt);
+        }
+    }
+
+    DOM.inputOrderItemQty().value = '1';
+
+    // Conectar eventos internos del modal
+    DOM.selectOrderProduct().onchange = () => {
+        _updateStockBadge();
+        DOM.inputOrderItemQty().value = '1';
+    };
+
+    _updateStockBadge();
+    DOM.modalOrder().classList.add('open');
+    DOM.inputOrderPriority().focus();
+}
+
+function closeModalOrder() {
+    DOM.modalOrder().classList.remove('open');
+    _orderDraftItems = [];
+    // Limpiar eventos internos
+    const p = DOM.inputOrderPriority(); if (p) p.oninput = null;
+    const s = DOM.selectOrderProduct(); if (s) s.onchange = null;
+}
+
+/** Agrega un item al draft con validacion de stock. */
+function _orderAddItemFromUI() {
+    const productId = DOM.selectOrderProduct().value;
+    if (!productId) { showToast('Seleccioná un producto.', 'warning'); return; }
+
+    const qty = parseInt(DOM.inputOrderItemQty().value) || 1;
+    if (qty < 1) { showToast('La cantidad debe ser al menos 1.', 'warning'); return; }
+
+    // Validar stock disponible
+    const stock = _stockDisponible(productId);
+    if (qty > stock) {
+        const sc = _activeScenario();
+        const prod = sc ? sc.getAllProducts().find(p => p.id === productId) : null;
+        const nombre = prod ? prod.name : productId;
+        showToast(`Stock insuficiente para "${nombre}": disponible ${stock}, pedido ${qty}.`, 'warning');
+        DOM.inputOrderItemQty().classList.add('input--error');
+        setTimeout(() => DOM.inputOrderItemQty().classList.remove('input--error'), 1500);
+        return;
+    }
+
+    // Si el producto ya está en el draft, sumar cantidad
+    const existing = _orderDraftItems.find(it => it.productoId === productId);
+    if (existing) {
+        existing.cantidad += qty;
+    } else {
+        _orderDraftItems.push({ productoId: productId, cantidad: qty });
+    }
+
+    _renderOrderDraftItems();
+    DOM.inputOrderItemQty().value = '1';
+    _updateStockBadge();   // actualizar stock restante
+}
+
+/** Renderiza la lista de items del draft en el modal. */
+function _renderOrderDraftItems() {
+    const container = DOM.orderItemsList();
+    const countEl   = document.getElementById('order-items-count');
+    if (!container) return;
+
+    if (_orderDraftItems.length === 0) {
+        container.innerHTML = '<p class="empty-msg">Sin productos agregados todavía.</p>';
+        if (countEl) { countEl.textContent = ''; }
+        return;
+    }
+
+    const sc = _activeScenario();
+    const allProducts = sc ? sc.getAllProducts() : [];
+
+    if (countEl) countEl.textContent = `(${_orderDraftItems.length})`;
+
+    const rows = _orderDraftItems.map((it, idx) => {
+        const prod   = allProducts.find(p => p.id === it.productoId);
+        const nombre = prod ? prod.name : it.productoId;
+        const sku    = prod ? prod.sku  : '';
+        const stock  = prod ? prod.quantity : '?';
+        return `
+        <div class="order-item-row" data-order-item-idx="${idx}">
+            <div class="order-item-info">
+                <span class="order-item-name">${nombre}</span>
+                <span class="order-item-meta">${sku} · Stock total: ${stock}</span>
+            </div>
+            <div class="order-item-controls">
+                <span class="order-item-qty">×${it.cantidad}</span>
+                <button class="btn btn--icon btn--xs btn--danger order-item-remove" data-order-item-idx="${idx}" title="Quitar">
+                    <span class="icon icon--sm" aria-hidden="true">close</span>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = rows;
+    container.querySelectorAll('.order-item-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const i = parseInt(btn.dataset.orderItemIdx);
+            _orderDraftItems.splice(i, 1);
+            _renderOrderDraftItems();
+            _updateStockBadge();
+        });
+    });
+}
+
+/** Confirma la creacion del pedido y lo agrega al escenario. */
+function submitOrder() {
+    const sc = _activeScenario();
+    if (!sc) return;
+
+    if (_orderDraftItems.length === 0) {
+        showToast('Agregá al menos un producto al pedido.', 'warning');
+        return;
+    }
+
+    const priority = parseInt(DOM.inputOrderPriority().value) || 3;
+
+    // Crear Order con OrderItem
+    const items = _orderDraftItems.map(it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad }));
+    const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items });
+    sc.orders.push(order);
+
+    renderOrdersList();
+    closeModalOrder();
+    showToast(`Pedido ${order.id} creado con ${items.length} item(s).`, 'success');
+}
+
+/** Renderiza la lista de pedidos en el sidebar izquierdo (#orders-list). */
+function renderOrdersList() {
+    const sc = _activeScenario();
+    const container = DOM.ordersList();
+    if (!container) return;
+
+    const orders = sc ? sc.orders : [];
+
+    if (orders.length === 0) {
+        container.innerHTML = '<p class="empty-msg">Sin pedidos cargados.</p>';
+        return;
+    }
+
+    const allProducts = sc ? sc.getAllProducts() : [];
+
+    const cards = orders.map(order => {
+        const itemsText = order.items.map(it => {
+            const p = allProducts.find(pr => pr.id === it.productoId);
+            return `<span style="display:block;font-size:.72rem;color:var(--color-text-muted,#94a3b8)">${p ? p.name : it.productoId} ×${it.cantidad}</span>`;
+        }).join('');
+
+        const priorityColors = { 1: '#22c55e', 2: '#4fc97f', 3: '#fbbf24', 4: '#f97316', 5: '#ef4444' };
+        const pc = priorityColors[order.prioridad] || '#94a3b8';
+
+        return `
+        <div class="wave-item" style="cursor:default">
+            <div class="wave-item__header">
+                <span class="wave-item__id" style="font-size:.78rem">${order.id}</span>
+                <span style="display:inline-block;width:.35rem"></span>
+                <span class="wave-item__badge" style="color:${pc};border-color:${pc}">P${order.prioridad}</span>
+                <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${order.id}" title="Eliminar pedido" style="margin-left:auto">
+                    <span class="icon icon--sm" aria-hidden="true">delete</span>
+                </button>
+            </div>
+            <div class="wave-item__meta" style="flex-direction:column;align-items:flex-start;gap:1px">
+                ${itemsText || '<span style="font-size:.72rem;color:var(--color-text-muted,#94a3b8)">Sin items</span>'}
+            </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = cards;
+
+    container.querySelectorAll('[data-delete-order]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const oid = btn.dataset.deleteOrder;
+            const idx = sc.orders.findIndex(o => o.id === oid);
+            if (idx !== -1) {
+                sc.orders.splice(idx, 1);
+                renderOrdersList();
+                showToast('Pedido eliminado.', 'warning');
+            }
+        });
+    });
 }
 
 // ── Editor events ─────────────────────────────────────────────────
@@ -1185,6 +1452,8 @@ function loadScenario() {
         reader.onload = ev => {
             try {
                 const data = JSON.parse(ev.target.result);
+                // Limpiar el estado de simulacion del escenario anterior
+                if (typeof simReset === 'function') simReset();
                 _scenario = Scenario.fromJSON(data);
                 _editor.setScenario(_scenario);
                 DOM.canvasPlaceholder().style.display = 'none';
@@ -1192,6 +1461,7 @@ function loadScenario() {
                 _updateSidebarInfo();
                 _updateCanvasStatus();
                 _hideSelection();
+                renderOrdersList();
                 showToast(`Escenario "${_scenario.name}" cargado.`, 'success');
             } catch (err) {
                 showToast('Error al leer el archivo JSON.', 'error');
@@ -1218,6 +1488,7 @@ function _onKeyDown(e) {
     if (e.key === 'Escape') {
         closeModalNew();
         closeModalProduct();
+        closeModalOrder();
         _hideSelection();
         _editor?.setMode('select');
         _setActiveTool('select');
@@ -1263,4 +1534,5 @@ function showToast(msg, type = 'info') {
 // ── Arrancar cuando el DOM está listo ─────────────────────────────
 
 document.addEventListener('DOMContentLoaded', initEditorUI);
+
 

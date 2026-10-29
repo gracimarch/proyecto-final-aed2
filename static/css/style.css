@@ -143,7 +143,7 @@ body {
 }
 
 .panel__body--scroll {
-    max-height: 160px;
+    max-height: 240px;
     overflow-y: auto;
     padding-right: var(--space-xs);
 }
@@ -246,7 +246,14 @@ body {
     display: flex;
     justify-content: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) 0;
+    padding: var(--space-xs) 0;
+}
+
+/* Agrupa un label con su control (select/input/range) */
+.field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
 }
 
 /* ================================================================
@@ -373,7 +380,6 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.06em;
     display: block;
-    margin-bottom: 3px;
 }
 
 .select {
@@ -609,4 +615,120 @@ body {
         --sidebar-w:     280px;
         --sidebar-r-w:   300px;
     }
+}
+
+/* ================================================================
+   SIMULACION — waves, tabla de comparacion y recogidos
+================================================================ */
+
+/* ── Tarjeta de wave en el sidebar izquierdo ─── */
+.wave-item {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-xs);
+    background: var(--color-surface-2);
+    font-size: var(--font-size-xs);
+    transition: border-color 0.15s;
+}
+.wave-item:hover {
+    border-color: var(--color-primary);
+}
+.wave-item__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 3px;
+}
+.wave-item__id {
+    font-weight: 700;
+    color: var(--color-text);
+}
+.wave-item__badge {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--color-primary);
+    background: rgba(79, 156, 249, 0.12);
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+.wave-item__meta {
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+}
+
+/* ── Tabla de comparacion de estrategias ─────── */
+.compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-xs);
+}
+.compare-table th,
+.compare-table td {
+    padding: 4px 6px;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+.compare-table th {
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+.compare-table td {
+    color: var(--color-text);
+}
+.compare-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* ── Chip de producto recogido ───────────────── */
+.collected-item {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    padding: 3px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.collected-item:last-child {
+    border-bottom: none;
+}
+
+/* ================================================================
+   MODO DE ENFOQUE DEL RECORRIDO — toggle button
+================================================================ */
+.focus-mode-row {
+    display: flex;
+    justify-content: center;
+}
+
+/* Estado normal: igual que btn--ghost */
+.btn--toggle {
+    border: 1px solid var(--color-border-2);
+    color: var(--color-text-muted);
+    background: transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    width: 100%;
+}
+
+.btn--toggle:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border-color: var(--color-text-muted);
+}
+
+/* Estado activo (aria-pressed="true" / .active) */
+.btn--toggle.active,
+.btn--toggle[aria-pressed="true"] {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.55);
+}
+
+.btn--toggle.active:hover,
+.btn--toggle[aria-pressed="true"]:hover {
+    background: rgba(251, 191, 36, 0.20);
+    border-color: rgba(251, 191, 36, 0.80);
 }
