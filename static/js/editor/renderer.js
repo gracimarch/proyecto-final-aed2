@@ -96,10 +96,15 @@ class WarehouseRenderer {
         this.mode            = 'select';
         this.doorTipo        = 'AMBOS'; // sincronizado por el editor al cambiar tipo de puerta
 
-        // Estado de ruta de simulación (seteado desde sim.js)
-        this.routePath  = null;   // [[x,y], ...] camino completo devuelto por el backend
-        this.routeStops = [];     // paradas: [{celda:[x,y], productos:[...]}, ...]
-        this.routeStep  = 0;      // índice del paso actual en la animación
+        // Estado de ruta de simulación (seteado desde sim.js).
+        // Modo multi-agente: lista de rutas, una por picker activo.
+        // Cada entrada es { path, paradas, step, color }.
+        this.agentRoutes = [];
+
+        // Compatibilidad con código legado que use routePath directamente.
+        this.routePath  = null;
+        this.routeStops = [];
+        this.routeStep  = 0;
 
         // Modo de enfoque del recorrido (seteado desde sim.js).
         // Cuando esta activo, el relleno de los pasillos se atenua para destacar
@@ -294,21 +299,23 @@ class WarehouseRenderer {
         const z = this.zoom;
 
         ctx.save();
-        ctx.translate(this.panX, this.panY);
-        ctx.scale(z, z);
+        try {
+            ctx.translate(this.panX, this.panY);
+            ctx.scale(z, z);
 
-        this._drawFloor(theme);
-        this._drawGrid(theme);
-        this._drawDispatchZone();
-        this._drawAisles();
-        this._drawDoors(theme);
-        this._drawRacks(theme);
-        this._drawRoutePath();            // trayecto de simulación (bajo el picker)
-        this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
-        this._drawPickers();
-        this._drawCursorPreview();
-
-        ctx.restore();
+            this._drawFloor(theme);
+            this._drawGrid(theme);
+            this._drawDispatchZone();
+            this._drawAisles();
+            this._drawDoors(theme);
+            this._drawRacks(theme);
+            this._drawRoutePath();            // trayecto de simulación (bajo el picker)
+            this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
+            this._drawPickers();
+            this._drawCursorPreview();
+        } finally {
+            ctx.restore();
+        }
     }
 
     // ── Fondo de aplicación ───────────────────────────────────────
@@ -838,33 +845,73 @@ class WarehouseRenderer {
 
     // ── Ruta de simulación ────────────────────────────────────────
 
+    // ── Rutas de simulación (multi-agente) ────────────────────
+
     /**
-     * Dibuja el trazado del recorrido planificado.
-     * - Tramo ya recorrido: línea sólida color ámbar brillante.
-     * - Tramo pendiente:    línea discontinua ámbar tenue.
-     * - Paradas de recogida: círculo resaltado.
+     * Dibuja las rutas de todos los agentes activos.
+     * Cada ruta usa el color propio del picker para distinguirse.
+     * Si no hay agentRoutes definidas, cae al modo mono-agente legado
+     * usando routePath/routeStops/routeStep (compatibilidad).
      */
     _drawRoutePath() {
-        if (!this.routePath || this.routePath.length === 0) return;
+        // Modo multi-agente: iterar sobre todas las rutas de agentes.
+        if (this.agentRoutes && this.agentRoutes.length > 0) {
+            for (const route of this.agentRoutes) {
+                this._drawSingleRoute(route.path, route.paradas, route.step, route.color);
+            }
+            return;
+        }
 
-        const ctx  = this.ctx;
-        const step = Math.max(0, this.routeStep);
+        // Modo legado (mono-agente): usar routePath directamente.
+        if (!this.routePath || this.routePath.length === 0) return;
+        this._drawSingleRoute(this.routePath, this.routeStops, this.routeStep, '#fbbf24');
+    }
+
+    /**
+     * Dibuja una ruta individual:
+     * - Tramo ya recorrido: línea sólida con el color del picker.
+     * - Tramo pendiente:    línea discontinua tenue del mismo color.
+     * - Paradas de recogida: círculo resaltado con ese color.
+     *
+     * @param {Array}  path    - [[x,y], ...] camino completo.
+     * @param {Array}  paradas - [{celda:[x,y], productos:[...]}, ...].
+     * @param {number} step    - índice del paso actual.
+     * @param {string} color   - color CSS del picker (hex o rgb).
+     */
+    _drawSingleRoute(path, paradas, step, color) {
+        if (!path || path.length === 0) return;
+
+        const ctx = this.ctx;
+        step = Math.max(0, step);
 
         const cellCX = ([cx, cy]) => cx * CELL + CELL / 2;
         const cellCY = ([cx, cy]) => this._wy(cy) + CELL / 2;
 
+        // Convertir color a rgba para poder variar la opacidad.
+        // Si el color ya es rgba lo usamos directamente; si es hex lo parseamos.
+        const toRgba = (hex, alpha) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r},${g},${b},${alpha})`;
+        };
+        const safeColor = color || '#fbbf24';
+        const rgba = (col, alpha) => toRgba(col || safeColor, alpha);
+
         ctx.save();
 
         // ── Tramo pendiente (desde el paso actual al final) ──────
-        if (step < this.routePath.length) {
+        if (step < path.length) {
             ctx.beginPath();
             ctx.setLineDash([4, 5]);
-            ctx.strokeStyle = this.focusMode ? 'rgba(251, 191, 36, 0.50)' : 'rgba(251, 191, 36, 0.28)';
-            ctx.lineWidth   = 2;
+            ctx.strokeStyle = this.focusMode
+                ? rgba(color, 0.55)
+                : rgba(color, 0.30);
+            ctx.lineWidth = 2;
             const start = Math.max(0, step - 1);
-            ctx.moveTo(cellCX(this.routePath[start]), cellCY(this.routePath[start]));
-            for (let i = start + 1; i < this.routePath.length; i++) {
-                ctx.lineTo(cellCX(this.routePath[i]), cellCY(this.routePath[i]));
+            ctx.moveTo(cellCX(path[start]), cellCY(path[start]));
+            for (let i = start + 1; i < path.length; i++) {
+                ctx.lineTo(cellCX(path[i]), cellCY(path[i]));
             }
             ctx.stroke();
             ctx.setLineDash([]);
@@ -873,36 +920,35 @@ class WarehouseRenderer {
         // ── Tramo ya recorrido (paso 0 hasta paso actual) ────────
         if (step > 1) {
             ctx.beginPath();
-            ctx.strokeStyle = this.focusMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.70)';
-            ctx.lineWidth   = this.focusMode ? 3.5 : 2.5;
-            ctx.moveTo(cellCX(this.routePath[0]), cellCY(this.routePath[0]));
-            for (let i = 1; i < step && i < this.routePath.length; i++) {
-                ctx.lineTo(cellCX(this.routePath[i]), cellCY(this.routePath[i]));
+            ctx.strokeStyle = this.focusMode
+                ? rgba(color, 0.95)
+                : rgba(color, 0.75);
+            ctx.lineWidth = this.focusMode ? 3.5 : 2.5;
+            ctx.moveTo(cellCX(path[0]), cellCY(path[0]));
+            for (let i = 1; i < step && i < path.length; i++) {
+                ctx.lineTo(cellCX(path[i]), cellCY(path[i]));
             }
             ctx.stroke();
         }
 
-        // ── Paradas de recogida: círculo ámbar ───────────────────
-        for (const parada of (this.routeStops || [])) {
+        // ── Paradas de recogida: círculo con el color del picker ─
+        for (const parada of (paradas || [])) {
             const [cx, cy] = parada.celda;
             const sx = cx * CELL + CELL / 2;
             const sy = this._wy(cy) + CELL / 2;
 
-            // Fondo semitransparente
-            ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+            ctx.fillStyle = rgba(color, 0.18);
             ctx.beginPath();
             ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
             ctx.fill();
 
-            // Borde
-            ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
+            ctx.strokeStyle = rgba(color, 0.80);
             ctx.lineWidth   = 1.5;
             ctx.beginPath();
             ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Estrella / marca de pickup
-            ctx.fillStyle    = 'rgba(251, 191, 36, 0.90)';
+            ctx.fillStyle    = rgba(color, 0.90);
             ctx.font         = `bold 9px "JetBrains Mono", monospace`;
             ctx.textAlign    = 'center';
             ctx.textBaseline = 'middle';

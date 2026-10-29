@@ -1,4 +1,4 @@
-﻿/* ================================================================
+/* ================================================================
    EDITOR.CSS
    Estilos del editor de warehouse:
    modales, toolbar de herramientas, panel de selección,
@@ -1292,4 +1292,60 @@ select.sel-value option {
     font-weight: 400;
     color: var(--color-text-muted, #94a3b8);
     margin-left: 4px;
+}
+
+
+/* ================================================================
+   FLEET STATUS — panel de estado de la flota (simulacion multi-picker)
+================================================================ */
+
+.fleet-status {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+
+/* Una fila por picker activo en la simulacion */
+.fleet-row {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    font-size: .72rem;
+    font-family: 'JetBrains Mono', monospace;
+    padding: .28rem .4rem;
+    border-radius: .3rem;
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06);
+}
+
+/* Punto de color que representa al picker */
+.fleet-row__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.fleet-row__picker {
+    font-weight: 700;
+    flex: 0 0 auto;
+    opacity: .9;
+}
+
+.fleet-row__wave {
+    flex: 1;
+    opacity: .65;
+}
+
+.fleet-row__status {
+    font-size: .65rem;
+    opacity: .7;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* Wave seleccionada con click para la funcion Comparar */
+.wave-item--selected {
+    border-color: var(--color-accent, #4f9cf9) !important;
+    background: rgba(79, 156, 249, .08) !important;
 }
