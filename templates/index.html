@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -242,12 +242,19 @@
                 <h2 class="panel__title">Simulación</h2>
                 <div class="panel__body">
 
-                    <!-- Selector de wave -->
+                    <!-- Estado de la flota: muestra todos los pickers activos.
+                         Hacé click en una wave del sidebar izquierdo para
+                         seleccionarla y poder usar "Comparar". -->
                     <div class="field-group">
-                        <label class="field-label" for="select-wave">Wave activa</label>
-                        <select class="select" id="select-wave">
-                            <option value="">— Selecioná una wave —</option>
-                        </select>
+                        <label class="field-label">
+                            Estado de la flota
+                            <span style="font-size:.68rem;opacity:.55;font-weight:400;margin-left:.3rem">
+                                (click en wave ← para comparar)
+                            </span>
+                        </label>
+                        <div id="fleet-status" class="fleet-status">
+                            <p class="empty-msg">Sin pickers asignados.</p>
+                        </div>
                     </div>
 
                     <!-- Selector de estrategia y algoritmo -->
