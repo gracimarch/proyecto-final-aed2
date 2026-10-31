@@ -11,10 +11,12 @@ En cada tick:
        celda o se cruzarían (§3.6), espera el de wave con menor prioridad.
        Si un picker espera varios ticks seguidos, busca un camino
        alternativo hasta su próxima parada esquivando a los demás.
-    2. Recoger y descargar: al llegar a una parada recoge sus productos y,
-       con todo recogido, al llegar a su zona descarga lo que entra. Si le
-       sobra carga (la zona se llenó mientras caminaba) busca la próxima
-       zona con lugar.
+    2. Recoger y descargar: al llegar a una parada recoge sus productos y se
+       detiene por 1 tick base más 1 tick adicional por cada diferencia z de
+       altura del producto (z=1 -> 1 tick, z=2 -> 2 ticks, etc.), permitiendo
+       que los demás pickers continúen trabajando. Con todo recogido, al
+       llegar a su zona descarga lo que entra. Si le sobra carga (la zona se
+       llenó mientras caminaba) busca la próxima zona con lugar.
     3. Terminar: el picker que ya descargó todo termina su wave y el
        WaveManager le da la siguiente de la cola.
     4. Arrancar: cada picker que recibió una wave calcula su recorrido desde
@@ -46,6 +48,7 @@ class _Task:
         ruta            (list)  : Camino que está siguiendo (para dibujarlo).
         paso            (int)   : Índice de su posición dentro de ruta.
         esperas_seguidas (int)  : Ticks seguidos que lleva esperando.
+        cooldown_recogida (int) : Ticks restantes de pausa por recogida (según altura z).
     """
 
     def __init__(self, wave: Wave, path: list[tuple[int, int]]):
@@ -384,12 +387,18 @@ class Simulation:
             # Recoger los productos de esta parada.
             if celda in task.paradas:
                 recogidos = []
+                max_z = 1
                 for item in task.wave.get_items():
                     if item.product.product_id in task.paradas[celda]:
                         picker.pick(item)
                         recogidos.append(item.product.product_id)
+                        if item.product.z > max_z:
+                            max_z = item.product.z
                 del task.paradas[celda]
-                task.cooldown_recogida = 1
+                # 1 tick base + 1 tick por cada diferencia z de altura del producto.
+                # El nivel base es z=1 (0 ticks extra). Niveles z > 1 suman (z - 1) ticks:
+                # 1 base + (max_z - 1) = max_z ticks.
+                task.cooldown_recogida = max(1, max_z)
                 self.eventos.append({
                     "tipo": "recoge",
                     "picker": picker.picker_id,
