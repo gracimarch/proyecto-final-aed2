@@ -25,6 +25,12 @@ Etapa 2: asignar pickers (assign_pickers y complete_wave).
     para las waves pesadas. Cuando un picker termina su wave, queda libre
     y toma la siguiente de la cola.
 
+    Si tras la asignación 1:1 sobran pickers libres, se asignan como
+    refuerzo a las waves con más paradas distintas. Solo se agrega un
+    picker extra si la wave tiene al menos un rack por picker (así cada
+    operario tiene al menos una parada propia). El máximo de pickers por
+    wave está limitado por WaveManager.MAX_PICKERS_POR_WAVE.
+
 Ordenar con tuplas:
     Las funciones _order_key, _picker_key y _queue_key devuelven tuplas como (-prioridad, order_id).
     Python compara tuplas elemento por elemento: primero el primero, y solo
@@ -421,6 +427,10 @@ class WaveManager:
             libres.remove(elegido)
             self.queue.remove(wave)
             assigned.append(wave)
+
+        # Fase 2: pickers sobrantes → refuerzo a las waves más cargadas
+        if libres and assigned:
+            self._assign_extra_pickers(libres, assigned)
         return assigned
 
     def complete_wave(self, wave: Wave) -> list[Wave]:
@@ -433,6 +443,57 @@ class WaveManager:
         """
         wave.complete()
         return self.assign_pickers()
+
+    # ------------------------------------------------------------------
+    # Asignación multi-picker (Fase 2)
+    # ------------------------------------------------------------------
+
+    MAX_PICKERS_POR_WAVE = 3   # tope de pickers simultáneos por wave
+
+    def _wave_stop_count(self, wave: "Wave") -> int:
+        """Cantidad de celdas de rack distintas que visita la wave."""
+        celdas = set()
+        for item in wave.get_items():
+            celdas.add((item.product.x, item.product.y))
+        return len(celdas)
+
+    def _assign_extra_pickers(
+        self, libres: list[Picker], waves_asignadas: list["Wave"]
+    ) -> None:
+        """
+        Asigna pickers sobrantes como refuerzo a las waves con más paradas.
+
+        Una wave solo recibe un picker extra si:
+          1. La wave tiene al menos (n_pickers_actuales + 1) celdas de rack
+             distintas, garantizando al menos 1 parada por picker.
+          2. La wave no supera MAX_PICKERS_POR_WAVE.
+
+        Las waves se recorren en orden descendente de paradas y en rondas
+        sucesivas, de modo que la distribución sea equitativa cuando hay
+        más pickers sobrantes que waves candidatas.
+        """
+        # Precalcular paradas para no repetir la operación en cada ronda
+        waves_por_carga = []
+        for wave in waves_asignadas:
+            waves_por_carga.append((self._wave_stop_count(wave), wave))
+        waves_por_carga.sort(key=lambda t: -t[0])
+
+        picker_idx = 0
+        hubo_asignacion = True
+        while picker_idx < len(libres) and hubo_asignacion:
+            hubo_asignacion = False
+            for n_stops, wave in waves_por_carga:
+                if picker_idx >= len(libres):
+                    break
+                if len(wave.pickers) >= self.MAX_PICKERS_POR_WAVE:
+                    continue
+                # Cada picker debe tener al menos 1 parada tras agregar el extra
+                if n_stops < len(wave.pickers) + 1:
+                    continue
+                extra = libres[picker_idx]
+                wave.assign_picker(extra)
+                picker_idx += 1
+                hubo_asignacion = True
 
     # ------------------------------------------------------------------
     # Consultas
