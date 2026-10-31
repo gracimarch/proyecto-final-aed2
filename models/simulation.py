@@ -55,6 +55,7 @@ class _Task:
         self.ruta = path
         self.paso = 0
         self.esperas_seguidas = 0
+        self.cooldown_recogida = 0
 
 
 class Simulation:
@@ -91,6 +92,7 @@ class Simulation:
         self.tick = 0
         self.tasks = {}          # picker_id -> _Task
         self.esperando = set()   # pickers que esperaron en este tick
+        self.recogiendo = set()  # pickers que se detuvieron a recoger en este tick
         self.eventos = []        # lo que pasó en este tick
         self.frames = []
         self.rutas = []
@@ -147,9 +149,13 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def _destination(self, picker: Picker) -> tuple[int, int]:
-        """Celda donde quiere estar en el próximo tick (la suya si no camina)."""
-        if picker.picker_id in self.tasks and picker.next_cell is not None:
-            return picker.next_cell
+        """Celda donde quiere estar en el próximo tick (la suya si no camina o está recogiendo)."""
+        if picker.picker_id in self.tasks:
+            task = self.tasks[picker.picker_id]
+            if task.cooldown_recogida > 0:
+                return picker.posicion_actual
+            if picker.next_cell is not None:
+                return picker.next_cell
         return picker.posicion_actual
 
     def _crash(self, a: Picker, b: Picker, destino: dict) -> bool:
@@ -203,11 +209,23 @@ class Simulation:
                     hubo_cambio = True
 
         self.esperando = set()
+        self.recogiendo = set()
         trabados = []
         for picker in ordenados:
-            if picker.picker_id not in self.tasks or picker.next_cell is None:
+            if picker.picker_id not in self.tasks:
                 continue
             task = self.tasks[picker.picker_id]
+
+            if task.cooldown_recogida > 0:
+                task.cooldown_recogida -= 1
+                task.esperas_seguidas = 0
+                picker.stay()
+                self.recogiendo.add(picker.picker_id)
+                continue
+
+            if picker.next_cell is None:
+                continue
+
             if destino[picker.picker_id] != picker.posicion_actual:
                 picker.step(self.graph)
                 task.paso = task.paso + 1
@@ -371,6 +389,7 @@ class Simulation:
                         picker.pick(item)
                         recogidos.append(item.product.product_id)
                 del task.paradas[celda]
+                task.cooldown_recogida = 1
                 self.eventos.append({
                     "tipo": "recoge",
                     "picker": picker.picker_id,
@@ -496,7 +515,9 @@ class Simulation:
         pickers = []
         for picker in self.warehouse.pickers:
             estado = picker.status.value
-            if picker.picker_id in self.esperando:
+            if picker.picker_id in self.recogiendo:
+                estado = "RECOGIENDO"
+            elif picker.picker_id in self.esperando:
                 estado = "ESPERANDO"
             paso = None
             if picker.picker_id in self.tasks:
