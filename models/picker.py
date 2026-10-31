@@ -255,6 +255,14 @@ class Picker:
         self.historial.append(self.posicion_actual)
         self.esperas = self.esperas + 1
 
+    def stay(self) -> None:
+        """
+        Se queda quieto un instante (por ejemplo, recogiendo un producto).
+        Se anota en el historial para mantener los instantes alineados sin
+        contar como espera por colisión.
+        """
+        self.historial.append(self.posicion_actual)
+
     def collides_with(self, other: Picker) -> bool:
         """
         Consigna §3.6: True si en el próximo instante este picker y other

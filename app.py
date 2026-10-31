@@ -1,4 +1,4 @@
-﻿"""
+"""
 app.py
 
 Servidor Flask de la aplicacion Warehouse Simulator.
@@ -16,6 +16,11 @@ Rutas:
     POST /api/routes/compare    -> Igual que /plan pero corre todas las
                                    estrategias y devuelve una comparacion.
 
+    POST /api/simulacion        -> Recibe el JSON del escenario, la estrategia
+                                   y el buscador; corre la simulacion completa
+                                   con todos los pickers y devuelve un frame
+                                   por tick. El frontend solo los dibuja.
+
 Diseno stateless: el cliente envia el estado completo del escenario en cada
 pedido. El servidor no guarda nada entre llamadas; cada request es
 independiente.
@@ -27,6 +32,7 @@ from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
 from algorithms.graph_builder import generate_graph
 from algorithms.routing import plan_route, compare_strategies
+from models.simulation import Simulation
 
 
 app = Flask(__name__)
@@ -92,13 +98,14 @@ def api_waves_generate():
     {
         "waves": [
             {
-                "wave_id": "W1",
-                "status":  "ABIERTA",
+                "wave_id":   "W1",
+                "status":    "ABIERTA",
+                "picker_ids": ["PK_01"],
                 "picker_id": "PK_01",
                 "prioridad": 5,
-                "pedidos":  ["PED_01", "PED_02"],
-                "unidades": 3,
-                "peso_kg":  7.7
+                "pedidos":   ["PED_01", "PED_02"],
+                "unidades":  3,
+                "peso_kg":   7.7
             },
             ...
         ]
@@ -121,22 +128,21 @@ def api_waves_generate():
 
     waves_dict = []
     for wave in manager.get_waves():
-        picker_id = None
-        if wave.picker is not None:
-            picker_id = wave.picker.picker_id
+        picker_ids = [p.picker_id for p in wave.pickers]
 
         pedidos_ids = []
         for entry in wave.entries:
             pedidos_ids.append(entry.order.order_id)
 
         waves_dict.append({
-            "wave_id":   wave.wave_id,
-            "status":    wave.status.value,
-            "picker_id": picker_id,
-            "prioridad": wave.priority(),
-            "pedidos":   pedidos_ids,
-            "unidades":  wave.current_units(),
-            "peso_kg":   round(wave.total_weight(), 3),
+            "wave_id":    wave.wave_id,
+            "status":     wave.status.value,
+            "picker_ids": picker_ids,
+            "picker_id":  picker_ids[0] if picker_ids else None,  # compat
+            "prioridad":  wave.priority(),
+            "pedidos":    pedidos_ids,
+            "unidades":   wave.current_units(),
+            "peso_kg":    round(wave.total_weight(), 3),
         })
 
     return jsonify({"waves": waves_dict})
@@ -275,6 +281,58 @@ def api_routes_compare():
         resultado[estrategia] = route_result.to_dict()
 
     return jsonify(resultado)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/simulacion
+# ---------------------------------------------------------------------------
+
+@app.route("/api/simulacion", methods=["POST"])
+def api_simulacion():
+    """
+    Corre la simulacion completa (todas las waves, todos los pickers a la
+    vez, con colisiones) y devuelve lo que el frontend tiene que dibujar.
+
+    Cuerpo esperado (application/json):
+    {
+        "escenario":  { ...Scenario.toJSON()... },
+        "estrategia": "orden" | "cercania",
+        "buscador":   "bfs"   | "astar"
+    }
+
+    Respuesta exitosa (200): Simulation.to_dict()
+    {
+        "frames":   [ {"tick", "pickers", "zonas", "eventos"}, ... ],
+        "metricas": { "ticks", "distancia_total", "esperas", "desvios", ... },
+        "rutas":    [ metricas de cada recorrido calculado ],
+        "error":    null o mensaje si la simulacion no pudo terminar
+    }
+
+    Respuesta de error (400):
+    { "error": "mensaje explicativo" }
+    """
+    body = request.get_json()
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+
+    escenario  = body.get("escenario")
+    estrategia = body.get("estrategia", "cercania")
+    buscador   = body.get("buscador",   "bfs")
+
+    if escenario is None:
+        return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
+
+    try:
+        warehouse = _build_warehouse(escenario)
+        manager   = _build_wave_manager(escenario, warehouse)
+        manager.generate_waves()
+        manager.assign_pickers()
+        simulacion = Simulation(warehouse, manager, estrategia, buscador)
+        simulacion.run()
+    except (ValueError, KeyError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify(simulacion.to_dict())
 
 
 # ---------------------------------------------------------------------------
