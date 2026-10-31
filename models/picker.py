@@ -13,7 +13,9 @@ Cada regla de la consigna la controla un método:
     No chocar (§3.6)       : collides_with avisa si dos pickers terminarían en
                              la misma celda o se cruzarían. Quién espera lo
                              decide la simulación (wait o change_route).
-    Peso de la zona (§3.4) : unload no descarga si la zona pasaría su límite.
+    Peso de la zona (§3.4) : unload deja solo los ítems que entran en la zona;
+                             lo que no entra sigue en la carga para llevarlo
+                             a otra zona con lugar.
 
 El picker no calcula recorridos (los recibe de algorithms/routing.py) ni
 modifica el stock de los productos.
@@ -340,21 +342,26 @@ class Picker:
         return False
 
     def can_unload(self, zone: DispatchZone) -> bool:
-        """True si está al lado de la zona y la zona tiene lugar para su carga."""
+        """True si está al lado de la zona y en la zona entra al menos uno de sus ítems."""
         if not self._is_next_to_zone(zone):
             return False
-        return zone.peso_actual + self.carried_weight <= zone.peso_max_kg
+        for item in self.carga:
+            if zone.has_room_for(item.total_weight):
+                return True
+        return False
 
     def unload(self, zone: DispatchZone) -> list[OrderItem]:
         """
-        Deja todo lo que lleva en la zona de despacho.
+        Deja en la zona de despacho los ítems que entran, en el orden en que
+        los recogió. Los que no entran siguen en la carga para llevarlos a
+        otra zona con lugar.
 
         Returns:
             Los ítems descargados.
 
         Raises:
             ValueError: Si no está en recorrido, no está al lado de la zona,
-                        o la zona pasaría su límite de peso (§3.4).
+                        o en la zona no entra ninguno de sus ítems (§3.4).
         """
         if self.status != PickerStatus.EN_RECORRIDO:
             raise ValueError(f"El picker '{self.picker_id}' no está en recorrido.")
@@ -363,11 +370,23 @@ class Picker:
                 f"El picker '{self.picker_id}' está en {self.posicion_actual} y no "
                 f"está al lado de la zona '{zone.zone_id}'."
             )
-        zone.receive(self.carried_weight)    # la zona controla su límite de peso
-        descargados = self.carga
-        for item in descargados:
-            self.entregados.append(item)
-        self.carga = []
+        if len(self.carga) > 0 and not self.can_unload(zone):
+            raise ValueError(
+                f"En la zona '{zone.zone_id}' no entra ningún ítem del picker "
+                f"'{self.picker_id}': tiene {zone.peso_actual:.2f} kg de "
+                f"{zone.peso_max_kg:.2f} kg."
+            )
+
+        descargados = []
+        quedan = []
+        for item in self.carga:
+            if zone.has_room_for(item.total_weight):
+                zone.receive(item.total_weight)
+                descargados.append(item)
+                self.entregados.append(item)
+            else:
+                quedan.append(item)
+        self.carga = quedan
         return descargados
 
     # ------------------------------------------------------------------

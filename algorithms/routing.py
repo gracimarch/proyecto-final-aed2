@@ -3,10 +3,15 @@ algorithms/routing.py
 
 Recorrido completo de una wave.
 
-El recorrido sale de una celda de pasillo adyacente a la zona de despacho,
-pasa por una celda de recogida de cada producto de la wave y vuelve a una
-celda adyacente a la zona. Cada tramo entre dos paradas es un camino mínimo
-en el grafo dirigido del warehouse, calculado con BFS o con A*.
+El recorrido sale de la posición del picker (o, si no se indica, de una
+celda de pasillo adyacente a la zona de despacho), pasa por una celda de
+recogida de cada producto de la wave y termina descargando en las zonas de
+despacho. Cada tramo entre dos paradas es un camino mínimo en el grafo
+dirigido del warehouse, calculado con BFS o con A*.
+
+Descarga: las zonas de despacho no se vacían. El picker va a la zona más
+cercana que tenga lugar, deja los ítems que entran y, si le sobra carga,
+sigue hasta la siguiente zona más cercana con lugar, y así hasta dejar todo.
 
 Estrategias implementadas (qué parada se visita después):
     "orden"    (A) : las paradas en el orden en que aparecen los pedidos.
@@ -30,6 +35,7 @@ import time
 from algorithms.graph import Graph, bfs_to_any, astar_to_any, bfs_distances
 from algorithms.pathfinding import pickup_cells, manhattan
 
+from models.order import OrderItem
 from models.warehouse import DispatchZone, Warehouse
 from models.wave import Wave
 
@@ -52,6 +58,8 @@ class RouteResult:
         path               (list)  : Celdas (x, y) del recorrido completo, en orden.
         paradas            (list)  : [(celda_de_recogida, [product_id, ...]), ...]
                                      en el orden en que se recogen.
+        descargas          (list)  : [(celda, zone_id, [product_id, ...]), ...]
+                                     en el orden en que se descargan.
         distancia_total    (int)
         aristas_recorridas (int)
         nodos_visitados    (int)
@@ -65,6 +73,7 @@ class RouteResult:
         buscador: str,
         path: list[tuple[int, int]],
         paradas: list[tuple[tuple[int, int], list[str]]],
+        descargas: list[tuple[tuple[int, int], str, list[str]]],
         nodos_expandidos: int,
         tiempo_ms: float,
     ):
@@ -72,6 +81,7 @@ class RouteResult:
         self.buscador = buscador
         self.path = path
         self.paradas = paradas
+        self.descargas = descargas
         self.aristas_recorridas = len(path) - 1
         self.distancia_total = self.aristas_recorridas
         self.nodos_visitados = len(set(path))   # set() elimina las celdas repetidas
@@ -106,6 +116,15 @@ class RouteResult:
                 "productos": list(product_ids),
             })
         datos["paradas"] = paradas
+
+        descargas = []
+        for celda, zone_id, product_ids in self.descargas:
+            descargas.append({
+                "celda": [celda[0], celda[1]],
+                "zona": zone_id,
+                "productos": list(product_ids),
+            })
+        datos["descargas"] = descargas
 
         return datos
 
@@ -273,6 +292,45 @@ def _served_stops(
     return atendidas
 
 
+def _contains(items: list[OrderItem], item: OrderItem) -> bool:
+    """True si ese mismo ítem (el mismo objeto) ya está en la lista."""
+    for otro in items:
+        if otro is item:
+            return True
+    return False
+
+
+def _lightest_weight(items: list[OrderItem]) -> float:
+    """Peso del ítem más liviano de la lista (la lista no puede estar vacía)."""
+    minimo = items[0].total_weight
+    for item in items:
+        if item.total_weight < minimo:
+            minimo = item.total_weight
+    return minimo
+
+
+def _zones_with_room(
+    warehouse: Warehouse,
+    graph: Graph,
+    ocupado: dict[str, float],
+    peso: float,
+) -> dict[tuple[int, int], DispatchZone]:
+    """
+    Celdas de acceso de las zonas donde todavía entran `peso` kg, cada una
+    con su zona: {celda: zona}.
+
+    `ocupado` dice cuántos kg tiene cada zona (zone_id -> kg) contando lo
+    que ya se descargó en este recorrido.
+    """
+    destinos = {}
+    for zone in warehouse.dispatch_zones:
+        if ocupado[zone.zone_id] + peso <= zone.peso_max_kg:
+            for celda in dispatch_access_cells(zone, warehouse, graph):
+                if celda not in destinos:
+                    destinos[celda] = zone
+    return destinos
+
+
 def plan_route(
     wave: Wave,
     warehouse: Warehouse,
@@ -280,11 +338,12 @@ def plan_route(
     estrategia: str = "cercania",
     buscador: str = "bfs",
     zone: DispatchZone | None = None,
+    inicio: tuple[int, int] | None = None,
 ) -> RouteResult:
     """
-    Calcula el recorrido de una wave: zona -> productos -> zona.
+    Calcula el recorrido de una wave: inicio -> productos -> zonas de despacho.
 
-    No modifica la wave; para guardarlo usar wave.set_route(resultado.path).
+    No modifica la wave ni las zonas; para guardarlo usar wave.set_route(resultado.path).
 
     Args:
         wave       : Wave con al menos un ítem.
@@ -292,17 +351,29 @@ def plan_route(
         graph      : Grafo dirigido construido con graph_builder.generate_graph.
         estrategia : "orden" (A) o "cercania" (B).
         buscador   : "bfs" o "astar".
-        zone       : Zona de despacho de salida y llegada. Por defecto,
-                     default_dispatch_zone(warehouse).
+        zone       : Zona de la que sale el picker si no se indica inicio.
+                     Por defecto, default_dispatch_zone(warehouse).
+        inicio     : Celda donde arranca el recorrido (normalmente la
+                     posición actual del picker). Si es None, arranca al
+                     lado de `zone`.
 
-    Complejidad: con k paradas, cada tramo es una búsqueda O(V + E), así que
-    el total es O(k * (V + E)) para las dos estrategias. La B hace una sola
-    búsqueda por paso porque busca hacia todas las paradas pendientes a la vez.
+    Descarga: al terminar de recoger, el picker va a la zona más cercana
+    donde entre al menos su ítem más liviano. Ahí deja, en el orden en que
+    los recogió, los ítems que entran. Si le queda carga, busca la próxima
+    zona con lugar desde donde está, y así hasta dejar todo. Cada búsqueda
+    es un solo BFS hacia las celdas de acceso de todas esas zonas a la vez.
+
+    Complejidad: con k paradas y d descargas, cada tramo es una búsqueda
+    O(V + E), así que el total es O((k + d) * (V + E)). La estrategia B hace
+    una sola búsqueda por paso porque busca hacia todas las paradas
+    pendientes a la vez.
 
     Raises:
         ValueError: Si la estrategia o el buscador no existen, la wave está
-                    vacía, la zona no tiene celdas de acceso o alguna parada
-                    es inalcanzable respetando los sentidos de circulación.
+                    vacía, el inicio no es una celda de pasillo, la zona no
+                    tiene celdas de acceso, alguna parada es inalcanzable
+                    respetando los sentidos de circulación o ninguna zona
+                    tiene lugar para lo que queda por descargar.
     """
     if estrategia not in ESTRATEGIAS:
         raise ValueError(f"Estrategia desconocida '{estrategia}'. Opciones: {ESTRATEGIAS}")
@@ -311,18 +382,24 @@ def plan_route(
     if len(wave.entries) == 0:
         raise ValueError(f"La wave '{wave.wave_id}' no tiene ítems.")
 
-    inicio = time.perf_counter()
+    inicio_ms = time.perf_counter()
     stats = {"nodos_expandidos": 0}
 
-    if zone is None:
-        zone = default_dispatch_zone(warehouse)
-    acceso = dispatch_access_cells(zone, warehouse, graph)
-    if len(acceso) == 0:
-        raise ValueError(f"La zona '{zone.zone_id}' no tiene celdas de pasillo adyacentes.")
+    if inicio is not None:
+        actual = tuple(inicio)
+        if not graph.has_node(actual):
+            raise ValueError(f"La celda de inicio {actual} no es una celda de pasillo.")
+    else:
+        if zone is None:
+            zone = default_dispatch_zone(warehouse)
+        acceso = dispatch_access_cells(zone, warehouse, graph)
+        if len(acceso) == 0:
+            raise ValueError(f"La zona '{zone.zone_id}' no tiene celdas de pasillo adyacentes.")
+        actual = acceso[0]
 
-    actual = acceso[0]
     path = [actual]
     paradas = []
+    carga = []    # ítems recogidos, en el orden en que se recogen
     pendientes = _wave_stops(wave, warehouse, graph)
 
     # Ida: un tramo por parada hasta que no quede ninguna pendiente.
@@ -352,24 +429,59 @@ def plan_route(
                 recogidos.append(product_id)
         paradas.append((llegada, recogidos))
 
+        # Los ítems de esos productos pasan a la carga, en el orden de la wave.
+        for item in wave.get_items():
+            if item.product.product_id in recogidos and not _contains(carga, item):
+                carga.append(item)
+
         quedan = []
         for parada in pendientes:
             if parada not in atendidas:
                 quedan.append(parada)
         pendientes = quedan
 
-    # Vuelta: a cualquier celda de acceso a la zona.
-    tramo, distancia, llegada = _search(graph, actual, set(acceso), buscador, stats)
-    if llegada is None:
-        raise ValueError(
-            f"Desde {actual} no se puede volver a la zona '{zone.zone_id}' "
-            f"respetando los sentidos de circulación."
-        )
-    for celda in tramo[1:]:
-        path.append(celda)
+    # Vuelta: descargar en la zona más cercana con lugar, repartiendo si hace falta.
+    ocupado = {}    # zone_id -> kg, empieza con lo que ya tiene cada zona
+    for z in warehouse.dispatch_zones:
+        ocupado[z.zone_id] = z.peso_actual
 
-    tiempo_ms = (time.perf_counter() - inicio) * 1000
-    return RouteResult(estrategia, buscador, path, paradas, stats["nodos_expandidos"], tiempo_ms)
+    descargas = []
+    while len(carga) > 0:
+        mas_liviano = _lightest_weight(carga)
+        destinos = _zones_with_room(warehouse, graph, ocupado, mas_liviano)
+        if len(destinos) == 0:
+            raise ValueError(
+                f"Ninguna zona de despacho tiene lugar para {mas_liviano:.2f} kg: "
+                f"el picker no puede descargar lo que le queda."
+            )
+
+        tramo, distancia, llegada = _search(graph, actual, set(destinos), buscador, stats)
+        if llegada is None:
+            raise ValueError(
+                f"Desde {actual} no se puede llegar a ninguna zona de despacho con "
+                f"lugar respetando los sentidos de circulación."
+            )
+        for celda in tramo[1:]:
+            path.append(celda)
+        actual = llegada
+
+        # Deja los ítems que entran en esa zona; el resto sigue en la carga.
+        destino = destinos[llegada]
+        dejados = []
+        sobran = []
+        for item in carga:
+            if ocupado[destino.zone_id] + item.total_weight <= destino.peso_max_kg:
+                ocupado[destino.zone_id] = ocupado[destino.zone_id] + item.total_weight
+                dejados.append(item.product.product_id)
+            else:
+                sobran.append(item)
+        descargas.append((llegada, destino.zone_id, dejados))
+        carga = sobran
+
+    tiempo_ms = (time.perf_counter() - inicio_ms) * 1000
+    return RouteResult(
+        estrategia, buscador, path, paradas, descargas, stats["nodos_expandidos"], tiempo_ms
+    )
 
 
 def compare_strategies(
@@ -378,6 +490,7 @@ def compare_strategies(
     graph: Graph,
     buscador: str = "bfs",
     zone: DispatchZone | None = None,
+    inicio: tuple[int, int] | None = None,
 ) -> dict[str, RouteResult]:
     """
     Ejecuta todas las estrategias sobre la misma wave (§10).
@@ -387,7 +500,9 @@ def compare_strategies(
     """
     resultados = {}
     for estrategia in ESTRATEGIAS:
-        resultados[estrategia] = plan_route(wave, warehouse, graph, estrategia, buscador, zone)
+        resultados[estrategia] = plan_route(
+            wave, warehouse, graph, estrategia, buscador, zone, inicio
+        )
     return resultados
 
 

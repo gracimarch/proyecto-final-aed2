@@ -56,6 +56,17 @@ def _build_wave_manager(data: dict, warehouse: Warehouse) -> WaveManager:
     return WaveManager.from_dict(data, warehouse)
 
 
+def _picker_start(wave):
+    """
+    Celda donde arranca el recorrido de la wave: la posicion actual de su
+    picker. Si la wave todavia no tiene picker, devuelve None y el recorrido
+    arranca al lado de la zona de despacho.
+    """
+    if wave.picker is None:
+        return None
+    return wave.picker.posicion_actual
+
+
 # ---------------------------------------------------------------------------
 # Pagina principal
 # ---------------------------------------------------------------------------
@@ -149,7 +160,7 @@ def api_routes_plan():
     }
 
     Respuesta exitosa (200): RouteResult.to_dict(), que incluye
-        path, paradas, distancia_total, nodos_visitados, aristas_recorridas,
+        path, paradas, descargas, distancia_total, nodos_visitados, aristas_recorridas,
         nodos_expandidos, tiempo_ms.
 
     Respuesta de error (400):
@@ -188,7 +199,8 @@ def api_routes_plan():
 
     try:
         graph     = generate_graph(warehouse)
-        resultado = plan_route(wave, warehouse, graph, estrategia, buscador)
+        resultado = plan_route(wave, warehouse, graph, estrategia, buscador,
+                               inicio=_picker_start(wave))
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
 
@@ -253,7 +265,8 @@ def api_routes_compare():
 
     try:
         graph       = generate_graph(warehouse)
-        comparacion = compare_strategies(wave, warehouse, graph, buscador)
+        comparacion = compare_strategies(wave, warehouse, graph, buscador,
+                                         inicio=_picker_start(wave))
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
 

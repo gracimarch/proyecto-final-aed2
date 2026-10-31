@@ -192,6 +192,10 @@ class DispatchZone:
         dentro_en_y = self.y <= cy < self.y + self.alto
         return dentro_en_x and dentro_en_y
 
+    def has_room_for(self, peso: float) -> bool:
+        """True si todavía entran `peso` kg sin pasar el peso máximo."""
+        return self.peso_actual + peso <= self.peso_max_kg
+
     def receive(self, peso: float) -> None:
         """
         Registra peso que deja un picker.
@@ -199,7 +203,7 @@ class DispatchZone:
         Raises:
             ValueError: Si la zona pasaría su peso máximo (§3.4).
         """
-        if self.peso_actual + peso > self.peso_max_kg:
+        if not self.has_room_for(peso):
             raise ValueError(
                 f"La zona '{self.zone_id}' superaría su límite: tiene "
                 f"{self.peso_actual:.2f} kg, llegan {peso:.2f} kg y el máximo "
