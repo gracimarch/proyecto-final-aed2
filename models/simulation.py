@@ -443,66 +443,155 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def _finish_waves(self) -> None:
-        terminados = []
+        """
+        Detecta pickers que terminaron su parte de la wave (sin paradas
+        pendientes ni carga). Una wave solo se completa cuando TODOS sus
+        pickers finalizaron: en waves multi-picker el primero en terminar
+        espera al resto antes de que el manager libere la wave.
+        """
+        # Agrupar pickers "terminados" por wave_id
+        done_by_wave: dict[str, list] = {}
         for picker in self.warehouse.pickers:
             if picker.picker_id not in self.tasks:
                 continue
             task = self.tasks[picker.picker_id]
             if len(task.paradas) == 0 and len(picker.carga) == 0:
-                terminados.append(picker)
+                wid = task.wave.wave_id
+                if wid not in done_by_wave:
+                    done_by_wave[wid] = []
+                done_by_wave[wid].append(picker)
 
-        for picker in terminados:
-            task = self.tasks[picker.picker_id]
-            del self.tasks[picker.picker_id]
-            self.manager.complete_wave(task.wave)    # libera al picker y reparte la cola
-            self.eventos.append({
-                "tipo": "fin_wave",
-                "picker": picker.picker_id,
-                "wave": task.wave.wave_id,
-            })
+        for wave_id, pickers_done in done_by_wave.items():
+            wave = self.tasks[pickers_done[0].picker_id].wave
+
+            # Solo completar si TODOS los pickers de la wave terminaron
+            todos_done = True
+            for p in wave.pickers:
+                if p.picker_id in self.tasks:
+                    task = self.tasks[p.picker_id]
+                    if len(task.paradas) > 0 or len(p.carga) > 0:
+                        todos_done = False
+                        break
+
+            if not todos_done:
+                continue
+
+            # Registrar eventos y limpiar tasks antes de completar la wave
+            for p in wave.pickers:
+                if p.picker_id in self.tasks:
+                    self.eventos.append({
+                        "tipo": "fin_wave",
+                        "picker": p.picker_id,
+                        "wave": wave_id,
+                    })
+                    del self.tasks[p.picker_id]
+
+            self.manager.complete_wave(wave)    # libera a todos y reparte la cola
 
     # ------------------------------------------------------------------
     # 4. Arrancar waves
     # ------------------------------------------------------------------
 
+    def _partition_items(self, items: list, pickers: list) -> list[list]:
+        """
+        Divide los ítems de una wave entre N pickers por zona espacial.
+
+        Ordena todos los ítems por coordenada x (de oeste a este) y los
+        reparte en franjas verticales, una por picker. Así cada picker
+        trabaja en su propia sección del almacén con mínimo solapamiento.
+
+        Los ítems con la misma celda de rack siempre quedan en la misma
+        franja: si un rack está en el límite de dos franjas, el orden de
+        inserción garantiza que sus ítems no se dividen entre pickers.
+        """
+        n = len(pickers)
+        if n <= 1:
+            return [items]
+
+        items_sorted = sorted(
+            items,
+            key=lambda it: (it.product.x, it.product.y),
+        )
+
+        size = max(1, len(items_sorted) // n)
+        grupos = []
+        for i in range(n):
+            inicio = i * size
+            fin = inicio + size if i < n - 1 else len(items_sorted)
+            grupos.append(items_sorted[inicio:fin])
+
+        # Rellenar con listas vacías si hay más pickers que ítems
+        while len(grupos) < n:
+            grupos.append([])
+
+        return grupos
+
     def _start_assigned_waves(self) -> None:
-        """Las waves que tienen picker pero no empezaron calculan su recorrido y arrancan."""
+        """
+        Las waves que tienen picker/s pero no empezaron calculan su
+        recorrido y arrancan. Si la wave tiene varios pickers, los ítems
+        se dividen espacialmente y cada picker planifica su sub-ruta
+        de forma independiente.
+        """
         for wave in self.manager.get_waves():
-            if wave.picker is None or wave.status != WaveStatus.ABIERTA:
+            if not wave.pickers or wave.status != WaveStatus.ABIERTA:
                 continue
-            picker = wave.picker
-            ruta = plan_route(
-                wave, self.warehouse, self.graph, self.estrategia, self.buscador,
-                inicio=picker.posicion_actual,
-            )
-            self.rutas.append(ruta.metrics())
-            self.nodos_expandidos = self.nodos_expandidos + ruta.nodos_expandidos
 
-            wave.set_route(ruta.path)
+            pickers = wave.pickers
+            all_items = wave.get_items()
+            partitions = self._partition_items(all_items, pickers)
+
+            # Planificar una ruta por picker antes de marcar la wave como
+            # iniciada, así todos parten desde su posición actual.
+            rutas_por_picker: dict[str, object] = {}
+            for picker, items_subset in zip(pickers, partitions):
+                if not items_subset:
+                    continue    # picker sin ítems asignados: no genera tarea
+                ruta = plan_route(
+                    wave, self.warehouse, self.graph,
+                    self.estrategia, self.buscador,
+                    inicio=picker.posicion_actual,
+                    items=items_subset if len(pickers) > 1 else None,
+                )
+                self.rutas.append(ruta.metrics())
+                self.nodos_expandidos = self.nodos_expandidos + ruta.nodos_expandidos
+                rutas_por_picker[picker.picker_id] = ruta
+
+            if not rutas_por_picker:
+                continue
+
+            # La ruta guardada en la wave es la del primer picker (visualización)
+            primera_ruta = next(iter(rutas_por_picker.values()))
+            wave.set_route(primera_ruta.path)
             wave.start()
-            picker.start_route(ruta.path)
 
-            task = _Task(wave, ruta.path)
-            for celda, product_ids in ruta.paradas:
-                if celda not in task.paradas:
-                    task.paradas[celda] = []
-                for product_id in product_ids:
-                    task.paradas[celda].append(product_id)
-            for celda, zone_id, product_ids in ruta.descargas:
-                task.descargas.append((celda, zone_id))
-            self.tasks[picker.picker_id] = task
+            for picker in pickers:
+                if picker.picker_id not in rutas_por_picker:
+                    continue
+                ruta = rutas_por_picker[picker.picker_id]
+                picker.start_route(ruta.path)
 
-            self.eventos.append({
-                "tipo": "inicio_wave",
-                "picker": picker.picker_id,
-                "wave": wave.wave_id,
-            })
-            self.eventos.append({
-                "tipo": "ruta",
-                "picker": picker.picker_id,
-                "path": _cells_to_lists(ruta.path),
-                "paradas": ruta.to_dict()["paradas"],
-            })
+                task = _Task(wave, ruta.path)
+                for celda, product_ids in ruta.paradas:
+                    if celda not in task.paradas:
+                        task.paradas[celda] = []
+                    for product_id in product_ids:
+                        task.paradas[celda].append(product_id)
+                for celda, zone_id, product_ids in ruta.descargas:
+                    task.descargas.append((celda, zone_id))
+                self.tasks[picker.picker_id] = task
+
+                self.eventos.append({
+                    "tipo": "inicio_wave",
+                    "picker": picker.picker_id,
+                    "wave": wave.wave_id,
+                })
+                self.eventos.append({
+                    "tipo": "ruta",
+                    "picker": picker.picker_id,
+                    "path": _cells_to_lists(ruta.path),
+                    "paradas": ruta.to_dict()["paradas"],
+                })
 
     # ------------------------------------------------------------------
     # 5. Frames

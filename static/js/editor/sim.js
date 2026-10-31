@@ -134,7 +134,7 @@ function _getScenario() {
 }
 
 function _getStrategyValue() {
-    const val = _dom('select-strategy')?.value || 'order';
+    const val = _dom('select-strategy')?.value || 'nearest';
     return val === 'order' ? 'orden' : 'cercania';
 }
 
@@ -194,7 +194,11 @@ function _renderWavesList() {
     }
 
     const items = _waves.map(w => {
-        const pickerTexto = w.picker_id ? w.picker_id : '— en espera —';
+        // Soportar picker_ids (lista nueva) y picker_id (compat)
+        const ids = (w.picker_ids && w.picker_ids.length > 0)
+            ? w.picker_ids
+            : (w.picker_id ? [w.picker_id] : []);
+        const pickerTexto = ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014';
         const isSelected  = w.wave_id === _selectedWaveId;
         return `
         <div class="wave-item ${isSelected ? 'wave-item--selected' : ''}"
@@ -205,10 +209,10 @@ function _renderWavesList() {
             </div>
             <div class="wave-item__meta">
                 <span>Prioridad ${w.prioridad}</span>
-                <span>${w.unidades} uds · ${w.peso_kg} kg</span>
+                <span>${w.unidades} uds &middot; ${w.peso_kg} kg</span>
             </div>
             <div class="wave-item__meta">
-                <span>Picker: ${pickerTexto}</span>
+                <span>Picker${ids.length > 1 ? 's' : ''}: ${pickerTexto}</span>
                 <span>${w.pedidos.join(', ')}</span>
             </div>
         </div>`;
@@ -253,15 +257,23 @@ function _pickerColor(pickerId) {
 }
 
 function _buildRowsFromWaves() {
-    return _waves
-        .filter(w => w.picker_id)
-        .map(w => `
-            <div class="fleet-row">
-                <span class="fleet-row__dot" style="background:${_pickerColor(w.picker_id)}"></span>
-                <span class="fleet-row__picker">${w.picker_id}</span>
-                <span class="fleet-row__wave">${w.wave_id}</span>
-                <span class="fleet-row__status">${w.status}</span>
-            </div>`);
+    // Generar una fila por picker (las waves multi-picker producen varias filas)
+    const rows = [];
+    for (const w of _waves) {
+        const ids = (w.picker_ids && w.picker_ids.length > 0)
+            ? w.picker_ids
+            : (w.picker_id ? [w.picker_id] : []);
+        for (const pid of ids) {
+            rows.push(`
+                <div class="fleet-row">
+                    <span class="fleet-row__dot" style="background:${_pickerColor(pid)}"></span>
+                    <span class="fleet-row__picker">${pid}</span>
+                    <span class="fleet-row__wave">${w.wave_id}</span>
+                    <span class="fleet-row__status">${w.status}</span>
+                </div>`);
+        }
+    }
+    return rows;
 }
 
 function _buildRowsFromFrame(frame) {
@@ -381,7 +393,12 @@ function _applyEvent(evento) {
     } else if (evento.tipo === 'inicio_wave') {
         if (wave) {
             wave.status    = 'EN_PROCESO';
-            wave.picker_id = evento.picker;
+            wave.picker_id = evento.picker;   // compat con código legacy
+            // Acumular en picker_ids para waves con varios pickers
+            if (!wave.picker_ids) wave.picker_ids = [];
+            if (!wave.picker_ids.includes(evento.picker)) {
+                wave.picker_ids.push(evento.picker);
+            }
         }
     } else if (evento.tipo === 'recoge') {
         _addCollectedProducts(evento.productos, evento.wave);
@@ -597,14 +614,29 @@ function _renderComparison(comparacion) {
     const container = _dom('compare-result');
     if (!container) return;
 
-    const filas = Object.entries(comparacion).map(([estrategia, r]) => `
+    const labels = {
+        cercania: 'A — Cercanía',
+        orden:    'B — Orden de pedidos'
+    };
+
+    // Orden de visualización: A — Cercanía primero, B — Orden segundo
+    const orderedKeys = ['cercania', 'orden'].filter(k => k in comparacion);
+    Object.keys(comparacion).forEach(k => {
+        if (!orderedKeys.includes(k)) orderedKeys.push(k);
+    });
+
+    const filas = orderedKeys.map(k => {
+        const r = comparacion[k];
+        const label = labels[k] || k;
+        return `
         <tr>
-            <td>${estrategia}</td>
+            <td>${label}</td>
             <td>${r.distancia_total}</td>
             <td>${r.nodos_visitados}</td>
             <td>${r.nodos_expandidos}</td>
             <td>${r.tiempo_ms.toFixed(2)} ms</td>
-        </tr>`).join('');
+        </tr>`;
+    }).join('');
 
     container.innerHTML = `
         <table class="compare-table">

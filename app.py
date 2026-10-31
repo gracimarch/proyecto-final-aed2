@@ -1,4 +1,4 @@
-﻿"""
+"""
 app.py
 
 Servidor Flask de la aplicacion Warehouse Simulator.
@@ -98,13 +98,14 @@ def api_waves_generate():
     {
         "waves": [
             {
-                "wave_id": "W1",
-                "status":  "ABIERTA",
+                "wave_id":   "W1",
+                "status":    "ABIERTA",
+                "picker_ids": ["PK_01"],
                 "picker_id": "PK_01",
                 "prioridad": 5,
-                "pedidos":  ["PED_01", "PED_02"],
-                "unidades": 3,
-                "peso_kg":  7.7
+                "pedidos":   ["PED_01", "PED_02"],
+                "unidades":  3,
+                "peso_kg":   7.7
             },
             ...
         ]
@@ -127,22 +128,21 @@ def api_waves_generate():
 
     waves_dict = []
     for wave in manager.get_waves():
-        picker_id = None
-        if wave.picker is not None:
-            picker_id = wave.picker.picker_id
+        picker_ids = [p.picker_id for p in wave.pickers]
 
         pedidos_ids = []
         for entry in wave.entries:
             pedidos_ids.append(entry.order.order_id)
 
         waves_dict.append({
-            "wave_id":   wave.wave_id,
-            "status":    wave.status.value,
-            "picker_id": picker_id,
-            "prioridad": wave.priority(),
-            "pedidos":   pedidos_ids,
-            "unidades":  wave.current_units(),
-            "peso_kg":   round(wave.total_weight(), 3),
+            "wave_id":    wave.wave_id,
+            "status":     wave.status.value,
+            "picker_ids": picker_ids,
+            "picker_id":  picker_ids[0] if picker_ids else None,  # compat
+            "prioridad":  wave.priority(),
+            "pedidos":    pedidos_ids,
+            "unidades":   wave.current_units(),
+            "peso_kg":    round(wave.total_weight(), 3),
         })
 
     return jsonify({"waves": waves_dict})
