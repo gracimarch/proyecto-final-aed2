@@ -16,6 +16,11 @@ Rutas:
     POST /api/routes/compare    -> Igual que /plan pero corre todas las
                                    estrategias y devuelve una comparacion.
 
+    POST /api/simulacion        -> Recibe el JSON del escenario, la estrategia
+                                   y el buscador; corre la simulacion completa
+                                   con todos los pickers y devuelve un frame
+                                   por tick. El frontend solo los dibuja.
+
 Diseno stateless: el cliente envia el estado completo del escenario en cada
 pedido. El servidor no guarda nada entre llamadas; cada request es
 independiente.
@@ -27,6 +32,7 @@ from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
 from algorithms.graph_builder import generate_graph
 from algorithms.routing import plan_route, compare_strategies
+from models.simulation import Simulation
 
 
 app = Flask(__name__)
@@ -275,6 +281,58 @@ def api_routes_compare():
         resultado[estrategia] = route_result.to_dict()
 
     return jsonify(resultado)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/simulacion
+# ---------------------------------------------------------------------------
+
+@app.route("/api/simulacion", methods=["POST"])
+def api_simulacion():
+    """
+    Corre la simulacion completa (todas las waves, todos los pickers a la
+    vez, con colisiones) y devuelve lo que el frontend tiene que dibujar.
+
+    Cuerpo esperado (application/json):
+    {
+        "escenario":  { ...Scenario.toJSON()... },
+        "estrategia": "orden" | "cercania",
+        "buscador":   "bfs"   | "astar"
+    }
+
+    Respuesta exitosa (200): Simulation.to_dict()
+    {
+        "frames":   [ {"tick", "pickers", "zonas", "eventos"}, ... ],
+        "metricas": { "ticks", "distancia_total", "esperas", "desvios", ... },
+        "rutas":    [ metricas de cada recorrido calculado ],
+        "error":    null o mensaje si la simulacion no pudo terminar
+    }
+
+    Respuesta de error (400):
+    { "error": "mensaje explicativo" }
+    """
+    body = request.get_json()
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+
+    escenario  = body.get("escenario")
+    estrategia = body.get("estrategia", "cercania")
+    buscador   = body.get("buscador",   "bfs")
+
+    if escenario is None:
+        return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
+
+    try:
+        warehouse = _build_warehouse(escenario)
+        manager   = _build_wave_manager(escenario, warehouse)
+        manager.generate_waves()
+        manager.assign_pickers()
+        simulacion = Simulation(warehouse, manager, estrategia, buscador)
+        simulacion.run()
+    except (ValueError, KeyError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify(simulacion.to_dict())
 
 
 # ---------------------------------------------------------------------------

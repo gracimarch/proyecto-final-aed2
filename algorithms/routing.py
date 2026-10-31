@@ -331,6 +331,78 @@ def _zones_with_room(
     return destinos
 
 
+def plan_unloading(
+    warehouse: Warehouse,
+    graph: Graph,
+    inicio: tuple[int, int],
+    carga: list[OrderItem],
+    buscador: str = "bfs",
+    stats: dict | None = None,
+) -> tuple[list[tuple[int, int]], list[tuple[tuple[int, int], str, list[str]]]]:
+    """
+    Camino para descargar `carga` saliendo de `inicio`.
+
+    Va a la zona más cercana donde entre al menos el ítem más liviano, deja
+    ahí (en el orden de la carga) los ítems que entran y, si sobra algo,
+    repite desde ahí con lo que quedó. No modifica las zonas: lleva la cuenta
+    en el diccionario `ocupado`.
+
+    La usa plan_route para la vuelta y la simulación cuando una zona se
+    llenó mientras el picker caminaba.
+
+    Returns:
+        (path, descargas): path empieza en inicio; descargas es
+        [(celda, zone_id, [product_id, ...]), ...].
+
+    Raises:
+        ValueError: Si ninguna zona tiene lugar o no se puede llegar a ellas.
+    """
+    if stats is None:
+        stats = {"nodos_expandidos": 0}
+
+    ocupado = {}    # zone_id -> kg, empieza con lo que ya tiene cada zona
+    for z in warehouse.dispatch_zones:
+        ocupado[z.zone_id] = z.peso_actual
+
+    actual = tuple(inicio)
+    path = [actual]
+    descargas = []
+    pendiente = list(carga)
+    while len(pendiente) > 0:
+        mas_liviano = _lightest_weight(pendiente)
+        destinos = _zones_with_room(warehouse, graph, ocupado, mas_liviano)
+        if len(destinos) == 0:
+            raise ValueError(
+                f"Ninguna zona de despacho tiene lugar para {mas_liviano:.2f} kg: "
+                f"el picker no puede descargar lo que le queda."
+            )
+
+        tramo, distancia, llegada = _search(graph, actual, set(destinos), buscador, stats)
+        if llegada is None:
+            raise ValueError(
+                f"Desde {actual} no se puede llegar a ninguna zona de despacho con "
+                f"lugar respetando los sentidos de circulación."
+            )
+        for celda in tramo[1:]:
+            path.append(celda)
+        actual = llegada
+
+        # Deja los ítems que entran en esa zona; el resto sigue en la carga.
+        destino = destinos[llegada]
+        dejados = []
+        sobran = []
+        for item in pendiente:
+            if ocupado[destino.zone_id] + item.total_weight <= destino.peso_max_kg:
+                ocupado[destino.zone_id] = ocupado[destino.zone_id] + item.total_weight
+                dejados.append(item.product.product_id)
+            else:
+                sobran.append(item)
+        descargas.append((llegada, destino.zone_id, dejados))
+        pendiente = sobran
+
+    return path, descargas
+
+
 def plan_route(
     wave: Wave,
     warehouse: Warehouse,
@@ -441,42 +513,9 @@ def plan_route(
         pendientes = quedan
 
     # Vuelta: descargar en la zona más cercana con lugar, repartiendo si hace falta.
-    ocupado = {}    # zone_id -> kg, empieza con lo que ya tiene cada zona
-    for z in warehouse.dispatch_zones:
-        ocupado[z.zone_id] = z.peso_actual
-
-    descargas = []
-    while len(carga) > 0:
-        mas_liviano = _lightest_weight(carga)
-        destinos = _zones_with_room(warehouse, graph, ocupado, mas_liviano)
-        if len(destinos) == 0:
-            raise ValueError(
-                f"Ninguna zona de despacho tiene lugar para {mas_liviano:.2f} kg: "
-                f"el picker no puede descargar lo que le queda."
-            )
-
-        tramo, distancia, llegada = _search(graph, actual, set(destinos), buscador, stats)
-        if llegada is None:
-            raise ValueError(
-                f"Desde {actual} no se puede llegar a ninguna zona de despacho con "
-                f"lugar respetando los sentidos de circulación."
-            )
-        for celda in tramo[1:]:
-            path.append(celda)
-        actual = llegada
-
-        # Deja los ítems que entran en esa zona; el resto sigue en la carga.
-        destino = destinos[llegada]
-        dejados = []
-        sobran = []
-        for item in carga:
-            if ocupado[destino.zone_id] + item.total_weight <= destino.peso_max_kg:
-                ocupado[destino.zone_id] = ocupado[destino.zone_id] + item.total_weight
-                dejados.append(item.product.product_id)
-            else:
-                sobran.append(item)
-        descargas.append((llegada, destino.zone_id, dejados))
-        carga = sobran
+    vuelta, descargas = plan_unloading(warehouse, graph, actual, carga, buscador, stats)
+    for celda in vuelta[1:]:
+        path.append(celda)
 
     tiempo_ms = (time.perf_counter() - inicio_ms) * 1000
     return RouteResult(
@@ -582,3 +621,27 @@ def validate_reachability(
             f"Desde la zona de despacho '{zone.zone_id}' no se puede ir a buscar "
             f"y volver con estos productos: {', '.join(inalcanzables)}."
         )
+
+
+# ===========================================================================
+# 6. Camino alternativo (para esquivar a otros pickers)
+# ===========================================================================
+
+def graph_without(graph: Graph, cells: set[tuple[int, int]]) -> Graph:
+    """
+    Copia del grafo sin las celdas indicadas (por ejemplo, las que ocupan
+    otros pickers). Un BFS en esta copia encuentra un camino que las esquiva.
+
+    Complejidad: O(V + E).
+    """
+    nuevo = Graph(directed=True)
+    for u in graph.nodes():
+        if u not in cells:
+            nuevo.add_node(u)
+    for u in graph.nodes():
+        if u in cells:
+            continue
+        for v in graph.neighbors(u):
+            if v not in cells:
+                nuevo.add_edge(u, v, graph.weight(u, v))
+    return nuevo
