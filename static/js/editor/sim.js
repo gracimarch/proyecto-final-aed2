@@ -51,13 +51,16 @@ let _initialWavesSnapshot = [];
 /**
  * Lista de agentes activos en la simulacion.
  * Cada agente es un objeto:
- *   { pickerId, waveId, pickerPriority, path, step, waitTick, routeResult }
+ *   { pickerId, waveId, pickerPriority, path, step, waitTick, pickingCooldown, routeResult }
  *
- * - path           : [[x,y], ...] camino completo calculado por el backend.
- * - step           : indice del proximo paso a aplicar.
- * - waitTick       : si es true, el agente espera este tick (no avanza).
- * - routeResult    : objeto completo devuelto por el backend (con metricas).
- * - pickerPriority : prioridad de la wave actual (mayor = cede menos el paso).
+ * - path             : [[x,y], ...] camino completo calculado por el backend.
+ * - step             : indice del proximo paso a aplicar.
+ * - waitTick         : si es true, el agente espera este tick por colision (no avanza).
+ * - pickingCooldown  : ticks restantes de pausa individual por recogida de producto.
+ *                      Mientras sea > 0 el agente permanece en su celda actual sin
+ *                      avanzar, permitiendo que los demas pickers sigan moviendose.
+ * - routeResult      : objeto completo devuelto por el backend (con metricas).
+ * - pickerPriority   : prioridad de la wave actual (mayor = cede menos el paso).
  */
 let _agents = [];
 
@@ -258,6 +261,8 @@ function _buildRowsFromAgents() {
         let label = 'EN_CAMINO';
         if (ag.step >= total) {
             label = 'COMPLETA';
+        } else if (ag.pickingCooldown > 0) {
+            label = 'RECOGIENDO';
         } else if (ag.waitTick) {
             label = 'ESPERANDO';
         }
@@ -290,12 +295,13 @@ async function _buildAgent(wave, sc) {
         }
 
         return {
-            pickerId:       wave.picker_id,
-            waveId:         wave.wave_id,
-            pickerPriority: wave.prioridad,
-            path:           routeResult.path,
-            step:           0,
-            waitTick:       false,
+            pickerId:        wave.picker_id,
+            waveId:          wave.wave_id,
+            pickerPriority:  wave.prioridad,
+            path:            routeResult.path,
+            step:            0,
+            waitTick:        false,
+            pickingCooldown: 0,
             routeResult,
         };
     } catch (err) {
@@ -453,6 +459,9 @@ function _resolveCollisions() {
 
     const targetPos = _agents.map(ag => {
         if (ag.step >= ag.path.length) return null;
+        // Un agente en cooldown de recogida no se mueve: es un obstaculo
+        // estatico para los demas. No tiene celda destino este tick.
+        if (ag.pickingCooldown > 0) return null;
         return ag.path[ag.step];
     });
 
@@ -526,7 +535,9 @@ function _resolveCollisions() {
             for (let j = 0; j < _agents.length; j++) {
                 if (i === j || !currPos[j]) continue;
 
-                const jQuedaEnCelda = _agents[j].waitTick || _agents[j].step >= _agents[j].path.length;
+                const jQuedaEnCelda = _agents[j].waitTick
+                    || _agents[j].pickingCooldown > 0
+                    || _agents[j].step >= _agents[j].path.length;
 
                 if (jQuedaEnCelda && targetPos[i][0] === currPos[j][0] && targetPos[i][1] === currPos[j][1]) {
                     _agents[i].waitTick = true;
@@ -577,12 +588,13 @@ async function _tryAssignNextWave(ag, sc) {
         _updateFleetMetrics();
 
         // Reconfigurar agente para su nuevo recorrido
-        ag.waveId         = nextWave.wave_id;
-        ag.pickerPriority = nextWave.prioridad;
-        ag.path           = routeResult.path;
-        ag.step           = 0;
-        ag.waitTick       = false;
-        ag.routeResult    = routeResult;
+        ag.waveId          = nextWave.wave_id;
+        ag.pickerPriority  = nextWave.prioridad;
+        ag.path            = routeResult.path;
+        ag.step            = 0;
+        ag.waitTick        = false;
+        ag.pickingCooldown = 0;
+        ag.routeResult     = routeResult;
 
         _renderWavesList();
         _renderFleetStatus();
@@ -628,25 +640,47 @@ function _allAgentsDone() {
 
 async function _applyTick() {
     const sc = _getScenario();
-    if (!sc) return false;
+    if (!sc) return;
 
+    // Resolucion de colisiones: los agentes en cooldown actuan como
+    // obstaculos estaticos (gestionado en _resolveCollisions Regla 3).
     _resolveCollisions();
-
-    let hubPickup = false;
 
     for (const ag of _agents) {
         if (ag.step >= ag.path.length) continue;
-        if (ag.waitTick) continue;
 
+        // Espera individual de recogida: el picker ya esta en la celda
+        // correcta (se movio el tick anterior). Solo esperamos aqui sin
+        // cambiar picker.x/y ni step, para que los demas sigan moviendose.
+        if (ag.pickingCooldown > 0) {
+            ag.pickingCooldown -= 1;
+            const pickerC = sc.pickers.find(p => p.id === ag.pickerId);
+            if (pickerC) pickerC.isWalking = false;
+            continue;
+        }
+
+        // Frenado por colision este tick: no avanzar.
+        if (ag.waitTick) {
+            const pickerW = sc.pickers.find(p => p.id === ag.pickerId);
+            if (pickerW) pickerW.isWalking = false;
+            continue;
+        }
+
+        // Avanzar: mover el picker a la siguiente celda del camino.
         const celda  = ag.path[ag.step];
         const picker = sc.pickers.find(p => p.id === ag.pickerId);
         if (picker) {
-            picker.x = celda[0];
-            picker.y = celda[1];
+            picker.x         = celda[0];
+            picker.y         = celda[1];
+            picker.isWalking = true;
         }
 
+        // Si la celda recien pisada es una parada de recogida, activar
+        // cooldown individual. step se incrementa igual: al terminar el
+        // cooldown el agente continuara desde la celda siguiente.
         if (_checkPickups(ag, ag.step)) {
-            hubPickup = true;
+            ag.pickingCooldown = 1;
+            if (picker) picker.isWalking = false;
         }
 
         ag.step += 1;
@@ -660,8 +694,6 @@ async function _applyTick() {
 
     // Actualizar panel de flota
     _renderFleetStatus();
-
-    return hubPickup;
 }
 
 function _checkPickups(agent, stepIndex) {
@@ -686,7 +718,7 @@ function _scheduleNextTick() {
             return;
         }
 
-        const hubPickup = await _applyTick();
+        await _applyTick();
         _animTimer = null;
 
         if (_allAgentsDone()) {
@@ -694,14 +726,9 @@ function _scheduleNextTick() {
             return;
         }
 
-        if (hubPickup) {
-            _animTimer = setTimeout(() => {
-                _animTimer = null;
-                _scheduleNextTick();
-            }, _tickDelayMs());
-        } else {
-            _scheduleNextTick();
-        }
+        // El reloj global avanza siempre al mismo ritmo; cada picker
+        // gestiona su propia pausa de recogida mediante pickingCooldown.
+        _scheduleNextTick();
     }, _tickDelayMs());
 }
 

@@ -987,18 +987,24 @@ class WarehouseRenderer {
         const drawX = cx - spriteW / 2;
         const drawY = worldY;
 
-        const variant = this._getPickerVariant(picker.color);
-        const sprites = this._pickerSprites[variant];
-        const idleImg = sprites?.idle;
+        const variant  = this._getPickerVariant(picker.color);
+        const sprites  = this._pickerSprites[variant];
+        // Elegir sprite segun si el picker se esta moviendo (walk) o no (idle).
+        const animKey  = picker.isWalking ? 'walk' : 'idle';
+        const animImg  = sprites?.[animKey];
+        // Fallback: si el sprite walk no cargo, usar idle.
+        const idleImg  = sprites?.idle;
+        const drawImg  = (animImg && animImg.complete && animImg.naturalWidth > 0)
+                            ? animImg : idleImg;
 
-        if (idleImg && idleImg.complete && idleImg.naturalWidth > 0) {
+        if (drawImg && drawImg.complete && drawImg.naturalWidth > 0) {
             ctx.save();
             ctx.imageSmoothingEnabled = false;
             if (isSelected) {
                 ctx.shadowColor = picker.color;
                 ctx.shadowBlur  = 14;
             }
-            ctx.drawImage(idleImg, 0, 0, FW, FH, drawX, drawY, spriteW, spriteH);
+            ctx.drawImage(drawImg, 0, 0, FW, FH, drawX, drawY, spriteW, spriteH);
             ctx.restore();
         } else {
             // Fallback geométrico
