@@ -96,6 +96,20 @@ class WarehouseRenderer {
         this.mode            = 'select';
         this.doorTipo        = 'AMBOS'; // sincronizado por el editor al cambiar tipo de puerta
 
+        // Estado de ruta de simulación (seteado desde sim.js).
+        // Modo multi-agente: lista de rutas, una por picker activo.
+        // Cada entrada es { path, paradas, step, color }.
+        this.agentRoutes = [];
+
+        // Compatibilidad con código legado que use routePath directamente.
+        this.routePath  = null;
+        this.routeStops = [];
+        this.routeStep  = 0;
+
+        // Modo de enfoque del recorrido (seteado desde sim.js).
+        // Cuando esta activo, el relleno de los pasillos se atenua para destacar
+        // el trazado amarillo y el picker. Las flechas mantienen su opacidad.
+        this.focusMode  = false;
         // Sprites
         this._spritesReady = false;
         this._loadSprites();
@@ -285,20 +299,23 @@ class WarehouseRenderer {
         const z = this.zoom;
 
         ctx.save();
-        ctx.translate(this.panX, this.panY);
-        ctx.scale(z, z);
+        try {
+            ctx.translate(this.panX, this.panY);
+            ctx.scale(z, z);
 
-        this._drawFloor(theme);
-        this._drawGrid(theme);
-        this._drawDispatchZone();
-        this._drawAisles();
-        this._drawDoors(theme);
-        this._drawRacks(theme);
-        this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
-        this._drawPickers();
-        this._drawCursorPreview();
-
-        ctx.restore();
+            this._drawFloor(theme);
+            this._drawGrid(theme);
+            this._drawDispatchZone();
+            this._drawAisles();
+            this._drawDoors(theme);
+            this._drawRacks(theme);
+            this._drawRoutePath();            // trayecto de simulación (bajo el picker)
+            this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
+            this._drawPickers();
+            this._drawCursorPreview();
+        } finally {
+            ctx.restore();
+        }
     }
 
     // ── Fondo de aplicación ───────────────────────────────────────
@@ -523,11 +540,20 @@ class WarehouseRenderer {
         ctx.save();
         ctx.translate(px + mid, py + mid);
 
-        ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
-        ctx.fillRect(-mid, -mid, CELL, CELL);
+        // En modo enfoque no se dibuja el fondo amarillo: solo las flechas.
+        // En modo normal se mantiene el relleno original.
+        if (!this.focusMode) {
+            ctx.fillStyle = isSelected ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.07)';
+            ctx.fillRect(-mid, -mid, CELL, CELL);
+        }
 
+        // En focusMode: flechas menos notorias y AMBOS sin flechas.
+        // En modo normal: opacidad completa y AMBOS con 4 flechas (comportamiento original).
         const strokeColor = isSelected ? 'rgba(251,191,36,0.95)' : 'rgba(251,191,36,0.55)';
         const strokeColorBoth = isSelected ? 'rgba(251,191,36,0.65)' : 'rgba(251,191,36,0.25)';
+
+        // En focusMode las flechas con sentido especifico se dibujan mas tenues
+        const arrowAlpha = this.focusMode ? 0.30 : 1.0;
 
         ctx.strokeStyle = strokeColor;
         ctx.fillStyle   = strokeColor;
@@ -547,7 +573,7 @@ class WarehouseRenderer {
                 ctx.lineTo(sx * (len - hh), -hw);
                 ctx.lineTo(sx * (len - hh),  hw);
             } else {
-                // Norte lógico (+y) = arriba en canvas (-py), Sur lógico (-y) = abajo en canvas (+py)
+                // Norte logico (+y) = arriba en canvas (-py), Sur logico (-y) = abajo en canvas (+py)
                 const sy = dy > 0 ? -1 : 1;
                 ctx.moveTo(0, sy * len);
                 ctx.lineTo(-hw, sy * (len - hh));
@@ -557,17 +583,23 @@ class WarehouseRenderer {
             ctx.fill();
         };
 
-        if      (sentido === 'N') { drawArrow(0,  1); }
-        else if (sentido === 'S') { drawArrow(0, -1); }
-        else if (sentido === 'E') { drawArrow(1,  0); }
-        else if (sentido === 'O') { drawArrow(-1, 0); }
-        else {
+        if (sentido === 'N' || sentido === 'S' || sentido === 'E' || sentido === 'O') {
+            // Sentido especifico: dibujar siempre, pero mas tenue en focusMode
+            ctx.save();
+            ctx.globalAlpha = arrowAlpha;
+            if      (sentido === 'N') { drawArrow(0,  1); }
+            else if (sentido === 'S') { drawArrow(0, -1); }
+            else if (sentido === 'E') { drawArrow(1,  0); }
+            else                     { drawArrow(-1, 0); }
+            ctx.restore();
+        } else if (!this.focusMode) {
+            // AMBOS: solo dibujar las 4 flechas en modo normal (en focusMode desaparecen)
             ctx.strokeStyle = strokeColorBoth;
             ctx.fillStyle   = strokeColorBoth;
             drawArrow(0, 1); drawArrow(0, -1);
             drawArrow(1, 0); drawArrow(-1, 0);
         }
-        ctx.restore();
+        ctx.restore()
     }
 
     // ── Puertas (muelles) ─────────────────────────────────────────
@@ -811,6 +843,121 @@ class WarehouseRenderer {
         }
     }
 
+    // ── Ruta de simulación ────────────────────────────────────────
+
+    // ── Rutas de simulación (multi-agente) ────────────────────
+
+    /**
+     * Dibuja las rutas de todos los agentes activos.
+     * Cada ruta usa el color propio del picker para distinguirse.
+     * Si no hay agentRoutes definidas, cae al modo mono-agente legado
+     * usando routePath/routeStops/routeStep (compatibilidad).
+     */
+    _drawRoutePath() {
+        // Modo multi-agente: iterar sobre todas las rutas de agentes.
+        if (this.agentRoutes && this.agentRoutes.length > 0) {
+            for (const route of this.agentRoutes) {
+                this._drawSingleRoute(route.path, route.paradas, route.step, route.color);
+            }
+            return;
+        }
+
+        // Modo legado (mono-agente): usar routePath directamente.
+        if (!this.routePath || this.routePath.length === 0) return;
+        this._drawSingleRoute(this.routePath, this.routeStops, this.routeStep, '#fbbf24');
+    }
+
+    /**
+     * Dibuja una ruta individual:
+     * - Tramo ya recorrido: línea sólida con el color del picker.
+     * - Tramo pendiente:    línea discontinua tenue del mismo color.
+     * - Paradas de recogida: círculo resaltado con ese color.
+     *
+     * @param {Array}  path    - [[x,y], ...] camino completo.
+     * @param {Array}  paradas - [{celda:[x,y], productos:[...]}, ...].
+     * @param {number} step    - índice del paso actual.
+     * @param {string} color   - color CSS del picker (hex o rgb).
+     */
+    _drawSingleRoute(path, paradas, step, color) {
+        if (!path || path.length === 0) return;
+
+        const ctx = this.ctx;
+        step = Math.max(0, step);
+
+        const cellCX = ([cx, cy]) => cx * CELL + CELL / 2;
+        const cellCY = ([cx, cy]) => this._wy(cy) + CELL / 2;
+
+        // Convertir color a rgba para poder variar la opacidad.
+        // Si el color ya es rgba lo usamos directamente; si es hex lo parseamos.
+        const toRgba = (hex, alpha) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r},${g},${b},${alpha})`;
+        };
+        const safeColor = color || '#fbbf24';
+        const rgba = (col, alpha) => toRgba(col || safeColor, alpha);
+
+        ctx.save();
+
+        // ── Tramo pendiente (desde el paso actual al final) ──────
+        if (step < path.length) {
+            ctx.beginPath();
+            ctx.setLineDash([4, 5]);
+            ctx.strokeStyle = this.focusMode
+                ? rgba(color, 0.55)
+                : rgba(color, 0.30);
+            ctx.lineWidth = 2;
+            const start = Math.max(0, step - 1);
+            ctx.moveTo(cellCX(path[start]), cellCY(path[start]));
+            for (let i = start + 1; i < path.length; i++) {
+                ctx.lineTo(cellCX(path[i]), cellCY(path[i]));
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // ── Tramo ya recorrido (paso 0 hasta paso actual) ────────
+        if (step > 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = this.focusMode
+                ? rgba(color, 0.95)
+                : rgba(color, 0.75);
+            ctx.lineWidth = this.focusMode ? 3.5 : 2.5;
+            ctx.moveTo(cellCX(path[0]), cellCY(path[0]));
+            for (let i = 1; i < step && i < path.length; i++) {
+                ctx.lineTo(cellCX(path[i]), cellCY(path[i]));
+            }
+            ctx.stroke();
+        }
+
+        // ── Paradas de recogida: círculo con el color del picker ─
+        for (const parada of (paradas || [])) {
+            const [cx, cy] = parada.celda;
+            const sx = cx * CELL + CELL / 2;
+            const sy = this._wy(cy) + CELL / 2;
+
+            ctx.fillStyle = rgba(color, 0.18);
+            ctx.beginPath();
+            ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = rgba(color, 0.80);
+            ctx.lineWidth   = 1.5;
+            ctx.beginPath();
+            ctx.arc(sx, sy, CELL * 0.38, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle    = rgba(color, 0.90);
+            ctx.font         = `bold 9px "JetBrains Mono", monospace`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✦', sx, sy);
+        }
+
+        ctx.restore();
+    }
+
     // ── Pickers ───────────────────────────────────────────────────
 
     _drawPickers() {
@@ -840,18 +987,24 @@ class WarehouseRenderer {
         const drawX = cx - spriteW / 2;
         const drawY = worldY;
 
-        const variant = this._getPickerVariant(picker.color);
-        const sprites = this._pickerSprites[variant];
-        const idleImg = sprites?.idle;
+        const variant  = this._getPickerVariant(picker.color);
+        const sprites  = this._pickerSprites[variant];
+        // Elegir sprite segun si el picker se esta moviendo (walk) o no (idle).
+        const animKey  = picker.isWalking ? 'walk' : 'idle';
+        const animImg  = sprites?.[animKey];
+        // Fallback: si el sprite walk no cargo, usar idle.
+        const idleImg  = sprites?.idle;
+        const drawImg  = (animImg && animImg.complete && animImg.naturalWidth > 0)
+                            ? animImg : idleImg;
 
-        if (idleImg && idleImg.complete && idleImg.naturalWidth > 0) {
+        if (drawImg && drawImg.complete && drawImg.naturalWidth > 0) {
             ctx.save();
             ctx.imageSmoothingEnabled = false;
             if (isSelected) {
                 ctx.shadowColor = picker.color;
                 ctx.shadowBlur  = 14;
             }
-            ctx.drawImage(idleImg, 0, 0, FW, FH, drawX, drawY, spriteW, spriteH);
+            ctx.drawImage(drawImg, 0, 0, FW, FH, drawX, drawY, spriteW, spriteH);
             ctx.restore();
         } else {
             // Fallback geométrico

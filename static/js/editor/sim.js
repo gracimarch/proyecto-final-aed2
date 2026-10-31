@@ -3,42 +3,80 @@
    Conecta los controles del panel derecho (Simulacion, Metricas,
    Productos recogidos) con el servidor Flask a traves de api.js.
 
+   IMPORTANTE: toda la logica de la simulacion la hace el backend
+   (models/simulation.py). Este archivo NO decide nada: pide la
+   simulacion completa una sola vez y la reproduce frame por frame.
+
    Responsabilidades de este modulo:
      - Boton "Generar waves":  llama a apiGenerateWaves y puebla la
-       lista de waves y el selector desplegable.
-     - Boton "Play":           pide el recorrido a apiPlanRoute y
-       arranca la animacion de los pickers en el canvas.
-     - Boton "Pause":          pausa la animacion en curso.
-     - Boton "Step":           avanza la animacion un solo paso.
-     - Boton "Restart":        vuelve la animacion al inicio.
+       lista de waves del sidebar izquierdo.
+     - Boton "Play":           la primera vez pide la simulacion a
+       apiSimulate; despues reproduce los frames uno por uno.
+     - Boton "Pause":          pausa la reproduccion.
+     - Boton "Step":           muestra el frame siguiente.
+     - Boton "Restart":        vuelve al frame 0.
      - Boton "Comparar":       llama a apiCompareStrategies y muestra
-       la tabla de comparacion.
-     - Actualiza las tarjetas de metricas y la lista de recogidos.
+       la tabla de comparacion (requiere wave seleccionada con click).
+     - Actualiza el panel de flota, las metricas y la lista de
+       recogidos con lo que dice cada frame.
+
+   QUE ES UN FRAME (lo arma el backend, uno por tick):
+     {
+       tick:    3,
+       pickers: [{ id, x, y, estado, wave, carga_kg, paso }, ...],
+       zonas:   { ZONA_A: 12.5, ... },
+       eventos: [{ tipo: "ruta" | "inicio_wave" | "recoge" | "descarga"
+                         | "espera" | "desvio" | "fin_wave", picker, ... }]
+     }
+   Para mostrar un frame solo hay que poner cada picker en su (x, y)
+   y aplicar sus eventos (cambiar el estado de una wave, agregar
+   productos recogidos, guardar la ruta nueva para dibujarla).
 
    Variables que se leen de otros modulos (globales):
      _scenario   : el escenario activo (definido en ui.js).
-     WarehouseRenderer : clase del canvas (definida en renderer.js).
+     _renderer   : el canvas (definido en ui.js).
    Funciones que se usan de otros modulos:
      showToast(msg, type)  : notificaciones (definida en ui.js).
-     apiGenerateWaves, apiPlanRoute, apiCompareStrategies  (api.js).
+     apiGenerateWaves, apiSimulate, apiCompareStrategies  (api.js).
 ================================================================ */
 
 
 // ---------------------------------------------------------------------------
-// Estado de la simulacion
+// Estado de la reproduccion
 // ---------------------------------------------------------------------------
 
 /** Waves devueltas por el servidor en el ultimo generate. */
 let _waves = [];
 
-/** Resultado de plan_route: { path, paradas, ...metricas }. */
-let _routeResult = null;
+/** Copia de las waves generadas para poder volver al estado original con Restart. */
+let _initialWavesSnapshot = [];
 
-/** Indice del paso actual dentro de _routeResult.path (para la animacion). */
-let _animStep = 0;
+/** Respuesta de /api/simulacion: { frames, metricas, rutas, error }, o null. */
+let _simulation = null;
 
-/** ID del setTimeout del loop de animacion, o null si esta pausado. */
+/** Indice del frame que se esta mostrando (-1 = todavia ninguno). */
+let _frameIndex = -1;
+
+/**
+ * Ruta que esta siguiendo cada picker, para dibujarla en el canvas.
+ * pickerId -> { path: [[x,y], ...], paradas: [{celda, productos}, ...] }
+ */
+let _routes = {};
+
+/** ID del setTimeout del loop de reproduccion, o null si esta pausado. */
 let _animTimer = null;
+
+/**
+ * Wave seleccionada con click en la lista para la funcion "Comparar".
+ * No cambia que waves se simulan (se simulan todas).
+ */
+let _selectedWaveId = null;
+
+/**
+ * Indica si el usuario cambio manualmente el modo de enfoque durante
+ * la simulacion. Evita que la reproduccion lo sobreescriba.
+ */
+let _focusModeUserSet = false;
 
 
 // ---------------------------------------------------------------------------
@@ -49,12 +87,12 @@ function _dom(id) { return document.getElementById(id); }
 
 
 // ---------------------------------------------------------------------------
-// Velocidades en ms/paso segun el valor del slider (1 a 5)
+// Velocidades en ms/tick segun el valor del slider (1 a 5)
 // ---------------------------------------------------------------------------
 
 const SPEED_MS = { 1: 500, 2: 250, 3: 120, 4: 60, 5: 20 };
 
-function _stepDelayMs() {
+function _tickDelayMs() {
     const val = parseInt(_dom('range-speed')?.value || '1');
     return SPEED_MS[val] || 200;
 }
@@ -63,9 +101,13 @@ function _stepDelayMs() {
 // Mapa de posiciones iniciales de pickers: pickerId -> { x, y }
 const _initialPickerPositions = new Map();
 
-function _saveInitialPickerPosition(picker) {
-    if (!_initialPickerPositions.has(picker.id)) {
-        _initialPickerPositions.set(picker.id, { x: picker.x, y: picker.y });
+function _saveInitialPickerPositions() {
+    const sc = _getScenario();
+    if (!sc) return;
+    for (const picker of sc.pickers) {
+        if (!_initialPickerPositions.has(picker.id)) {
+            _initialPickerPositions.set(picker.id, { x: picker.x, y: picker.y });
+        }
     }
 }
 
@@ -77,29 +119,36 @@ function _restorePickerPositions() {
         if (picker) {
             picker.x = pos.x;
             picker.y = pos.y;
+            picker.isWalking = false;
         }
     }
 }
 
 
 // ---------------------------------------------------------------------------
-// Helpers: leer el escenario activo y el picker seleccionado en la wave
+// Helpers: leer el escenario activo y parametros de ruteo
 // ---------------------------------------------------------------------------
 
 function _getScenario() {
-    // _scenario es la variable global definida en ui.js.
     return typeof _scenario !== 'undefined' ? _scenario : null;
 }
 
-function _getSelectedWaveId() {
-    return _dom('select-wave')?.value || null;
+function _getStrategyValue() {
+    const val = _dom('select-strategy')?.value || 'nearest';
+    return val === 'order' ? 'orden' : 'cercania';
 }
 
-function _getStrategyValue() {
-    // El select de estrategia tiene valores "order" y "nearest" en el HTML,
-    // que corresponden a "orden" y "cercania" en el backend.
-    const val = _dom('select-strategy')?.value || 'order';
-    return val === 'order' ? 'orden' : 'cercania';
+function _getBuscadorValue() {
+    return _dom('select-buscador')?.value || 'bfs';
+}
+
+function _currentFrame() {
+    if (!_simulation || _frameIndex < 0) return null;
+    return _simulation.frames[_frameIndex];
+}
+
+function _isLastFrame() {
+    return _simulation !== null && _frameIndex >= _simulation.frames.length - 1;
 }
 
 
@@ -121,8 +170,11 @@ async function simGenerateWaves() {
 
     try {
         _waves = await apiGenerateWaves(sc.toJSON());
+        _initialWavesSnapshot = JSON.parse(JSON.stringify(_waves));
+        _simulation = null;     // las waves cambiaron: hay que volver a simular
+        _frameIndex = -1;
         _renderWavesList();
-        _renderWaveSelector();
+        _renderFleetStatus();
         showToast(`${_waves.length} wave(s) generada(s).`, 'success');
     } catch (err) {
         showToast(err.error || 'Error al generar waves.', 'error');
@@ -142,19 +194,25 @@ function _renderWavesList() {
     }
 
     const items = _waves.map(w => {
-        const pickerTexto = w.picker_id ? w.picker_id : '—';
+        // Soportar picker_ids (lista nueva) y picker_id (compat)
+        const ids = (w.picker_ids && w.picker_ids.length > 0)
+            ? w.picker_ids
+            : (w.picker_id ? [w.picker_id] : []);
+        const pickerTexto = ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014';
+        const isSelected  = w.wave_id === _selectedWaveId;
         return `
-        <div class="wave-item" data-wave-id="${w.wave_id}" style="cursor:pointer">
+        <div class="wave-item ${isSelected ? 'wave-item--selected' : ''}"
+             data-wave-id="${w.wave_id}" style="cursor:pointer">
             <div class="wave-item__header">
                 <span class="wave-item__id">${w.wave_id}</span>
                 <span class="wave-item__badge">${w.status}</span>
             </div>
             <div class="wave-item__meta">
                 <span>Prioridad ${w.prioridad}</span>
-                <span>${w.unidades} uds · ${w.peso_kg} kg</span>
+                <span>${w.unidades} uds &middot; ${w.peso_kg} kg</span>
             </div>
             <div class="wave-item__meta">
-                <span>Picker: ${pickerTexto}</span>
+                <span>Picker${ids.length > 1 ? 's' : ''}: ${pickerTexto}</span>
                 <span>${w.pedidos.join(', ')}</span>
             </div>
         </div>`;
@@ -162,110 +220,223 @@ function _renderWavesList() {
 
     list.innerHTML = items;
 
-    // Permitir hacer click en una card de wave para seleccionarla en el panel derecho.
+    // Click en una card de wave: la selecciona para "Comparar".
     list.querySelectorAll('.wave-item').forEach(card => {
         card.addEventListener('click', () => {
-            const wid = card.dataset.waveId;
-            const sel = _dom('select-wave');
-            if (sel) {
-                sel.value = wid;
-                showToast(`Wave ${wid} seleccionada.`, 'info');
-            }
+            _selectedWaveId = card.dataset.waveId;
+            _renderWavesList();   // re-renderiza para destacar visualmente la wave
+            showToast(`Wave ${_selectedWaveId} seleccionada para comparar.`, 'info');
         });
     });
 }
 
-/** Rellena el <select> de waves del panel derecho (#select-wave). */
-function _renderWaveSelector() {
-    const sel = _dom('select-wave');
-    if (!sel) return;
 
-    sel.innerHTML = '<option value="">— Selecciona una wave —</option>';
+// ---------------------------------------------------------------------------
+// Panel de flota (estado de cada picker en el frame actual)
+// ---------------------------------------------------------------------------
+
+function _renderFleetStatus() {
+    const container = _dom('fleet-status');
+    if (!container) return;
+
+    const frame = _currentFrame();
+    const rows  = frame ? _buildRowsFromFrame(frame) : _buildRowsFromWaves();
+
+    if (rows.length === 0) {
+        container.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
+        return;
+    }
+
+    container.innerHTML = rows.join('');
+}
+
+function _pickerColor(pickerId) {
+    const sc = _getScenario();
+    const picker = sc ? sc.pickers.find(p => p.id === pickerId) : null;
+    return picker ? picker.color : '#888';
+}
+
+function _buildRowsFromWaves() {
+    // Generar una fila por picker (las waves multi-picker producen varias filas)
+    const rows = [];
     for (const w of _waves) {
-        const opt = document.createElement('option');
-        opt.value       = w.wave_id;
-        opt.textContent = `${w.wave_id}  (prio ${w.prioridad} · ${w.unidades} uds)`;
-        sel.appendChild(opt);
+        const ids = (w.picker_ids && w.picker_ids.length > 0)
+            ? w.picker_ids
+            : (w.picker_id ? [w.picker_id] : []);
+        for (const pid of ids) {
+            rows.push(`
+                <div class="fleet-row">
+                    <span class="fleet-row__dot" style="background:${_pickerColor(pid)}"></span>
+                    <span class="fleet-row__picker">${pid}</span>
+                    <span class="fleet-row__wave">${w.wave_id}</span>
+                    <span class="fleet-row__status">${w.status}</span>
+                </div>`);
+        }
     }
+    return rows;
+}
 
-    // Si solo hay una wave, la seleccionamos automaticamente.
-    if (_waves.length === 1) {
-        sel.value = _waves[0].wave_id;
-    }
+function _buildRowsFromFrame(frame) {
+    return frame.pickers.map(p => `
+        <div class="fleet-row">
+            <span class="fleet-row__dot" style="background:${_pickerColor(p.id)}"></span>
+            <span class="fleet-row__picker">${p.id}</span>
+            <span class="fleet-row__wave">${p.wave || '—'}</span>
+            <span class="fleet-row__status">${p.estado} · ${p.carga_kg} kg</span>
+        </div>`);
 }
 
 
 // ---------------------------------------------------------------------------
-// Animacion: avanzar un paso
+// Pedir la simulacion al backend
 // ---------------------------------------------------------------------------
 
-/** Posiciona al picker del canvas en la celda del path indicada por el indice. */
-function _applyStep(stepIndex) {
-    if (!_routeResult) return;
-
-    const path = _routeResult.path;
-    if (stepIndex < 0 || stepIndex >= path.length) return;
-
-    const celda = path[stepIndex];
-
-    // Buscar la wave activa para saber que picker mover.
-    const waveId = _getSelectedWaveId();
-    const waveInfo = _waves.find(w => w.wave_id === waveId);
-    if (!waveInfo) return;
-
+/**
+ * Pide la simulacion completa al servidor y muestra el frame 0.
+ * Devuelve true si salio bien.
+ */
+async function _loadSimulation() {
     const sc = _getScenario();
-    if (!sc) return;
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return false; }
 
-    // Mover el picker en el escenario JS (el renderer lo leerá en el proximo frame).
-    const picker = sc.pickers.find(p => p.id === waveInfo.picker_id);
-    if (picker) {
-        _saveInitialPickerPosition(picker);
-        picker.x = celda[0];
-        picker.y = celda[1];
+    if (_waves.length === 0) {
+        showToast('Generá waves primero.', 'warning');
+        return false;
     }
 
-    // Resaltar productos recogidos cuando el picker pasa por una parada.
-    _checkPickups(stepIndex);
+    const btn = _dom('btn-play-pause');
+    if (btn) btn.disabled = true;
+    showToast('Calculando la simulación en el servidor...', 'info');
+
+    try {
+        _restorePickerPositions();
+        _saveInitialPickerPositions();
+        _simulation = await apiSimulate(sc.toJSON(), _getStrategyValue(), _getBuscadorValue());
+    } catch (err) {
+        showToast(err.error || 'Error al calcular la simulación.', 'error');
+        return false;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+
+    _resetPlayback();
+    _renderMetrics(_simulation.metricas);
+    _showFrame(0);
+
+    if (!_focusModeUserSet) {
+        _setFocusMode(true);
+    }
+    return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Mostrar un frame
+// ---------------------------------------------------------------------------
+
+/** Vuelve todo a como estaba antes del frame 0 (sin borrar la simulacion). */
+function _resetPlayback() {
+    _frameIndex = -1;
+    _routes     = {};
+    _restorePickerPositions();
+    _clearCollected();
+    _clearRoutesFromRenderer();
+    if (_initialWavesSnapshot.length > 0) {
+        _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
+    }
 }
 
 /**
- * Detecta si el paso actual coincide con alguna parada del recorrido
- * y actualiza la lista de productos recogidos (#collected-list).
+ * Muestra el frame `index`. Los frames se aplican en orden, porque los
+ * eventos (waves que empiezan o terminan, productos recogidos) se van
+ * acumulando.
  */
-function _checkPickups(stepIndex) {
-    if (!_routeResult) return;
+function _showFrame(index) {
+    const sc = _getScenario();
+    if (!sc || !_simulation) return;
 
-    const path    = _routeResult.path;
-    const paradas = _routeResult.paradas;
-    const celda   = path[stepIndex];
+    const frame = _simulation.frames[index];
+    _frameIndex = index;
 
-    for (const parada of paradas) {
-        // parada.celda es [x, y]
-        if (parada.celda[0] === celda[0] && parada.celda[1] === celda[1]) {
-            _addCollectedProducts(parada.productos);
+    // 1. Poner cada picker donde dice el backend. Si cambio de celda, el
+    //    renderer lo dibuja con el sprite de caminar (isWalking).
+    for (const p of frame.pickers) {
+        const picker = sc.pickers.find(pk => pk.id === p.id);
+        if (picker) {
+            picker.isWalking = index > 0 && (picker.x !== p.x || picker.y !== p.y);
+            picker.x = p.x;
+            picker.y = p.y;
         }
     }
+
+    // 2. Aplicar lo que paso en este tick.
+    for (const evento of frame.eventos) {
+        _applyEvent(evento);
+    }
+
+    // 3. Actualizar el dibujo de las rutas y los paneles.
+    _pushRoutesToRenderer(frame);
+    _renderWavesList();
+    _renderFleetStatus();
 }
 
-/** Agrega una fila por cada producto recogido a la lista #collected-list. */
-function _addCollectedProducts(productIds) {
-    const list = _dom('collected-list');
-    if (!list) return;
+function _applyEvent(evento) {
+    const wave = _waves.find(w => w.wave_id === evento.wave);
 
-    // Quitar el mensaje de "Ninguno todavia" si lo hay.
-    const empty = list.querySelector('.empty-msg');
-    if (empty) empty.remove();
-
-    for (const pid of productIds) {
-        // Evitar duplicados.
-        if (list.querySelector(`[data-pid="${pid}"]`)) continue;
-
-        const item = document.createElement('div');
-        item.className    = 'collected-item';
-        item.dataset.pid  = pid;
-        item.textContent  = pid;
-        list.appendChild(item);
+    if (evento.tipo === 'ruta') {
+        // Ruta nueva (al empezar una wave, al desviarse o al cambiar de zona).
+        const anterior = _routes[evento.picker];
+        _routes[evento.picker] = {
+            path:    evento.path,
+            paradas: evento.paradas || (anterior ? anterior.paradas : []),
+        };
+    } else if (evento.tipo === 'inicio_wave') {
+        if (wave) {
+            wave.status    = 'EN_PROCESO';
+            wave.picker_id = evento.picker;   // compat con código legacy
+            // Acumular en picker_ids para waves con varios pickers
+            if (!wave.picker_ids) wave.picker_ids = [];
+            if (!wave.picker_ids.includes(evento.picker)) {
+                wave.picker_ids.push(evento.picker);
+            }
+        }
+    } else if (evento.tipo === 'recoge') {
+        _addCollectedProducts(evento.productos, evento.wave);
+    } else if (evento.tipo === 'fin_wave') {
+        if (wave) wave.status = 'COMPLETADA';
+        delete _routes[evento.picker];
     }
+    // "espera", "desvio" y "descarga" ya se ven en el estado de los pickers.
+}
+
+
+// ---------------------------------------------------------------------------
+// Render del canvas: rutas de cada picker
+// ---------------------------------------------------------------------------
+
+function _pushRoutesToRenderer(frame) {
+    if (typeof _renderer === 'undefined' || !_renderer) return;
+
+    const rutas = [];
+    for (const p of frame.pickers) {
+        const ruta = _routes[p.id];
+        if (!ruta || p.paso === null) continue;
+        rutas.push({
+            path:    ruta.path,
+            paradas: ruta.paradas,
+            step:    p.paso + 1,     // el renderer pinta como recorrido hasta step - 1
+            color:   _pickerColor(p.id),
+        });
+    }
+    _renderer.agentRoutes = rutas;
+}
+
+function _clearRoutesFromRenderer() {
+    if (typeof _renderer === 'undefined' || !_renderer) return;
+    _renderer.agentRoutes = [];
+    _renderer.routePath   = null;
+    _renderer.routeStops  = [];
+    _renderer.routeStep   = 0;
 }
 
 
@@ -273,14 +444,23 @@ function _addCollectedProducts(productIds) {
 // Controles de reproduccion: play, pause, step, restart
 // ---------------------------------------------------------------------------
 
-function simPlay() {
-    if (!_routeResult) {
-        showToast('Primero planificá el recorrido con Play.', 'warning');
-        return;
+async function simPlanAndPlay() {
+    if (!_simulation) {
+        const ok = await _loadSimulation();
+        if (!ok) return;
+    } else if (_isLastFrame()) {
+        // Ya termino: Play la vuelve a mostrar desde el principio.
+        _resetPlayback();
+        _showFrame(0);
     }
-    if (_animTimer !== null) return;    // ya esta corriendo
+    simPlay();
+}
 
-    _scheduleNextStep();
+function simPlay() {
+    if (!_simulation) return;
+    if (_animTimer !== null) return;
+    _updatePlayPauseBtn(true);
+    _scheduleNextTick();
 }
 
 function simPause() {
@@ -288,107 +468,96 @@ function simPause() {
         clearTimeout(_animTimer);
         _animTimer = null;
     }
+    _updatePlayPauseBtn(false);
 }
 
-function simStep() {
-    // Un solo paso manual: cancela el loop si estaba corriendo.
-    simPause();
-    if (!_routeResult) return;
-    if (_animStep >= _routeResult.path.length) return;
+function _scheduleNextTick() {
+    _animTimer = setTimeout(() => {
+        if (_isLastFrame()) {
+            _animTimer = null;
+            _onSimulationComplete();
+            return;
+        }
+        _showFrame(_frameIndex + 1);
+        _scheduleNextTick();
+    }, _tickDelayMs());
+}
 
-    _applyStep(_animStep);
-    _animStep = _animStep + 1;
+function _updatePlayPauseBtn(isPlaying) {
+    const btn = _dom('btn-play-pause');
+    if (!btn) return;
+    const icon = btn.querySelector('.icon');
+    if (icon) icon.textContent = isPlaying ? 'pause' : 'play_arrow';
+    btn.title = isPlaying ? 'Pausar' : 'Iniciar / Continuar';
+    btn.setAttribute('aria-label', isPlaying ? 'Pausar simulación' : 'Iniciar simulación');
+}
+
+async function simStep() {
+    simPause();
+    if (!_simulation) {
+        await _loadSimulation();    // el primer Step muestra el frame 0
+        return;
+    }
+    if (_isLastFrame()) return;
+    _showFrame(_frameIndex + 1);
 }
 
 function simRestart() {
     simPause();
-    _restorePickerPositions();
-    _animStep    = 0;
-    _routeResult = null;
-    _clearMetrics();
-    _clearCollected();
+    if (_simulation) {
+        _resetPlayback();
+        _showFrame(0);
+    } else {
+        _resetPlayback();
+        _renderWavesList();
+        _renderFleetStatus();
+    }
+    _focusModeUserSet = false;
     showToast('Simulación reiniciada.', 'info');
 }
 
-function _scheduleNextStep() {
-    _animTimer = setTimeout(() => {
-        if (!_routeResult || _animStep >= _routeResult.path.length) {
-            _animTimer = null;
-            showToast('Recorrido completado.', 'success');
-            return;
-        }
-        _applyStep(_animStep);
-        _animStep = _animStep + 1;
-        _scheduleNextStep();
-    }, _stepDelayMs());
-}
-
-
-// ---------------------------------------------------------------------------
-// Planificar recorrido (disparado desde el boton Play)
-// ---------------------------------------------------------------------------
-
-/**
- * Pide el recorrido al servidor y arranca la animacion.
- * Si estaba pausado a mitad de camino, simplemente continua.
- */
-async function simPlanAndPlay() {
+function _onSimulationComplete() {
     const sc = _getScenario();
-    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+    if (sc) {
+        for (const picker of sc.pickers) picker.isWalking = false;
+    }
+    _updatePlayPauseBtn(false);
+    _focusModeUserSet = false;
+    _setFocusMode(false);
 
-    const waveId = _getSelectedWaveId();
-    if (!waveId) { showToast('Seleccioná una wave.', 'warning'); return; }
-
-    // Si ya habia un recorrido calculado y estaba pausado a mitad de camino, continuar
-    if (_routeResult && _animStep < _routeResult.path.length && _animTimer === null) {
-        simPlay();
+    if (_simulation.error) {
+        showToast(`La simulación se detuvo: ${_simulation.error}`, 'error');
         return;
     }
-
-    // Parar la animacion actual y restaurar posicion antes de pedir la nueva ruta.
-    simPause();
-    _restorePickerPositions();
-    _animStep    = 0;
-    _routeResult = null;
-    _clearMetrics();
-    _clearCollected();
-
-    const estrategia = _getStrategyValue();
-
-    const btn = _dom('btn-play');
-    if (btn) btn.disabled = true;
-
-    try {
-        _routeResult = await apiPlanRoute(sc.toJSON(), waveId, estrategia, 'bfs');
-        _renderMetrics(_routeResult);
-        showToast('Recorrido calculado. Animando...', 'info');
-        simPlay();
-    } catch (err) {
-        showToast(err.error || 'Error al calcular el recorrido.', 'error');
-    } finally {
-        if (btn) btn.disabled = false;
-    }
+    const m = _simulation.metricas;
+    showToast(
+        `¡Simulación completada en ${m.ticks} ticks! ` +
+        `(${m.esperas} esperas, ${m.desvios} desvíos)`,
+        'success'
+    );
 }
 
 
 // ---------------------------------------------------------------------------
-// Comparar estrategias
+// Comparar estrategias (requiere seleccionar una wave con click)
 // ---------------------------------------------------------------------------
 
 async function simCompare() {
     const sc = _getScenario();
-    if (!sc) { showToast('Carga un escenario primero.', 'warning'); return; }
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
 
-    const waveId = _getSelectedWaveId();
-    if (!waveId) { showToast('Seleccioná una wave.', 'warning'); return; }
+    if (!_selectedWaveId) {
+        showToast('Hacé click en una wave de la lista para seleccionarla y comparar.', 'warning');
+        return;
+    }
 
     const btn = _dom('btn-compare');
     if (btn) btn.disabled = true;
 
     try {
-        const comparacion = await apiCompareStrategies(sc.toJSON(), waveId, 'bfs');
+        const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId, _getBuscadorValue());
         _renderComparison(comparacion);
-        showToast('Comparacion lista.', 'success');
+        showToast(`Comparación lista para ${_selectedWaveId}.`, 'success');
     } catch (err) {
         showToast(err.error || 'Error al comparar estrategias.', 'error');
     } finally {
@@ -398,19 +567,20 @@ async function simCompare() {
 
 
 // ---------------------------------------------------------------------------
-// Render de metricas y comparacion
+// Metricas y comparacion
 // ---------------------------------------------------------------------------
 
-function _renderMetrics(resultado) {
+function _renderMetrics(m) {
     const set = (id, val) => { const el = _dom(id); if (el) el.textContent = val; };
-    set('metric-distance', resultado.distancia_total + ' celdas');
-    set('metric-nodes',    resultado.nodos_visitados);
-    set('metric-edges',    resultado.aristas_recorridas);
-    set('metric-time',     resultado.tiempo_ms.toFixed(2) + ' ms');
+    set('metric-distance', m.distancia_total + ' celdas');
+    set('metric-nodes',    m.nodos_visitados);
+    set('metric-edges',    m.aristas_recorridas);
+    set('metric-expanded', m.nodos_expandidos);
+    set('metric-time',     m.tiempo_ms.toFixed(2) + ' ms');
 }
 
 function _clearMetrics() {
-    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-time'].forEach(id => {
+    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
         const el = _dom(id);
         if (el) el.textContent = '—';
     });
@@ -421,18 +591,52 @@ function _clearCollected() {
     if (list) list.innerHTML = '<p class="empty-msg">Ninguno todavía.</p>';
 }
 
+function _addCollectedProducts(productIds, waveId) {
+    const list = _dom('collected-list');
+    if (!list) return;
+
+    const empty = list.querySelector('.empty-msg');
+    if (empty) empty.remove();
+
+    for (const pid of productIds) {
+        const key = `${waveId}::${pid}`;
+        if (list.querySelector(`[data-key="${key}"]`)) continue;
+
+        const item = document.createElement('div');
+        item.className   = 'collected-item';
+        item.dataset.key = key;
+        item.textContent = `[${waveId}] ${pid}`;
+        list.appendChild(item);
+    }
+}
+
 function _renderComparison(comparacion) {
     const container = _dom('compare-result');
     if (!container) return;
 
-    // Construir una tabla simple con las dos estrategias.
-    const filas = Object.entries(comparacion).map(([estrategia, r]) => `
+    const labels = {
+        cercania: 'A — Cercanía',
+        orden:    'B — Orden de pedidos'
+    };
+
+    // Orden de visualización: A — Cercanía primero, B — Orden segundo
+    const orderedKeys = ['cercania', 'orden'].filter(k => k in comparacion);
+    Object.keys(comparacion).forEach(k => {
+        if (!orderedKeys.includes(k)) orderedKeys.push(k);
+    });
+
+    const filas = orderedKeys.map(k => {
+        const r = comparacion[k];
+        const label = labels[k] || k;
+        return `
         <tr>
-            <td>${estrategia}</td>
+            <td>${label}</td>
             <td>${r.distancia_total}</td>
             <td>${r.nodos_visitados}</td>
+            <td>${r.nodos_expandidos}</td>
             <td>${r.tiempo_ms.toFixed(2)} ms</td>
-        </tr>`).join('');
+        </tr>`;
+    }).join('');
 
     container.innerHTML = `
         <table class="compare-table">
@@ -441,6 +645,7 @@ function _renderComparison(comparacion) {
                     <th>Estrategia</th>
                     <th>Distancia</th>
                     <th>Nodos vis.</th>
+                    <th>Nodos exp.</th>
                     <th>Tiempo</th>
                 </tr>
             </thead>
@@ -450,24 +655,102 @@ function _renderComparison(comparacion) {
 
 
 // ---------------------------------------------------------------------------
-// Inicializacion: conectar botones con funciones
+// Reset completo de simulacion (lo llama ui.js al cambiar de escenario)
+// ---------------------------------------------------------------------------
+
+function simReset() {
+    simPause();
+
+    _restorePickerPositions();
+    _initialPickerPositions.clear();
+
+    _waves                = [];
+    _initialWavesSnapshot = [];
+    _simulation           = null;
+    _frameIndex           = -1;
+    _routes               = {};
+    _selectedWaveId       = null;
+    _focusModeUserSet     = false;
+
+    const wavesList = _dom('waves-list');
+    if (wavesList) wavesList.innerHTML = '<p class="empty-msg">Sin waves generadas.</p>';
+
+    _clearMetrics();
+    _clearCollected();
+
+    const compareResult = _dom('compare-result');
+    if (compareResult) compareResult.innerHTML = '';
+
+    _clearRoutesFromRenderer();
+    _renderFleetStatus();
+    _updatePlayPauseBtn(false);
+    _setFocusMode(false);
+}
+
+
+// ---------------------------------------------------------------------------
+// Modo de enfoque del recorrido
+// ---------------------------------------------------------------------------
+
+function _setFocusMode(active) {
+    if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.focusMode = active;
+    }
+    const btn = _dom('btn-focus-mode');
+    if (btn) {
+        btn.setAttribute('aria-pressed', String(active));
+        btn.classList.toggle('active', active);
+    }
+}
+
+function simToggleFocusMode() {
+    const current = (typeof _renderer !== 'undefined' && _renderer) ? _renderer.focusMode : false;
+    if (_simulation) {
+        _focusModeUserSet = true;
+    }
+    _setFocusMode(!current);
+}
+
+
+// ---------------------------------------------------------------------------
+// Inicializacion
 // ---------------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
     const btnGenerateWave = _dom('btn-generate-wave');
     if (btnGenerateWave) btnGenerateWave.addEventListener('click', simGenerateWaves);
 
-    const btnPlay    = _dom('btn-play');
-    const btnPause   = _dom('btn-pause');
-    const btnStep    = _dom('btn-step');
-    const btnRestart = _dom('btn-restart');
-    const btnCompare = _dom('btn-compare');
+    const btnPlayPause = _dom('btn-play-pause');
+    const btnStep      = _dom('btn-step');
+    const btnRestart   = _dom('btn-restart');
+    const btnCompare   = _dom('btn-compare');
 
-    if (btnPlay)    btnPlay.addEventListener('click',    simPlanAndPlay);
-    if (btnPause)   btnPause.addEventListener('click',   simPause);
+    if (btnPlayPause) btnPlayPause.addEventListener('click', () => {
+        if (_animTimer !== null) {
+            simPause();
+        } else {
+            simPlanAndPlay();
+        }
+    });
     if (btnStep)    btnStep.addEventListener('click',    simStep);
     if (btnRestart) btnRestart.addEventListener('click', simRestart);
     if (btnCompare) btnCompare.addEventListener('click', simCompare);
+
+    const btnFocusMode = _dom('btn-focus-mode');
+    if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
+
+    // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
+    const selStrategy = _dom('select-strategy');
+    const selBuscador = _dom('select-buscador');
+    const invalidar = () => {
+        if (_simulation) {
+            simRestart();
+            _simulation = null;
+            _clearMetrics();
+        }
+    };
+    if (selStrategy) selStrategy.addEventListener('change', invalidar);
+    if (selBuscador) selBuscador.addEventListener('change', invalidar);
 
     const rangeSpeed = _dom('range-speed');
     const speedLabel = _dom('speed-label');

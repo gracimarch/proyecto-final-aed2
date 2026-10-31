@@ -103,3 +103,26 @@ async function apiCompareStrategies(escenario, waveId, buscador) {
         buscador: buscador,
     });
 }
+
+
+// ---------------------------------------------------------------------------
+// Simulacion completa (la hace el backend; el frontend solo la dibuja)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le pide al servidor que simule todas las waves con todos los pickers.
+ *
+ * @param {Object} escenario   Resultado de Scenario.toJSON().
+ * @param {string} estrategia  "orden" o "cercania".
+ * @param {string} buscador    "bfs" o "astar".
+ * @returns {Promise<Object>}  { frames, metricas, rutas, error }.
+ *     Cada frame: { tick, pickers: [{id, x, y, estado, wave, carga_kg, paso}],
+ *                   zonas: {zona_id: kg}, eventos: [...] }.
+ */
+async function apiSimulate(escenario, estrategia, buscador) {
+    return await _post('/api/simulacion', {
+        escenario,
+        estrategia: estrategia,
+        buscador:   buscador,
+    });
+}

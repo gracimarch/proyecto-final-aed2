@@ -64,7 +64,11 @@ class WaveOrderEntry:
 
 class Wave:
     """
-    Grupo de ítems de pedidos que un único picker prepara junto.
+    Grupo de ítems de pedidos que uno o más pickers preparan juntos.
+
+    Un picker siempre trabaja en una sola wave a la vez, pero una wave
+    puede tener varios pickers cuando el volumen de trabajo lo justifica:
+    cada picker recibe un subconjunto disjunto de paradas.
 
     Atributos:
         wave_id       (str)                  : Identificador de la wave.
@@ -72,8 +76,8 @@ class Wave:
         max_productos (int)                  : Máximo de UNIDADES en la wave.
         entries       (list[WaveOrderEntry]) : Pedidos de la wave con sus ítems.
         status        (WaveStatus)           : Estado de la wave.
-        route         (list)                 : Recorrido guardado, lista de celdas (x, y).
-        picker        (Picker o None)        : Picker que prepara la wave.
+        route         (list)                 : Recorrido del primer picker, lista de celdas (x, y).
+        pickers       (list[Picker])         : Pickers asignados a la wave (uno o más).
     """
 
     def __init__(self, wave_id: str, max_pedidos: int, max_productos: int):
@@ -88,7 +92,7 @@ class Wave:
         self.entries = []
         self.status = WaveStatus.ABIERTA
         self.route = []
-        self.picker = None
+        self.pickers = []        # lista de pickers asignados (uno o más)
 
     # ------------------------------------------------------------------
     # Consultas
@@ -106,6 +110,15 @@ class Wave:
     def is_started(self) -> bool:
         """True si la wave ya empezó (en proceso o completada)."""
         return self.status != WaveStatus.ABIERTA
+
+    @property
+    def picker(self) -> "Picker | None":
+        """
+        Propiedad de compatibilidad: el primer picker de la wave, o None.
+
+        Para waves con varios pickers, usar self.pickers directamente.
+        """
+        return self.pickers[0] if self.pickers else None
 
     @property
     def is_completed(self) -> bool:
@@ -249,30 +262,38 @@ class Wave:
 
     def assign_picker(self, picker: Picker) -> None:
         """
-        Asigna el picker que va a preparar la wave.
+        Agrega un picker a la wave.
+
+        Permite asignar varios pickers a la misma wave para distribuir la
+        carga entre operarios. Cada picker recibe un subconjunto disjunto
+        de paradas durante la planificación de rutas, por lo que no se
+        controla el peso total de la wave aquí (cada picker carga solo su
+        fracción).
+
+        La validación de peso del primer picker (que sí debe poder cargar
+        el total si opera solo) la hace WaveManager.assign_pickers antes
+        de llamar a este método.
 
         Raises:
-            ValueError: Si la wave ya tiene picker, si el picker está ocupado
-                        o si la wave pesa más de lo que el picker puede cargar
-                        (consigna §6).
+            ValueError: Si la wave ya no está ABIERTA, el picker ya está
+                        en esta wave, o ya está ocupado en otra.
         """
-        if self.picker is not None:
+        if self.status != WaveStatus.ABIERTA:
             raise ValueError(
-                f"La wave '{self.wave_id}' ya tiene asignado al picker "
-                f"'{self.picker.picker_id}'."
+                f"La wave '{self.wave_id}' ya no está abierta: {self.status.value}"
             )
+        for p in self.pickers:
+            if p.picker_id == picker.picker_id:
+                raise ValueError(
+                    f"El picker '{picker.picker_id}' ya está asignado a la "
+                    f"wave '{self.wave_id}'."
+                )
         if picker.is_busy:
             raise ValueError(
                 f"El picker '{picker.picker_id}' ya está ocupado en la wave "
                 f"'{picker.assigned_wave_id}'."
             )
-        if self.total_weight() > picker.capacidad_carga_kg:
-            raise ValueError(
-                f"La wave '{self.wave_id}' pesa {self.total_weight():.2f} kg y supera "
-                f"la capacidad del picker '{picker.picker_id}' "
-                f"({picker.capacidad_carga_kg:.2f} kg)."
-            )
-        self.picker = picker
+        self.pickers.append(picker)
         picker.assign_wave(self.wave_id)
 
     def set_route(self, route: list[tuple[int, int]]) -> None:
@@ -285,10 +306,11 @@ class Wave:
 
     def start(self) -> None:
         """
-        Empieza la preparación. Necesita un picker asignado.
+        Empieza la preparación. Necesita al menos un picker asignado.
 
         Raises:
-            ValueError: Si la wave no está ABIERTA, está vacía o no tiene picker.
+            ValueError: Si la wave no está ABIERTA, está vacía o no
+                        tiene ningún picker asignado.
         """
         if self.status != WaveStatus.ABIERTA:
             raise ValueError(
@@ -296,17 +318,17 @@ class Wave:
             )
         if len(self.entries) == 0:
             raise ValueError("La wave no tiene ítems asignados.")
-        if self.picker is None:
+        if len(self.pickers) == 0:
             raise ValueError(
-                f"La wave '{self.wave_id}' debe tener un picker asignado "
-                f"para iniciar la preparación."
+                f"La wave '{self.wave_id}' debe tener al menos un picker "
+                f"asignado para iniciar la preparación."
             )
         self.status = WaveStatus.EN_PROCESO
 
     def complete(self) -> None:
         """
-        Termina la wave y libera a su picker. El estado de los pedidos se
-        actualiza solo (ver Order.status).
+        Termina la wave y libera a todos sus pickers. El estado de los
+        pedidos se actualiza solo (ver Order.status).
 
         Raises:
             ValueError: Si la wave no está EN_PROCESO.
@@ -316,7 +338,9 @@ class Wave:
                 f"La wave '{self.wave_id}' debe estar EN_PROCESO para completarse."
             )
         self.status = WaveStatus.COMPLETADA
-        self.picker.release()
+        for p in self.pickers:
+            if p.is_busy:
+                p.release()
 
     # ------------------------------------------------------------------
     # Guardar y cargar
@@ -347,17 +371,16 @@ class Wave:
         for cell in self.route:
             route_dict.append(list(cell))
 
-        if self.picker is None:
-            picker_id = None
-        else:
-            picker_id = self.picker.picker_id
+        picker_ids = []
+        for p in self.pickers:
+            picker_ids.append(p.picker_id)
 
         return {
             "wave_id": self.wave_id,
             "max_pedidos": self.max_pedidos,
             "max_productos": self.max_productos,
             "status": self.status.value,
-            "picker_id": picker_id,
+            "picker_ids": picker_ids,
             "entries": entries_dict,
             "route": route_dict,
         }
@@ -374,9 +397,11 @@ class Wave:
         """
         Reconstruye una wave guardada.
 
-        Los ítems vuelven a quedar asignados a esta wave. Si la wave no está
-        completada, su picker vuelve a quedar ocupado; si está completada,
-        se recuerda qué picker la hizo, pero el picker queda libre.
+        Soporta el formato nuevo (picker_ids: lista) y el formato legacy
+        (picker_id: string). Los ítems vuelven a quedar asignados a esta
+        wave. Si la wave no está completada, sus pickers vuelven a quedar
+        ocupados; si está completada, se recuerda quiénes la hicieron,
+        pero quedan libres.
 
         Args:
             data            : Diccionario guardado con to_dict.
@@ -406,27 +431,35 @@ class Wave:
             order.assign_items(items, wave)
             wave._register(order, items)
 
-        pid = data.get("picker_id")
-        if pid is not None and picker_registry is not None:
-            if pid not in picker_registry:
-                raise KeyError(f"Picker '{pid}' no encontrado en el registro.")
-            picker = picker_registry[pid]
-            if data["status"] == WaveStatus.COMPLETADA.value:
-                wave.picker = picker          # la hizo, pero ya está libre
-            else:
-                wave.assign_picker(picker)    # vuelve a quedar ocupado
+        # Soportar formato nuevo (picker_ids: lista) y formato legacy (picker_id: str)
+        picker_ids_data = data.get("picker_ids")
+        if picker_ids_data is None:
+            pid_legacy = data.get("picker_id")
+            picker_ids_data = [pid_legacy] if pid_legacy is not None else []
+
+        if picker_registry is not None:
+            for pid in picker_ids_data:
+                if pid not in picker_registry:
+                    raise KeyError(f"Picker '{pid}' no encontrado en el registro.")
+                picker = picker_registry[pid]
+                if data["status"] == WaveStatus.COMPLETADA.value:
+                    wave.pickers.append(picker)    # la hizo, pero ya está libre
+                else:
+                    wave.assign_picker(picker)     # vuelve a quedar ocupado
 
         # El estado se pone al final: assign_picker necesita la wave sin empezar.
         wave.status = WaveStatus(data["status"])
         return wave
 
     def __repr__(self) -> str:
-        texto_picker = ""
-        if self.picker is not None:
-            texto_picker = f", picker={self.picker.picker_id}"
+        if self.pickers:
+            ids_pickers = [p.picker_id for p in self.pickers]
+            texto_pickers = f", pickers={ids_pickers}"
+        else:
+            texto_pickers = ""
         return (
             f"Wave(id='{self.wave_id}', pedidos={self.current_orders()}/"
             f"{self.max_pedidos}, unidades={self.current_units()}/"
-            f"{self.max_productos}, peso={self.total_weight():.2f}kg{texto_picker}, "
+            f"{self.max_productos}, peso={self.total_weight():.2f}kg{texto_pickers}, "
             f"status={self.status.value})"
         )
