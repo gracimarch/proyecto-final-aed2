@@ -1,4 +1,4 @@
-﻿/* ================================================================
+/* ================================================================
    EDITOR UI
    Conecta el WarehouseEditor con los elementos del DOM:
    - Modal "Nuevo Escenario"
@@ -895,6 +895,12 @@ function renderOrdersList() {
     container.innerHTML = cards;
 
     container.querySelectorAll('[data-delete-order]').forEach(btn => {
+        // Bloquear eliminacion de pedidos durante simulacion activa
+        if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) {
+            btn.disabled = true;
+            btn.title = 'No disponible mientras hay una simulacion activa';
+            return;
+        }
         btn.addEventListener('click', () => {
             const oid = btn.dataset.deleteOrder;
             const idx = sc.orders.findIndex(o => o.id === oid);
@@ -1136,6 +1142,7 @@ function _showSelectionRack(rack, highlightCell = null) {
         });
     });
 
+    _applySelectionLock(body);
     panel.classList.add('open');
 }
 
@@ -1190,11 +1197,30 @@ function _showSelectionPicker(picker) {
         showToast(`${picker.name} eliminado`, 'warning');
     });
 
+    _applySelectionLock(body);
     panel.classList.add('open');
 }
 
 function _hideSelection() {
     DOM.selectionPanel().classList.remove('open');
+}
+
+/**
+ * Deshabilita todos los botones e inputs de edicion del panel de seleccion
+ * mientras la simulacion esta activa, para evitar modificaciones inconsistentes.
+ * Se llama al final de cada _showSelection* antes de abrir el panel.
+ */
+function _applySelectionLock(body) {
+    if (typeof simIsEditingLocked !== 'function' || !simIsEditingLocked()) return;
+    if (!body) return;
+    const msg = 'No disponible mientras hay una simulacion activa';
+    body.querySelectorAll('button').forEach(btn => {
+        btn.disabled = true;
+        btn.title    = msg;
+    });
+    body.querySelectorAll('select, input').forEach(el => {
+        el.disabled = true;
+    });
 }
 
 function _showSelectionDoor(door) {
@@ -1232,6 +1258,7 @@ function _showSelectionDoor(door) {
         _hideSelection();
         showToast(`Puerta ${door.id} eliminada`, 'warning');
     });
+    _applySelectionLock(body);
     panel.classList.add('open');
 }
 
@@ -1327,6 +1354,7 @@ function _showSelectionDispatch(dz) {
         _hideSelection();
         showToast(`Zona ${dz.id} eliminada`, 'warning');
     });
+    _applySelectionLock(body);
     panel.classList.add('open');
 }
 
@@ -1366,6 +1394,7 @@ function _showSelectionAisle(aisle) {
         _hideSelection();
         showToast(`Pasillo ${aisle.id} eliminado`, 'warning');
     });
+    _applySelectionLock(body);
     panel.classList.add('open');
 }
 
@@ -1381,8 +1410,9 @@ function _updateSidebarInfo() {
     DOM.whRacks().textContent    = st.racks;
     DOM.whProducts().textContent = st.products;
 
-    DOM.btnPickerAdd().disabled    = false;
-    DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
+    const locked = typeof simIsEditingLocked === 'function' && simIsEditingLocked();
+    DOM.btnPickerAdd().disabled    = locked;
+    DOM.btnPickerRemove().disabled = locked || sc.pickers.length === 0;
     DOM.pickersCount()?.textContent != null && (DOM.pickersCount().textContent = sc.pickers.length);
     _updatePickersList();
 }
@@ -1478,6 +1508,14 @@ function loadScenario() {
 function _onKeyDown(e) {
     // No activar si el foco está en un input/textarea
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+
+    // Bloquear atajos de edicion mientras la simulacion esta activa
+    if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) {
+        // Solo se permiten Escape y la tecla S (seleccionar)
+        const editToolKeys = ['r', 'p', 'e', 'd', 'z', 'a', 'm'];
+        if (editToolKeys.includes(e.key)) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') return;
+    }
 
     const toolMap = { 's': 'select', 'r': 'rack', 'p': 'product', 'e': 'erase', 'd': 'door', 'z': 'dispatch', 'a': 'aisle', 'm': 'move-rack' };
     if (toolMap[e.key]) {
