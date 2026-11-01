@@ -2,6 +2,30 @@
    SCENARIO MODEL - Clases de datos para el warehouse
 ================================================================ */
 
+/**
+ * Genera el siguiente ID secuencial para un tipo de artefacto.
+ *
+ * @param {string}   prefix   - Prefijo del artefacto (ej. 'RACK', 'PRD').
+ * @param {Array}    existing - Colección de objetos existentes con propiedad .id.
+ * @param {number}   digits   - Cantidad de dígitos del número (2 → '01', 3 → '001').
+ * @returns {string}           ID generado (ej. 'RACK01', 'PRD003').
+ */
+function _genSeqId(prefix, existing, digits) {
+    digits = digits || 2;
+    // Extraer todos los números ya usados con este prefijo
+    const used = new Set();
+    const re = new RegExp('^' + prefix + '(\\d+)$');
+    for (const item of (existing || [])) {
+        const m = re.exec(item.id || '');
+        if (m) used.add(parseInt(m[1], 10));
+    }
+    // Buscar el primer número libre empezando en 1
+    let n = 1;
+    while (used.has(n)) n++;
+    return prefix + String(n).padStart(digits, '0');
+}
+
+/** @deprecated - solo se mantiene por compatibilidad con IDs cargados desde JSON. */
 function _genId(prefix) {
     prefix = prefix || '';
     return prefix + Math.random().toString(36).substr(2, 8).toUpperCase();
@@ -14,8 +38,8 @@ const PICKER_COLORS = [
 ];
 
 class Rack {
-    constructor({ id = null, x, y, width = 2, height = 4 } = {}) {
-        this.id = id || _genId('R');
+    constructor({ id = null, x, y, width = 2, height = 4, _existingRacks = null } = {}) {
+        this.id = id || _genSeqId('RACK', _existingRacks, 2);
         this.x = x; this.y = y;
         this.width = width; this.height = height;
         this.products = [];
@@ -35,8 +59,8 @@ class Rack {
 }
 
 class Product {
-    constructor({ id = null, name = 'Producto', sku = null, rackId, x = 0, y = 0, z = 1, quantity = 1, pesoKg = 1.0 } = {}) {
-        this.id = id || _genId('P');
+    constructor({ id = null, name = 'Producto', sku = null, rackId, x = 0, y = 0, z = 1, quantity = 1, pesoKg = 1.0, _existingProducts = null } = {}) {
+        this.id = id || _genSeqId('PRD', _existingProducts, 3);
         this.name = name; this.sku = sku || this.id; this.rackId = rackId;
         this.x = x; this.y = y; this.z = z; this.quantity = quantity; this.pesoKg = pesoKg;
     }
@@ -59,9 +83,11 @@ class Product {
 }
 
 class Picker {
-    constructor({ id = null, x, y, name = null, color = null, capacidadKg = 100 } = {}) {
-        this.id = id || _genId('PK');
-        this.x = x; this.y = y; this.name = name || this.id;
+    constructor({ id = null, x, y, name = null, color = null, capacidadKg = 100, _existingPickers = null } = {}) {
+        this.id = id || _genSeqId('PICK', _existingPickers, 2);
+        this.x = x; this.y = y;
+        // El nombre visible en el mapa coincide con el ID (ej. "PICK01")
+        this.name = name || this.id;
         this.color = color || PICKER_COLORS[0]; this.capacidadKg = capacidadKg;
     }
     toJSON() {
@@ -77,8 +103,8 @@ class Picker {
 }
 
 class Door {
-    constructor({ id = null, x, y, tipo = 'AMBOS' } = {}) {
-        this.id = id || _genId('D'); this.x = x; this.y = y; this.tipo = tipo;
+    constructor({ id = null, x, y, tipo = 'AMBOS', _existingDoors = null } = {}) {
+        this.id = id || _genSeqId('DOOR', _existingDoors, 2); this.x = x; this.y = y; this.tipo = tipo;
     }
     toJSON() { return { id: this.id, tipo: this.tipo, ubicacion: { x: this.x, y: this.y } }; }
     static fromJSON(data) {
@@ -88,8 +114,8 @@ class Door {
 }
 
 class Aisle {
-    constructor({ id = null, x, y, width = 1, height = 1, sentido = 'AMBOS' } = {}) {
-        this.id = id || _genId('A'); this.x = x; this.y = y;
+    constructor({ id = null, x, y, width = 1, height = 1, sentido = 'AMBOS', _existingAisles = null } = {}) {
+        this.id = id || _genSeqId('AISL', _existingAisles, 2); this.x = x; this.y = y;
         this.width = width; this.height = height; this.sentido = sentido;
     }
     containsCell(cx, cy) {
@@ -106,8 +132,8 @@ class Aisle {
 }
 
 class DispatchZone {
-    constructor({ id = null, puertaId = null, x, y, width = 3, height = 2, pesoMaxKg = 500 } = {}) {
-        this.id = id || _genId('Z'); this.puertaId = puertaId;
+    constructor({ id = null, puertaId = null, x, y, width = 3, height = 2, pesoMaxKg = 500, _existingZones = null } = {}) {
+        this.id = id || _genSeqId('ZONE', _existingZones, 2); this.puertaId = puertaId;
         this.x = x; this.y = y; this.width = width; this.height = height; this.pesoMaxKg = pesoMaxKg;
     }
     containsCell(cx, cy) {
@@ -131,8 +157,8 @@ class OrderItem {
 }
 
 class Order {
-    constructor({ id = null, prioridad = 3, estado = 'PENDIENTE', items = [] } = {}) {
-        this.id = id || _genId('O'); this.prioridad = prioridad; this.estado = estado; this.items = items;
+    constructor({ id = null, prioridad = 3, estado = 'PENDIENTE', items = [], _existingOrders = null } = {}) {
+        this.id = id || _genSeqId('ORDR', _existingOrders, 2); this.prioridad = prioridad; this.estado = estado; this.items = items;
     }
     toJSON() { return { id: this.id, prioridad: this.prioridad, estado: this.estado, items: this.items.map(i => i.toJSON()) }; }
     static fromJSON(data) {
@@ -143,7 +169,7 @@ class Order {
 
 class Scenario {
     constructor({ id = null, name = 'Nuevo Escenario', width = 20, height = 15 } = {}) {
-        this.id = id || _genId('SC'); this.name = name; this.width = width; this.height = height;
+        this.id = id || _genSeqId('SCEN', [], 2); this.name = name; this.width = width; this.height = height;
         this.racks = []; this.pickers = []; this.doors = []; this.aisles = []; this.dispatchZones = []; this.orders = [];
         this.waveMaxPedidos = 5; this.waveMaxProductos = 20;
         // SIN zona de despacho por defecto - se coloca manualmente
@@ -164,7 +190,7 @@ class Scenario {
         // Verificar accesibilidad: ninguna celda del rack puede quedar encerrada
         const tempRack = { x: nx, y: ny, width, height };
         if (!this.isRackFullyAccessible(tempRack, null)) return null;
-        const rack = new Rack({ x: nx, y: ny, width, height });
+        const rack = new Rack({ x: nx, y: ny, width, height, _existingRacks: this.racks });
         this.racks.push(rack);
         return rack;
     }
@@ -268,7 +294,7 @@ class Scenario {
             return { error: `La posición (${targetX}, ${targetY}) Z:${targetZ} ya está ocupada. Elegí un nivel Z diferente.` };
         }
 
-        const product = new Product({ name, sku, rackId, x: targetX, y: targetY, z: targetZ, quantity: qty, pesoKg: weight });
+        const product = new Product({ name, sku, rackId, x: targetX, y: targetY, z: targetZ, quantity: qty, pesoKg: weight, _existingProducts: this.getAllProducts() });
         rack.products.push(product); return product;
     }
     removeProduct(productId) { for (const r of this.racks) { const i = r.products.findIndex(p => p.id === productId); if (i !== -1) { r.products.splice(i, 1); return true; } } return false; }
@@ -283,7 +309,7 @@ class Scenario {
         if (this._isInDispatchZone(x, y))  return null;
         if (this.getAisleAt(x, y))         return null;
         if (this.getPickerAt(x, y))        return null;
-        const door = new Door({ x, y, tipo }); this.doors.push(door);
+        const door = new Door({ x, y, tipo, _existingDoors: this.doors }); this.doors.push(door);
         // Auto-asignar zonas huérfanas adyacentes a la nueva puerta
         for (const dz of this.dispatchZones) {
             if (!dz.puertaId && this._isAdjacentToSpecificDoor(dz.x, dz.y, dz.width, dz.height, door.id)) {
@@ -353,7 +379,7 @@ class Scenario {
         if (puertaId && this.dispatchZones.some(z => z.puertaId === puertaId)) {
             return { error: 'door-taken' };
         }
-        const zone = new DispatchZone({ x: nx, y: ny, width, height, pesoMaxKg, puertaId });
+        const zone = new DispatchZone({ x: nx, y: ny, width, height, pesoMaxKg, puertaId, _existingZones: this.dispatchZones });
         this.dispatchZones.push(zone); return zone;
     }
     /** Cuenta cuántas puertas distintas son adyacentes al área (x,y,w,h). */
@@ -459,7 +485,7 @@ class Scenario {
                 if (this.getDoorAt(cx, cy)) return null;
             }
         }
-        const aisle = new Aisle({ x: nx, y: ny, width, height, sentido });
+        const aisle = new Aisle({ x: nx, y: ny, width, height, sentido, _existingAisles: this.aisles });
         this.aisles.push(aisle); return aisle;
     }
     removeAisle(id) { const i = this.aisles.findIndex(a => a.id === id); if (i === -1) return false; this.aisles.splice(i, 1); return true; }
@@ -469,7 +495,8 @@ class Scenario {
     addPicker(capacidadKg = 100) {
         const pos = this._findPickerSpawnPosition(); if (!pos) return null;
         const color = PICKER_COLORS[this._nextPickerColorIdx % PICKER_COLORS.length];
-        const picker = new Picker({ x: pos.x, y: pos.y, color, name: 'Picker ' + this._nextPickerNum, capacidadKg });
+        const picker = new Picker({ x: pos.x, y: pos.y, color, capacidadKg, _existingPickers: this.pickers });
+        // name ya se asignó al ID dentro del constructor (ej. "PICK01")
         this._nextPickerColorIdx++; this._nextPickerNum++; this.pickers.push(picker); return picker;
     }
 
@@ -492,7 +519,8 @@ class Scenario {
         this.pickers.splice(i, 1); this._renumberPickers(); return true;
     }
     _renumberPickers() {
-        this.pickers.forEach((pk, i) => { pk.name = 'Picker ' + (i + 1); });
+        // Los IDs de pickers son permanentes (PICK01, PICK02...).
+        // El nombre visible coincide con el ID, no se renumera.
         this._nextPickerNum = this.pickers.length + 1;
     }
     movePicker(id, nx, ny) {

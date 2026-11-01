@@ -98,12 +98,12 @@ def api_waves_generate():
     {
         "waves": [
             {
-                "wave_id":   "W1",
+                "wave_id":   "WAVE01",
                 "status":    "ABIERTA",
-                "picker_ids": ["PK_01"],
-                "picker_id": "PK_01",
+                "picker_ids": ["PICK01"],
+                "picker_id": "PICK01",
                 "prioridad": 5,
-                "pedidos":   ["PED_01", "PED_02"],
+                "pedidos":   ["ORDR01", "ORDR02"],
                 "unidades":  3,
                 "peso_kg":   7.7
             },
@@ -160,7 +160,7 @@ def api_routes_plan():
     Cuerpo esperado (application/json):
     {
         "escenario":  { ...Scenario.toJSON()... },
-        "wave_id":    "W1",
+        "wave_id":    "WAVE01",
         "estrategia": "orden" | "cercania",
         "buscador":   "bfs"   | "astar"
     }

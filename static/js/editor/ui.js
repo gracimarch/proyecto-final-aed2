@@ -842,9 +842,9 @@ function submitOrder() {
 
     const priority = parseInt(DOM.inputOrderPriority().value) || 3;
 
-    // Crear Order con OrderItem
+    // Crear Order con OrderItem — se pasa el array existente para generar ORDR01, ORDR02...
     const items = _orderDraftItems.map(it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad }));
-    const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items });
+    const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items, _existingOrders: sc.orders });
     sc.orders.push(order);
 
     renderOrdersList();
