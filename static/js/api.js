@@ -88,19 +88,32 @@ async function apiPlanRoute(escenario, waveId, estrategia, buscador) {
 // ---------------------------------------------------------------------------
 
 /**
- * Corre todas las estrategias sobre la misma wave y devuelve la comparacion.
+ * Corre todas las combinaciones de estrategias y algoritmos
+ * (Cercanía y Orden con BFS y A*) sobre la wave seleccionada.
  *
  * @param {Object} escenario  Resultado de Scenario.toJSON().
  * @param {string} waveId     ID de la wave.
- * @param {string} buscador   "bfs" o "astar".
- * @returns {Promise<Object>} Objeto con una clave por estrategia, cada una
- *     con su RouteResult serializado: { orden: {...}, cercania: {...} }.
+ * @returns {Promise<Object>} Objeto { wave_id, combinaciones: [ RouteResult, ... ] }.
  */
-async function apiCompareStrategies(escenario, waveId, buscador) {
+async function apiCompareStrategies(escenario, waveId) {
     return await _post('/api/routes/compare', {
         escenario,
-        wave_id:  waveId,
-        buscador: buscador,
+        wave_id: waveId,
+    });
+}
+
+
+/**
+ * Corre la simulación de todas las waves en simultáneo para todas las combinaciones
+ * posibles de estrategias y algoritmos (Cercanía con BFS, Cercanía con A*, Orden con BFS, Orden con A*).
+ *
+ * @param {Object} escenario  Resultado de Scenario.toJSON().
+ * @returns {Promise<Object>} Objeto { tipo: 'todas_waves', total_waves, combinaciones: [ ... ] }.
+ */
+async function apiCompareAllCombinations(escenario) {
+    return await _post('/api/routes/compare', {
+        escenario,
+        todas_combinaciones: true,
     });
 }
 

@@ -564,11 +564,36 @@ async function simCompare() {
     if (btn) btn.disabled = true;
 
     try {
-        const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId, _getBuscadorValue());
-        _renderComparison(comparacion);
-        showToast(`Comparación lista para ${_selectedWaveId}.`, 'success');
+        const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId);
+        _renderComparison(comparacion, { waveId: _selectedWaveId });
+        showToast(`Comparación de todas las combinaciones lista para ${_selectedWaveId}.`, 'success');
     } catch (err) {
         showToast(err.error || 'Error al comparar estrategias.', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+
+/**
+ * Corre todas las combinaciones posibles de estrategias y algoritmos
+ * (Cercanía + BFS, Cercanía + A*, Orden + BFS, Orden + A*) simulando
+ * TODAS las waves en simultáneo.
+ */
+async function simCompareAll() {
+    const sc = _getScenario();
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+
+    const btn = _dom('btn-compare-all');
+    if (btn) btn.disabled = true;
+
+    try {
+        showToast('Ejecutando simulación de todas las waves en simultáneo...', 'info');
+        const res = await apiCompareAllCombinations(sc.toJSON());
+        _renderComparison(res);
+        showToast('Comparación de todas las combinaciones completada.', 'success');
+    } catch (err) {
+        showToast(err.error || 'Error al comparar combinaciones.', 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -619,43 +644,76 @@ function _addCollectedProducts(productIds, waveId) {
     }
 }
 
-function _renderComparison(comparacion) {
+function _renderComparison(datos, options = {}) {
     const container = _dom('compare-result');
-    if (!container) return;
+    if (!container || !datos) return;
 
-    const labels = {
-        cercania: 'A — Cercanía',
-        orden:    'B — Orden de pedidos'
+    let lista = [];
+    let tituloBadge = '';
+
+    if (datos.tipo === 'todas_waves' && Array.isArray(datos.combinaciones)) {
+        lista = datos.combinaciones;
+        const total = datos.total_waves !== undefined ? datos.total_waves : '';
+        tituloBadge = `<div class="compare-badge">Todas las waves (${total ? total + ' ' : ''}en simultáneo)</div>`;
+    } else if (datos.combinaciones && Array.isArray(datos.combinaciones)) {
+        lista = datos.combinaciones;
+        const waveId = datos.wave_id || options.waveId;
+        if (waveId) {
+            tituloBadge = `<div class="compare-badge">Wave: ${waveId}</div>`;
+        }
+    } else if (Array.isArray(datos)) {
+        lista = datos;
+    } else if (typeof datos === 'object') {
+        const orderedKeys = ['cercania', 'orden'].filter(k => k in datos);
+        Object.keys(datos).forEach(k => {
+            if (!orderedKeys.includes(k)) orderedKeys.push(k);
+        });
+        lista = orderedKeys.map(k => datos[k]);
+        if (options.waveId) {
+            tituloBadge = `<div class="compare-badge">Wave: ${options.waveId}</div>`;
+        }
+    }
+
+    const strategyLabels = {
+        cercania: 'Cercanía',
+        orden:    'Orden de pedidos'
     };
 
-    // Orden de visualización: A — Cercanía primero, B — Orden segundo
-    const orderedKeys = ['cercania', 'orden'].filter(k => k in comparacion);
-    Object.keys(comparacion).forEach(k => {
-        if (!orderedKeys.includes(k)) orderedKeys.push(k);
-    });
+    const buscadorLabels = {
+        bfs:   'BFS',
+        astar: 'A*'
+    };
 
-    const filas = orderedKeys.map(k => {
-        const r = comparacion[k];
-        const label = labels[k] || k;
+    const filas = lista.map(r => {
+        const estLabel = strategyLabels[r.estrategia] || r.estrategia;
+        const algLabel = buscadorLabels[r.buscador] || (r.buscador ? r.buscador.toUpperCase() : '—');
+        const distancia = (r.distancia_total !== undefined && r.distancia_total !== null) ? `${r.distancia_total} celdas` : '—';
+        const nodosVis = (r.nodos_visitados !== undefined && r.nodos_visitados !== null) ? r.nodos_visitados : '—';
+        const nodosExp = (r.nodos_expandidos !== undefined && r.nodos_expandidos !== null) ? r.nodos_expandidos : '—';
+        const tiempo = (r.tiempo_ms !== undefined && r.tiempo_ms !== null) ? `${Number(r.tiempo_ms).toFixed(2)} ms` : '—';
+
         return `
         <tr>
-            <td>${label}</td>
-            <td>${r.distancia_total}</td>
-            <td>${r.nodos_visitados}</td>
-            <td>${r.nodos_expandidos}</td>
-            <td>${r.tiempo_ms.toFixed(2)} ms</td>
+            <td class="compare-cell--name"><strong>${estLabel}</strong></td>
+            <td><span class="badge-algo">${algLabel}</span></td>
+            <td class="text-right">${distancia}</td>
+            <td class="text-right">${nodosVis}</td>
+            <td class="text-right">${nodosExp}</td>
+            <td class="text-right">${tiempo}</td>
         </tr>`;
     }).join('');
 
     container.innerHTML = `
+        ${tituloBadge}
         <table class="compare-table">
             <thead>
                 <tr>
                     <th>Estrategia</th>
-                    <th>Distancia</th>
-                    <th>Nodos vis.</th>
-                    <th>Nodos exp.</th>
-                    <th>Tiempo</th>
+                    <th>Algoritmo</th>
+                    <th class="text-right">Distancia total</th>
+                    <th class="text-right">Nodos visitados</th>
+                    <th class="text-right">Nodos expandidos</th>
+                    <th class="text-right">Tiempo</th>
                 </tr>
             </thead>
             <tbody>${filas}</tbody>
@@ -898,10 +956,12 @@ document.addEventListener('DOMContentLoaded', () => {
             simPlanAndPlay();
         }
     });
-    if (btnStep)     btnStep.addEventListener('click',     simStep);
+    if (btnStep)    btnStep.addEventListener('click',    simStep);
     if (btnStepBack) btnStepBack.addEventListener('click', simStepBack);
-    if (btnRestart)  btnRestart.addEventListener('click',  simRestart);
-    if (btnCompare)  btnCompare.addEventListener('click',  simCompare);
+    if (btnRestart) btnRestart.addEventListener('click', simRestart);
+    if (btnCompare) btnCompare.addEventListener('click', simCompare);
+    const btnCompareAll = _dom('btn-compare-all');
+    if (btnCompareAll) btnCompareAll.addEventListener('click', simCompareAll);
 
     const btnFocusMode = _dom('btn-focus-mode');
     if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
