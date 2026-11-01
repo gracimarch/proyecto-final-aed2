@@ -578,7 +578,7 @@ def compare_strategies(
     inicio: tuple[int, int] | None = None,
 ) -> dict[str, RouteResult]:
     """
-    Ejecuta todas las estrategias sobre la misma wave (§10).
+    Ejecuta todas las estrategias sobre la misma wave (§10) usando un buscador dado.
 
     Returns:
         {estrategia: RouteResult}
@@ -588,6 +588,31 @@ def compare_strategies(
         resultados[estrategia] = plan_route(
             wave, warehouse, graph, estrategia, buscador, zone, inicio
         )
+    return resultados
+
+
+def compare_all_combinations(
+    wave: Wave,
+    warehouse: Warehouse,
+    graph: Graph,
+    zone: DispatchZone | None = None,
+    inicio: tuple[int, int] | None = None,
+) -> list[RouteResult]:
+    """
+    Ejecuta todas las combinaciones posibles de estrategias y algoritmos
+    sobre la misma wave (Cercanía con BFS, Cercanía con A*, Orden con BFS,
+    Orden con A*).
+
+    Returns:
+        Lista de RouteResult con las 4 combinaciones.
+    """
+    resultados = []
+    for estrategia in ESTRATEGIAS:
+        for buscador in BUSCADORES:
+            resultado = plan_route(
+                wave, warehouse, graph, estrategia, buscador, zone, inicio
+            )
+            resultados.append(resultado)
     return resultados
 
 

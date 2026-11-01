@@ -31,7 +31,7 @@ from flask import Flask, render_template, request, jsonify
 from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
 from algorithms.graph_builder import generate_graph
-from algorithms.routing import plan_route, compare_strategies
+from algorithms.routing import plan_route, compare_strategies, compare_all_combinations
 from models.simulation import Simulation
 
 
@@ -246,9 +246,44 @@ def api_routes_compare():
     escenario = body.get("escenario")
     wave_id   = body.get("wave_id")
     buscador  = body.get("buscador", "bfs")
+    todas     = body.get("todas_combinaciones", False) or body.get("all_combinations", False)
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
+
+    if todas:
+        try:
+            combinaciones_resultado = []
+            combos = [
+                ("cercania", "bfs"),
+                ("cercania", "astar"),
+                ("orden", "bfs"),
+                ("orden", "astar"),
+            ]
+            total_waves = 0
+            for est, bus in combos:
+                wh = _build_warehouse(escenario)
+                wm = _build_wave_manager(escenario, wh)
+                wm.generate_waves()
+                wm.assign_pickers()
+                total_waves = len(wm.get_waves())
+                sim = Simulation(wh, wm, est, bus)
+                sim.run()
+                metr = sim.metrics()
+                metr["estrategia"] = est
+                metr["buscador"] = bus
+                if sim.error:
+                    metr["error"] = sim.error
+                combinaciones_resultado.append(metr)
+
+            return jsonify({
+                "tipo": "todas_waves",
+                "total_waves": total_waves,
+                "combinaciones": combinaciones_resultado,
+            })
+        except (ValueError, KeyError) as e:
+            return jsonify({"error": str(e)}), 400
+
     if wave_id is None:
         return jsonify({"error": "Falta la clave 'wave_id' en el cuerpo."}), 400
 
@@ -270,17 +305,15 @@ def api_routes_compare():
         return jsonify({"error": f"No existe la wave '{wave_id}'."}), 400
 
     try:
-        graph       = generate_graph(warehouse)
-        comparacion = compare_strategies(wave, warehouse, graph, buscador,
-                                         inicio=_picker_start(wave))
+        graph  = generate_graph(warehouse)
+        inicio = _picker_start(wave)
+        combinaciones = compare_all_combinations(wave, warehouse, graph, inicio=inicio)
+        return jsonify({
+            "wave_id": wave_id,
+            "combinaciones": [r.to_dict() for r in combinaciones]
+        })
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
-
-    resultado = {}
-    for estrategia, route_result in comparacion.items():
-        resultado[estrategia] = route_result.to_dict()
-
-    return jsonify(resultado)
 
 
 # ---------------------------------------------------------------------------
