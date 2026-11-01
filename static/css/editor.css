@@ -36,9 +36,14 @@
     transition: background 0.12s, color 0.12s, border-color 0.12s !important;
 }
 
-.tool-btn:hover {
+.tool-btn:hover:not(:disabled) {
     background: var(--color-border) !important;
     color: var(--color-text) !important;
+}
+
+.tool-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed !important;
 }
 
 .tool-btn.active {
@@ -272,7 +277,11 @@
     padding: 0;
     font-family: var(--font-mono);
 }
-.prod-chip__del:hover { color: var(--color-danger); }
+.prod-chip__del:hover:not(:disabled) { color: var(--color-danger); }
+.prod-chip__del:disabled {
+    opacity: 0.3;
+    cursor: not-allowed !important;
+}
 
 /* Compatibilidad: mantener el botón viejo por si queda alguna referencia */
 .sel-prod-del {
@@ -283,7 +292,7 @@
     display: inline-flex; align-items: center; justify-content: center;
     width: 16px; height: 16px;
 }
-.sel-prod-del:hover { color: var(--color-danger); }
+.sel-prod-del:hover:not(:disabled) { color: var(--color-danger); }
 
 
 /* Acciones del panel de selección */
@@ -299,7 +308,7 @@
     color: var(--color-danger);
     border: 1px solid rgba(249, 79, 79, 0.3);
 }
-.btn--danger:hover {
+.btn--danger:hover:not(:disabled) {
     background: rgba(249, 79, 79, 0.22);
     border-color: var(--color-danger);
 }
@@ -431,6 +440,11 @@
     outline: none;
     border-color: var(--color-primary);
     box-shadow: 0 0 0 2px rgba(79, 156, 249, 0.18);
+}
+
+.form-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed !important;
 }
 
 .form-input--num {
@@ -734,6 +748,10 @@
     max-width: 100px;
 }
 .tool-select:focus { outline: 2px solid var(--color-primary); }
+.tool-select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed !important;
+}
 
 /* ── Wizard Modal ───────────────────────────────────────────────── */
 .modal--wizard .modal__content--wizard {

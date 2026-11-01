@@ -78,6 +78,13 @@ let _selectedWaveId = null;
  */
 let _focusModeUserSet = false;
 
+/**
+ * Indica si la edicion del almacen esta bloqueada porque hay una
+ * simulacion activa (corriendo o pausada). Se libera al reiniciar,
+ * resetear o completar la simulacion.
+ */
+let _simulationLocked = false;
+
 
 // ---------------------------------------------------------------------------
 // Referencias a elementos DOM del panel derecho
@@ -322,6 +329,7 @@ async function _loadSimulation() {
     _resetPlayback();
     _renderMetrics(_simulation.metricas);
     _showFrame(0);
+    _setEditingLock(true);      // bloquear edicion mientras la sim esta activa
 
     if (!_focusModeUserSet) {
         _setFocusMode(true);
@@ -378,6 +386,7 @@ function _showFrame(index) {
     _pushRoutesToRenderer(frame);
     _renderWavesList();
     _renderFleetStatus();
+    _updateStepButtons();
 }
 
 function _applyEvent(evento) {
@@ -504,16 +513,15 @@ async function simStep() {
 
 function simRestart() {
     simPause();
-    if (_simulation) {
-        _resetPlayback();
-        _showFrame(0);
-    } else {
-        _resetPlayback();
-        _renderWavesList();
-        _renderFleetStatus();
-    }
+    _resetPlayback();
+    _simulation       = null;   // libera la planificacion calculada
     _focusModeUserSet = false;
-    showToast('Simulación reiniciada.', 'info');
+    _clearMetrics();
+    _setFocusMode(false);
+    _setEditingLock(false);     // devuelve la edicion al usuario
+    _renderWavesList();
+    _renderFleetStatus();
+    showToast('Simulación reiniciada. Podés editar el escenario.', 'info');
 }
 
 function _onSimulationComplete() {
@@ -524,6 +532,7 @@ function _onSimulationComplete() {
     _updatePlayPauseBtn(false);
     _focusModeUserSet = false;
     _setFocusMode(false);
+    _setEditingLock(false);     // la simulacion termino: desbloquear edicion
 
     if (_simulation.error) {
         showToast(`La simulación se detuvo: ${_simulation.error}`, 'error');
@@ -718,6 +727,7 @@ function _renderComparison(datos, options = {}) {
 
 function simReset() {
     simPause();
+    _setEditingLock(false);     // garantiza que el reset siempre libera la edicion
 
     _restorePickerPositions();
     _initialPickerPositions.clear();
@@ -725,6 +735,7 @@ function simReset() {
     _waves                = [];
     _initialWavesSnapshot = [];
     _simulation           = null;
+    _simulationLocked     = false;
     _frameIndex           = -1;
     _routes               = {};
     _selectedWaveId       = null;
@@ -771,6 +782,160 @@ function simToggleFocusMode() {
 
 
 // ---------------------------------------------------------------------------
+// Bloqueo de edicion durante la simulacion
+// ---------------------------------------------------------------------------
+
+/**
+ * Devuelve true cuando la simulacion esta activa (corriendo o pausada).
+ * Lo consultan editor.js y ui.js para bloquear las operaciones de edicion.
+ */
+function simIsEditingLocked() {
+    return _simulationLocked;
+}
+
+/** Habilita/deshabilita todos los controles de edicion del warehouse. */
+function _setEditingLock(locked) {
+    _simulationLocked = locked;
+
+    const MSG = 'No disponible mientras hay una simulacion activa';
+
+    // Herramientas de edicion del canvas (excepto seleccionar)
+    ['tool-rack', 'tool-move-rack', 'tool-product',
+     'tool-erase', 'tool-door', 'tool-dispatch', 'tool-aisle'].forEach(id => {
+        const btn = _dom(id);
+        if (!btn) return;
+        btn.disabled = locked;
+        if (locked) { btn._origTitle = btn.title; btn.title = MSG; }
+        else if (btn._origTitle !== undefined) { btn.title = btn._origTitle; }
+    });
+
+    // Selectores asociados a herramientas de edicion
+    ['door-tipo-select', 'aisle-sentido-select'].forEach(id => {
+        const el = _dom(id);
+        if (el) el.disabled = locked;
+    });
+
+    // Panel de pickers
+    ['btn-picker-add', 'btn-picker-remove'].forEach(id => {
+        const btn = _dom(id);
+        if (!btn) return;
+        btn.disabled = locked;
+        if (locked) btn.title = MSG;
+    });
+    const inputPickerCap = document.getElementById('input-picker-capacity');
+    if (inputPickerCap) inputPickerCap.disabled = locked;
+
+    // Panel de pedidos
+    const btnAddOrder = document.getElementById('btn-add-order');
+    if (btnAddOrder) {
+        btnAddOrder.disabled = locked;
+        if (locked) btnAddOrder.title = MSG;
+    }
+    // Botones de eliminar pedido: re-renderizar para aplicar disabled/enabled
+    // (se llama al final de esta funcion para que _simulationLocked ya este
+    // actualizado cuando renderOrdersList lo consulte con simIsEditingLocked())
+
+    // Selectores de estrategia y algoritmo
+    ['select-strategy', 'select-buscador'].forEach(id => {
+        const el = _dom(id);
+        if (!el) return;
+        el.disabled = locked;
+        if (locked) el.title = MSG;
+        else el.title = '';
+    });
+
+    // Generacion de waves
+    const btnGenWave = _dom('btn-generate-wave');
+    if (btnGenWave) {
+        btnGenWave.disabled = locked;
+        if (locked) btnGenWave.title = MSG;
+    }
+
+    // Botones de escenario en la navbar
+    ['btn-new-scenario', 'btn-load-scenario'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.disabled = locked;
+        if (locked) btn.title = MSG;
+    });
+
+    _updateStepButtons();
+
+    // Siempre re-renderizar la lista de pedidos: al bloquear aplica disabled=true
+    // a los botones existentes (evita que botones previos sigan disparando),
+    // y al desbloquear restaura los event listeners.
+    if (typeof renderOrdersList === 'function') renderOrdersList();
+}
+
+/** Sincroniza el estado de los botones de paso adelante y atras. */
+function _updateStepButtons() {
+    const btnBack = _dom('btn-step-back');
+    const btnNext = _dom('btn-step');
+    if (btnBack) btnBack.disabled = !_simulation || _frameIndex <= 0;
+    if (btnNext) btnNext.disabled = !!_simulation && _isLastFrame();
+}
+
+
+// ---------------------------------------------------------------------------
+// Paso atras
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrocede un frame re-aplicando todos los eventos desde el principio.
+ * Para evitar saturar el DOM en cada paso intermedio, solo actualiza el
+ * renderer y los paneles una vez, al llegar al frame destino.
+ */
+function simStepBack() {
+    simPause();
+    if (!_simulation || _frameIndex <= 0) return;
+
+    const target = _frameIndex - 1;
+    const sc     = _getScenario();
+
+    // Volver al estado inicial limpio
+    _frameIndex = -1;
+    _routes     = {};
+    _restorePickerPositions();
+    _clearCollected();
+    _clearRoutesFromRenderer();
+    if (_initialWavesSnapshot.length > 0) {
+        _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
+    }
+
+    // Re-aplicar frames 0...target de forma silenciosa
+    for (let i = 0; i <= target; i++) {
+        const frame = _simulation.frames[i];
+        _frameIndex = i;
+
+        // Posiciones de pickers (solo en memoria, sin tocar el renderer aun)
+        if (sc) {
+            for (const p of frame.pickers) {
+                const picker = sc.pickers.find(pk => pk.id === p.id);
+                if (picker) {
+                    picker.isWalking = i > 0 && (picker.x !== p.x || picker.y !== p.y);
+                    picker.x = p.x;
+                    picker.y = p.y;
+                }
+            }
+        }
+
+        // Eventos: modifica _waves, _routes y la lista de productos recogidos
+        for (const evento of frame.eventos) {
+            _applyEvent(evento);
+        }
+    }
+
+    // Una sola actualizacion del renderer y los paneles al final
+    if (target >= 0) {
+        _pushRoutesToRenderer(_simulation.frames[target]);
+    }
+    _renderWavesList();
+    _renderFleetStatus();
+    _updateStepButtons();
+}
+
+
+// ---------------------------------------------------------------------------
 // Inicializacion
 // ---------------------------------------------------------------------------
 
@@ -780,6 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnPlayPause = _dom('btn-play-pause');
     const btnStep      = _dom('btn-step');
+    const btnStepBack  = _dom('btn-step-back');
     const btnRestart   = _dom('btn-restart');
     const btnCompare   = _dom('btn-compare');
 
@@ -791,6 +957,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     if (btnStep)    btnStep.addEventListener('click',    simStep);
+    if (btnStepBack) btnStepBack.addEventListener('click', simStepBack);
     if (btnRestart) btnRestart.addEventListener('click', simRestart);
     if (btnCompare) btnCompare.addEventListener('click', simCompare);
     const btnCompareAll = _dom('btn-compare-all');
@@ -802,13 +969,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
     const selStrategy = _dom('select-strategy');
     const selBuscador = _dom('select-buscador');
-    const invalidar = () => {
-        if (_simulation) {
-            simRestart();
-            _simulation = null;
-            _clearMetrics();
-        }
-    };
+    const invalidar = () => { if (_simulation) simRestart(); };
     if (selStrategy) selStrategy.addEventListener('change', invalidar);
     if (selBuscador) selBuscador.addEventListener('change', invalidar);
 

@@ -151,6 +151,12 @@ class WarehouseEditor {
 
         if (e.button !== 0 || !this.scenario) return;
 
+        // Bloquear herramientas de edicion mientras la simulacion esta activa.
+        // El modo 'select' queda libre para poder inspeccionar elementos.
+        if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) {
+            if (this.mode !== 'select') return;
+        }
+
         switch (this.mode) {
             case 'select':    this._onSelectDown(cell, e);   break;
             case 'rack':      this._onRackDown(cell);         break;
