@@ -73,7 +73,7 @@
         "peso_max_kg": 1200
       },
       {
-        "id": "Z5DCAYZZZ",
+        "id": "ZONA_D",
         "puerta_id": "PUERTA_MIX_1",
         "ubicacion": {
           "x": 1,
@@ -559,7 +559,7 @@
   },
   "pickers": [
     {
-      "id": "PKLPGNH8XI",
+      "id": "PK_01",
       "posicion_inicial": {
         "x": 5,
         "y": 4
@@ -567,7 +567,7 @@
       "capacidad_carga_kg": 150
     },
     {
-      "id": "PK6VU76IRA",
+      "id": "PK_02",
       "posicion_inicial": {
         "x": 45,
         "y": 4
@@ -575,7 +575,7 @@
       "capacidad_carga_kg": 120
     },
     {
-      "id": "PKMMXWQYGG",
+      "id": "PK_03",
       "posicion_inicial": {
         "x": 30,
         "y": 32
@@ -583,7 +583,7 @@
       "capacidad_carga_kg": 100
     },
     {
-      "id": "PK5HMR36DR",
+      "id": "PK_04",
       "posicion_inicial": {
         "x": 5,
         "y": 17
