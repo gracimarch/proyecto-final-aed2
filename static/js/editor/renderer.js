@@ -84,6 +84,33 @@ class WarehouseRenderer {
         this.ctx     = canvas.getContext('2d');
         this.scenario = null;
 
+        // ── Capa estática pre-renderizada (offscreen canvas) ─────────
+        // Toda la geometría del warehouse (piso, grilla, pasillos, racks…)
+        // se dibuja una sola vez acá y luego se blitea con un único
+        // drawImage() por frame.
+        this._staticCanvas = document.createElement('canvas');
+        this._staticCtx    = this._staticCanvas.getContext('2d');
+        this._staticDirty  = true;   // fuerza el primer render de la capa
+        this._staticScale  = 1;      // píxeles de capa por unidad world
+        this._staticContentW = 0;    // área realmente dibujada (px de capa)
+        this._staticContentH = 0;
+
+        // Callback de "render bajo demanda" (lo conecta WarehouseEditor).
+        this.onDirty = null;
+
+        // ── Paleta y color de fondo cacheados ────────────────────────
+        // Se leen del DOM una sola vez y solo se refrescan cuando cambia
+        // data-theme (MutationObserver), nunca por frame.
+        this._theme     = CANVAS_THEMES.dark;
+        this._themeName = 'dark';
+        this._bgColor   = '#0f0f0f';
+        this._refreshThemeCache();
+        this._themeObserver = new MutationObserver(() => this._refreshThemeCache());
+        this._themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-theme'],
+        });
+
         // Viewport
         this.zoom = 1;
         this.panX = 40;
@@ -138,6 +165,125 @@ class WarehouseRenderer {
         }
     }
 
+    // ── Estado visual con notificación de cambios ─────────────────
+    // Los setters marcan el canvas como "sucio" solo cuando el valor
+    // realmente cambia, habilitando el render bajo demanda.
+
+    get hoverCell() { return this._hoverCell; }
+    set hoverCell(v) {
+        const a = this._hoverCell;
+        if (a === v) return;
+        if (a && v && a.x === v.x && a.y === v.y) return;
+        this._hoverCell = v;
+        this._markDirty();
+    }
+
+    get cursorRect() { return this._cursorRect; }
+    set cursorRect(v) {
+        const a = this._cursorRect;
+        if (a === v) return;
+        if (a && v && a.x === v.x && a.y === v.y && a.w === v.w && a.h === v.h) return;
+        this._cursorRect = v;
+        this._markDirty();
+    }
+
+    get selectedElement() { return this._selectedElement; }
+    set selectedElement(v) {
+        const a = this._selectedElement;
+        if (a === v) return;
+        const same = (a?.type === v?.type) &&
+                     (a?.element?.id === v?.element?.id) &&
+                     (!!a === !!v);
+        this._selectedElement = v;
+        if (same) return;
+        // La selección pinta borde/glow sobre la geometría estática.
+        this._staticDirty = true;
+        this._markDirty();
+    }
+
+    get mode() { return this._mode; }
+    set mode(v) {
+        if (this._mode === v) return;
+        this._mode = v;
+        this._markDirty();
+    }
+
+    get doorTipo() { return this._doorTipo; }
+    set doorTipo(v) {
+        if (this._doorTipo === v) return;
+        this._doorTipo = v;
+        this._markDirty();
+    }
+
+    get agentRoutes() { return this._agentRoutes; }
+    set agentRoutes(v) { this._agentRoutes = v; this._markDirty(); }
+
+    get routePath() { return this._routePath; }
+    set routePath(v) { this._routePath = v; this._markDirty(); }
+
+    get routeStops() { return this._routeStops; }
+    set routeStops(v) { this._routeStops = v; this._markDirty(); }
+
+    get routeStep() { return this._routeStep; }
+    set routeStep(v) { this._routeStep = v; this._markDirty(); }
+
+    get focusMode() { return this._focusMode; }
+    set focusMode(v) {
+        v = !!v;
+        if (this._focusMode === v) return;
+        this._focusMode = v;
+        // En modo enfoque los pasillos cambian relleno/flechas.
+        this.invalidateStaticLayer();
+    }
+
+    get panX() { return this._panX; }
+    set panX(v) {
+        if (this._panX === v) return;
+        this._panX = v;
+        this._markDirty();
+    }
+
+    get panY() { return this._panY; }
+    set panY(v) {
+        if (this._panY === v) return;
+        this._panY = v;
+        this._markDirty();
+    }
+
+    get zoom() { return this._zoom; }
+    set zoom(v) {
+        if (this._zoom === v) return;
+        this._zoom = v;
+        // La capa estática se genera a la resolución del zoom actual.
+        this.invalidateStaticLayer();
+    }
+
+    // ── Render bajo demanda ───────────────────────────────────────
+
+    /** Marca el canvas para redibujarse en el próximo frame. */
+    requestRender() { this._markDirty(); }
+
+    _markDirty() {
+        if (typeof this.onDirty === 'function') this.onDirty();
+    }
+
+    /** La geometría estática cambió: hay que regenerar la capa offscreen. */
+    invalidateStaticLayer() {
+        this._staticDirty = true;
+        this._markDirty();
+    }
+
+    /** Relee la paleta y el color de fondo. Solo se llama al cambiar el tema. */
+    _refreshThemeCache() {
+        const name = document.documentElement.getAttribute('data-theme') === 'light'
+            ? 'light' : 'dark';
+        this._themeName = name;
+        this._theme     = _getCanvasTheme();
+        this._bgColor   = getComputedStyle(document.documentElement)
+                              .getPropertyValue('--color-bg').trim() || '#0f0f0f';
+        this.invalidateStaticLayer();
+    }
+
     // ── Sprites ──────────────────────────────────────────────────
 
     // Pixel-art sprite frame constants
@@ -180,7 +326,12 @@ class WarehouseRenderer {
 
         const checkReady = () => {
             loaded++;
-            if (loaded >= totalImages) this._spritesReady = true;
+            if (loaded >= totalImages) {
+                this._spritesReady = true;
+                // Los sprites aparecieron: hay que repintar pickers (capa
+                // dinámica) y productos sobre racks (capa estática).
+                this.invalidateStaticLayer();
+            }
         };
 
         // Cargar product sprite (box.png, 18×18 pixel art)
@@ -215,15 +366,52 @@ class WarehouseRenderer {
     _fitCanvas() {
         const p = this.canvas.parentElement;
         if (!p) return;
-        this.canvas.width  = p.clientWidth;
-        this.canvas.height = p.clientHeight;
+        const w = p.clientWidth;
+        const h = p.clientHeight;
+        if (this.canvas.width === w && this.canvas.height === h) return;
+        this.canvas.width  = w;
+        this.canvas.height = h;
+        // El tamaño del viewport cambió: recalcular en el próximo frame.
+        this.invalidateStaticLayer();
     }
 
     // ── Scenario ──────────────────────────────────────────────────
 
     setScenario(scenario) {
         this.scenario = scenario;
+        this._observeScenarioMutations(scenario);
         this._centerView();
+        this.invalidateStaticLayer();
+    }
+
+    /**
+     * Envuelve los métodos de mutación del escenario para invalidar la capa
+     * estática y pedir un repintado automáticamente, sin importar desde qué
+     * módulo (editor, ui.js, wizard) se modifique el warehouse.
+     * Se ejecuta una sola vez por instancia de escenario.
+     */
+    _observeScenarioMutations(scenario) {
+        if (!scenario || scenario.__rendererObserved) return;
+        scenario.__rendererObserved = true;
+
+        const MUTATORS = [
+            'addRack', 'removeRack', 'moveRack',
+            'addDoor', 'removeDoor', 'moveDoor',
+            'addDispatchZone', 'removeDispatchZone',
+            'addAisle', 'removeAisle',
+            'addProduct', 'removeProduct',
+            'addPicker', 'removePicker', 'movePicker',
+        ];
+
+        for (const name of MUTATORS) {
+            const original = scenario[name];
+            if (typeof original !== 'function') continue;
+            scenario[name] = (...args) => {
+                const result = original.apply(scenario, args);
+                this.invalidateStaticLayer();
+                return result;
+            };
+        }
     }
 
     _centerView() {
@@ -280,6 +468,92 @@ class WarehouseRenderer {
         this._centerView();
     }
 
+    // ── Capa estática (offscreen) ─────────────────────────────────
+
+    /**
+     * Pre-renderiza toda la geometría estática del warehouse (piso, grilla,
+     * zonas de despacho, pasillos, puertas y racks) en un canvas fuera de
+     * pantalla, en coordenadas world-space y a la resolución del zoom actual.
+     *
+     * Solo se re-ejecuta cuando algo estructural cambia: escenario, tamaño
+     * del canvas, tema, selección o zoom. Nunca en cada frame.
+     */
+    _renderStaticLayer() {
+        const sc = this.scenario;
+        const c  = this._staticCanvas;
+
+        if (!sc) {
+            if (c.width !== 1 || c.height !== 1) { c.width = 1; c.height = 1; }
+            this._staticScale    = 1;
+            this._staticContentW = 0;
+            this._staticContentH = 0;
+            this._staticDirty = false;
+            return;
+        }
+
+        const worldW = sc.width  * CELL;
+        const worldH = sc.height * CELL;
+
+        // 1 px de capa por px de pantalla al zoom actual (blit 1:1 = nítido).
+        // Se limita el tamaño para no exceder los límites de canvas/GPU en
+        // escenarios grandes con zoom alto (en ese caso se reescala levemente).
+        const targetW = worldW * this.zoom;
+        const targetH = worldH * this.zoom;
+        const MAX_DIM  = 8192;
+        const MAX_AREA = 32 * 1024 * 1024;   // ~32 MPx
+        let q = 1;
+        if (targetW > MAX_DIM || targetH > MAX_DIM || targetW * targetH > MAX_AREA) {
+            q = Math.min(
+                MAX_DIM / targetW,
+                MAX_DIM / targetH,
+                Math.sqrt(MAX_AREA / (targetW * targetH)),
+            );
+        }
+
+        const sw = Math.max(1, Math.ceil(targetW * q));
+        const sh = Math.max(1, Math.ceil(targetH * q));
+
+        if (c.width !== sw || c.height !== sh) {
+            c.width  = sw;   // redimensionar también limpia el canvas
+            c.height = sh;
+        } else {
+            this._staticCtx.setTransform(1, 0, 0, 1, 0, 0);
+            this._staticCtx.clearRect(0, 0, sw, sh);
+        }
+
+        this._staticScale = this.zoom * q;   // px de capa por unidad world
+        // Área realmente dibujada dentro del canvas (puede quedar < 1 px de
+        // margen por el ceil). Se usa como source rect para un blit 1:1.
+        this._staticContentW = worldW * this._staticScale;
+        this._staticContentH = worldH * this._staticScale;
+
+        // Los métodos _draw* dibujan sobre this.ctx: apuntamos al offscreen
+        // durante la generación y restauramos al terminar (síncrono, sin
+        // reentrancia posible).
+        const mainCtx = this.ctx;
+        this.ctx = this._staticCtx;
+        try {
+            const ctx = this._staticCtx;
+            const theme = this._theme;
+
+            ctx.save();
+            ctx.setTransform(this._staticScale, 0, 0, this._staticScale, 0, 0);
+
+            this._drawFloor(theme);
+            this._drawGrid(theme);
+            this._drawDispatchZone();
+            this._drawAisles();
+            this._drawDoors(theme);
+            this._drawRacks(theme);
+
+            ctx.restore();
+        } finally {
+            this.ctx = mainCtx;
+        }
+
+        this._staticDirty = false;
+    }
+
     // ── Render principal ──────────────────────────────────────────
 
     render() {
@@ -287,14 +561,20 @@ class WarehouseRenderer {
         const W   = this.canvas.width;
         const H   = this.canvas.height;
 
-        // Paleta del frame actual (se evalúa una vez por frame)
-        const theme = _getCanvasTheme();
+        // Paleta cacheada: no se toca getComputedStyle por frame.
+        const theme = this._theme;
 
         // Limpiar
         ctx.clearRect(0, 0, W, H);
         this._drawAppBackground(W, H);
 
-        if (!this.scenario) return;
+        if (!this.scenario) {
+            this._staticDirty = false;
+            return;
+        }
+
+        // Regenerar la capa estática solo si algo estructural cambió.
+        if (this._staticDirty) this._renderStaticLayer();
 
         const z = this.zoom;
 
@@ -303,12 +583,23 @@ class WarehouseRenderer {
             ctx.translate(this.panX, this.panY);
             ctx.scale(z, z);
 
-            this._drawFloor(theme);
-            this._drawGrid(theme);
-            this._drawDispatchZone();
-            this._drawAisles();
-            this._drawDoors(theme);
-            this._drawRacks(theme);
+            // ── Capa estática: un único drawImage (antes ~20.000 ops) ──
+            // Se copia solo el área de contenido real a su tamaño world, de
+            // modo que el blit sea 1:1 y no haya reescalado subpíxel.
+            if (this._staticCanvas.width > 1 && this._staticContentW > 0) {
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(
+                    this._staticCanvas,
+                    0, 0,
+                    this._staticContentW, this._staticContentH,
+                    0, 0,
+                    this.scenario.width  * CELL,
+                    this.scenario.height * CELL,
+                );
+            }
+
+            // ── Capa dinámica ─────────────────────────────────────
             this._drawRoutePath();            // trayecto de simulación (bajo el picker)
             this._drawHoverCell(theme);   // dibujado DESPUÉS de racks para que las coordenadas sean siempre visibles
             this._drawPickers();
@@ -322,9 +613,8 @@ class WarehouseRenderer {
 
     _drawAppBackground(W, H) {
         const ctx = this.ctx;
-        const bg  = getComputedStyle(document.documentElement)
-                        .getPropertyValue('--color-bg').trim() || '#0f0f0f';
-        ctx.fillStyle = bg;
+        // Color cacheado: se refresca solo cuando cambia el tema.
+        ctx.fillStyle = this._bgColor || '#0f0f0f';
         ctx.fillRect(0, 0, W, H);
     }
 
@@ -1111,6 +1401,8 @@ class WarehouseRenderer {
 
     destroy() {
         this._ro.disconnect();
+        if (this._themeObserver) this._themeObserver.disconnect();
+        this.onDirty = null;
     }
 }
 
