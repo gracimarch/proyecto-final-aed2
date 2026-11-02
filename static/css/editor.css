@@ -202,8 +202,9 @@
     background: rgba(79, 156, 249, 0.08) !important;
 }
 
-/* Indicador visual de nivel Z (badge pequeño) */
+/* Indicador visual de nivel Z (badge pequeño) — ya no se usa: Z está en (x,y,z) */
 .prod-chip__zbadge {
+    display: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;

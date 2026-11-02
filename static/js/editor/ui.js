@@ -868,9 +868,28 @@ function renderOrdersList() {
     const allProducts = sc ? sc.getAllProducts() : [];
 
     const cards = orders.map(order => {
+        // Estado del pedido (via sim.js si la simulación está activa)
+        const _orderStatusStyle = {
+            'PENDIENTE':  { color: '#94a3b8', label: 'Pendiente' },
+            'EN_WAVE':    { color: '#60a5fa', label: 'En wave' },
+            'EN_PROCESO': { color: '#fbbf24', label: 'En proceso' },
+            'COMPLETADO': { color: '#22c55e', label: 'Completado' },
+        };
+        const orderStatus = (typeof simGetOrderStatus === 'function')
+            ? simGetOrderStatus(order.id)
+            : 'PENDIENTE';
+        const stStyle = _orderStatusStyle[orderStatus] || _orderStatusStyle['PENDIENTE'];
+
+        // Items: nombre + [código SKU] · ×cantidad
         const itemsText = order.items.map(it => {
             const p = allProducts.find(pr => pr.id === it.productoId);
-            return `<span style="display:block;font-size:.72rem;color:var(--color-text-muted,#94a3b8)">${p ? p.name : it.productoId} ×${it.cantidad}</span>`;
+            const nombre = p ? p.name : it.productoId;
+            const codigo = p ? (p.sku || it.productoId) : it.productoId;
+            return `<span style="display:block;font-size:.72rem;color:var(--color-text-muted,#94a3b8)">`
+                 + `${nombre} `
+                 + `<span style="font-family:var(--font-mono,monospace);color:#94a3b8;opacity:.75">[${codigo}]</span>`
+                 + ` · ×${it.cantidad}`
+                 + `</span>`;
         }).join('');
 
         const priorityColors = { 1: '#22c55e', 2: '#4fc97f', 3: '#fbbf24', 4: '#f97316', 5: '#ef4444' };
@@ -882,6 +901,10 @@ function renderOrdersList() {
                 <span class="wave-item__id" style="font-size:.78rem">${order.id}</span>
                 <span style="display:inline-block;width:.35rem"></span>
                 <span class="wave-item__badge" style="color:${pc};border-color:${pc}">P${order.prioridad}</span>
+                <span class="wave-item__badge"
+                      style="color:${stStyle.color};border-color:${stStyle.color};opacity:.9;font-size:.62rem;margin-left:.2rem">
+                    ${stStyle.label}
+                </span>
                 <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${order.id}" title="Eliminar pedido" style="margin-left:auto">
                     <span class="icon icon--sm" aria-hidden="true">delete</span>
                 </button>
@@ -1064,12 +1087,11 @@ function _showSelectionRack(rack, highlightCell = null) {
         const isActive = highlightCell && p.x === highlightCell.x && p.y === highlightCell.y;
         return `
         <div class="prod-chip${isActive ? ' prod-chip--active' : ''}" data-px="${p.x}" data-py="${p.y}">
-            <span class="prod-chip__zbadge" title="Nivel Z">Z${p.z}</span>
             <div class="prod-chip__body">
                 <span class="prod-chip__name">${p.name}</span>
                 <span class="prod-chip__meta">${p.sku} &middot; ${p.pesoKg}&thinsp;kg &middot; &times;${p.quantity}</span>
             </div>
-            <span class="prod-chip__cell" title="Celda">(${p.x},${p.y})</span>
+            <span class="prod-chip__cell" title="Coordenadas (x, y, z)">(${p.x},${p.y},${p.z})</span>
             <button class="prod-chip__del" data-pid="${p.id}" title="Eliminar" aria-label="Eliminar ${p.name}">
                 <span class="icon icon--sm" aria-hidden="true">close</span>
             </button>
