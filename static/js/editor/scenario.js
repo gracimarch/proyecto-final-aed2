@@ -224,7 +224,16 @@ class Scenario {
         if (this._isRackAdjacentToOtherRack(nx, ny, newW, newH, rackId)) return false;
         // Verificar accesibilidad tras la rotación (excluir el rack que se rota)
         if (!this.isRackFullyAccessible({ x: nx, y: ny, width: newW, height: newH }, rackId)) return false;
+        const oldX = rack.x;
+        const oldY = rack.y;
+        const oldW = rack.width;
         rack.width = newW; rack.height = newH; rack.x = nx; rack.y = ny;
+        for (const p of rack.products) {
+            const rx = p.x - oldX;
+            const ry = p.y - oldY;
+            p.x = nx + ry;
+            p.y = ny + (oldW - 1 - rx);
+        }
         return true;
     }
 

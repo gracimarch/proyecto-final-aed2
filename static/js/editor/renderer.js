@@ -395,7 +395,7 @@ class WarehouseRenderer {
         scenario.__rendererObserved = true;
 
         const MUTATORS = [
-            'addRack', 'removeRack', 'moveRack',
+            'addRack', 'removeRack', 'moveRack', 'rotateRack',
             'addDoor', 'removeDoor', 'moveDoor',
             'addDispatchZone', 'removeDispatchZone',
             'addAisle', 'removeAisle',

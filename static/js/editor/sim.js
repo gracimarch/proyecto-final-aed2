@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    SIM.JS
    Conecta los controles del panel derecho (Simulacion, Metricas,
    Productos recogidos) con el servidor Flask a traves de api.js.
@@ -930,6 +930,60 @@ function simToggleFocusMode() {
  */
 function simIsEditingLocked() {
     return _simulationLocked;
+}
+
+// ---------------------------------------------------------------------------
+// Tooltip de pickers: acceso al estado de simulacion del frame actual
+// ---------------------------------------------------------------------------
+
+/**
+ * Devuelve todos los datos de simulacion del picker para el frame actual,
+ * combinando la info del scenario (estática) con la del frame (dinámica).
+ *
+ * Si no hay simulación activa, devuelve solo los datos estáticos.
+ *
+ * @param {string} pickerId - ID del picker.
+ * @param {object} scenarioPicker - Instancia de Picker del scenario (tiene .capacidadKg, .color, .name).
+ * @returns {object} Datos enriquecidos listos para el tooltip.
+ */
+function simGetPickerRuntimeData(pickerId, scenarioPicker) {
+    const frame = _currentFrame();
+
+    // Datos base (siempre disponibles desde el escenario)
+    const base = {
+        id:           pickerId,
+        name:         scenarioPicker?.name  || pickerId,
+        color:        scenarioPicker?.color || '#4f9cf9',
+        capacidadKg:  scenarioPicker?.capacidadKg ?? 100,
+        x:            scenarioPicker?.x ?? 0,
+        y:            scenarioPicker?.y ?? 0,
+        // Datos de simulación con valores por defecto (modo edición)
+        estado:           'LIBRE',
+        wave:             null,
+        carga_kg:         0,
+        carga:            [],
+        proximo_objetivo: { tipo: 'FIN', destino: null, descripcion: 'En espera / sin wave' },
+        // Ruta activa
+        ruta: _routes[pickerId] || null,
+    };
+
+    if (!frame) return base;
+
+    // Buscar el estado del picker en el frame actual
+    const fp = frame.pickers.find(p => p.id === pickerId);
+    if (!fp) return base;
+
+    return {
+        ...base,
+        x:                fp.x,
+        y:                fp.y,
+        estado:           fp.estado  || 'LIBRE',
+        wave:             fp.wave    || null,
+        carga_kg:         fp.carga_kg ?? 0,
+        // Enriquecidos (si el backend ya los provee en el frame)
+        carga:            fp.carga            || [],
+        proximo_objetivo: fp.proximo_objetivo || base.proximo_objetivo,
+    };
 }
 
 /** Habilita/deshabilita todos los controles de edicion del warehouse. */
