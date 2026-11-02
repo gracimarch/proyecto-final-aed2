@@ -113,6 +113,13 @@ let _wizardScenario     = null;
 /** Items temporales del pedido en construcción (array de {productoId, cantidad}). */
 let _orderDraftItems = [];
 
+/**
+ * ID del pedido que se está editando, o null si se está creando uno nuevo.
+ * Se usa para excluir ese pedido del cálculo de stock comprometido y para
+ * actualizar el pedido en lugar de crear uno nuevo al confirmar.
+ */
+let _editingOrderId = null;
+
 /** Escenario activo: durante el wizard es _wizardScenario; despues es _scenario */
 function _activeScenario() { return _wizardScenario || _scenario; }
 
@@ -667,15 +674,27 @@ function submitProduct() {
 
 // ── Modal: Agregar Pedido ─────────────────────────────────────────
 
-/** Devuelve el stock disponible de un producto descontando lo ya en el draft. */
+/** Devuelve el stock disponible de un producto descontando lo ya en el draft
+ *  y lo comprometido en pedidos ya confirmados (excluyendo el pedido en edición). */
 function _stockDisponible(productId) {
     const sc = _activeScenario();
     if (!sc) return 0;
     const prod = sc.getAllProducts().find(p => p.id === productId);
     if (!prod) return 0;
+
+    // Stock comprometido en pedidos ya confirmados
+    // (excluir el pedido que se está editando para no descontarlo dos veces)
+    const comprometido = (sc.orders || []).reduce((total, order) => {
+        if (_editingOrderId && order.id === _editingOrderId) return total;
+        const item = order.items.find(it => it.productoId === productId);
+        return total + (item ? item.cantidad : 0);
+    }, 0);
+
+    // Stock en el draft actual
     const yaEnDraft = _orderDraftItems.filter(it => it.productoId === productId)
                                       .reduce((s, it) => s + it.cantidad, 0);
-    return Math.max(0, (prod.quantity || 0) - yaEnDraft);
+
+    return Math.max(0, (prod.quantity || 0) - comprometido - yaEnDraft);
 }
 
 /** Actualiza el badge de stock y el max del input de cantidad segun el producto seleccionado. */
@@ -693,20 +712,54 @@ function _updateStockBadge() {
 }
 
 
-function openModalOrder() {
+/**
+ * Abre el modal de pedido.
+ * @param {string|null} orderIdToEdit - ID del pedido a editar, o null para crear uno nuevo.
+ */
+function openModalOrder(orderIdToEdit = null) {
     const sc = _activeScenario();
     if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
 
-    // Limpiar estado del draft
-    _orderDraftItems = [];
+    // Bloqueo estricto: no abrir si la simulacion esta activa o pausada
+    if (typeof simIsOrderEditingLocked === 'function' && simIsOrderEditingLocked()) {
+        showToast('No se pueden editar pedidos mientras la simulación está activa.', 'warning');
+        return;
+    }
 
-    // Resetear prioridad y su badge
-    DOM.inputOrderPriority().value = '3';
+    // Determinar modo: editar o nuevo
+    _editingOrderId = orderIdToEdit || null;
+    const existingOrder = orderIdToEdit
+        ? (sc.orders || []).find(o => o.id === orderIdToEdit)
+        : null;
 
-    // Limpiar lista de items
+    // Titulo y texto del boton segun el modo
+    const modalTitleEl = document.getElementById('modal-order-title');
+    const confirmBtn   = DOM.btnConfirmOrder();
+    if (modalTitleEl) {
+        modalTitleEl.textContent = existingOrder
+            ? `Editar Pedido ${existingOrder.id}`
+            : 'Nuevo Pedido';
+    }
+    if (confirmBtn) {
+        confirmBtn.textContent = existingOrder ? 'Guardar cambios' : 'Confirmar pedido';
+    }
+
+    // Cargar draft: items del pedido existente o vacio
+    if (existingOrder) {
+        _orderDraftItems = existingOrder.items.map(it => ({
+            productoId: it.productoId,
+            cantidad:   it.cantidad,
+        }));
+        DOM.inputOrderPriority().value = String(existingOrder.prioridad || 3);
+    } else {
+        _orderDraftItems = [];
+        DOM.inputOrderPriority().value = '3';
+    }
+
+    // Renderizar items del draft
     _renderOrderDraftItems();
 
-    // Poblar select de productos
+    // Poblar select de productos con stock disponible real
     const allProducts = sc.getAllProducts();
     const sel   = DOM.selectOrderProduct();
     const noMsg = DOM.orderNoProductsMsg();
@@ -721,10 +774,23 @@ function openModalOrder() {
         noMsg.style.display = 'none';
         if (addSection) addSection.style.opacity = '1';
         for (const p of allProducts) {
+            const stockTotal = _stockDisponible(p.id);
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = `${p.name} (${p.sku}) — Rack ${p.rackId}`;
+            opt.textContent = `${p.name} (${p.sku}) — Rack ${p.rackId} — Stock libre: ${stockTotal}`;
+            if (stockTotal === 0) {
+                // Permitir seleccionarlo si ya esta en el draft (para poder quitar)
+                const enDraft = _orderDraftItems.some(it => it.productoId === p.id);
+                opt.disabled = !enDraft;
+                if (!enDraft) opt.textContent += ' — ⚠️ AGOTADO';
+            }
             sel.appendChild(opt);
+        }
+        // Si el primer item seleccionado esta deshabilitado, buscar el primero habilitado
+        if (sel.options.length > 0 && sel.options[sel.selectedIndex]?.disabled) {
+            for (const opt of sel.options) {
+                if (!opt.disabled) { opt.selected = true; break; }
+            }
         }
     }
 
@@ -744,9 +810,15 @@ function openModalOrder() {
 function closeModalOrder() {
     DOM.modalOrder().classList.remove('open');
     _orderDraftItems = [];
+    _editingOrderId  = null;   // salir del modo edicion
     // Limpiar eventos internos
     const p = DOM.inputOrderPriority(); if (p) p.oninput = null;
     const s = DOM.selectOrderProduct(); if (s) s.onchange = null;
+    // Restaurar titulo y boton a modo 'nuevo'
+    const modalTitleEl = document.getElementById('modal-order-title');
+    if (modalTitleEl) modalTitleEl.textContent = 'Nuevo Pedido';
+    const confirmBtn = DOM.btnConfirmOrder();
+    if (confirmBtn) confirmBtn.textContent = 'Confirmar pedido';
 }
 
 /** Agrega un item al draft con validacion de stock. */
@@ -830,7 +902,7 @@ function _renderOrderDraftItems() {
     });
 }
 
-/** Confirma la creacion del pedido y lo agrega al escenario. */
+/** Confirma la creacion/edicion del pedido. */
 function submitOrder() {
     const sc = _activeScenario();
     if (!sc) return;
@@ -842,7 +914,25 @@ function submitOrder() {
 
     const priority = parseInt(DOM.inputOrderPriority().value) || 3;
 
-    // Crear Order con OrderItem — se pasa el array existente para generar ORDR01, ORDR02...
+    if (_editingOrderId) {
+        // Modo edicion: actualizar el pedido existente
+        const existing = (sc.orders || []).find(o => o.id === _editingOrderId);
+        if (existing) {
+            existing.prioridad = priority;
+            existing.items = _orderDraftItems.map(
+                it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad })
+            );
+            renderOrdersList();
+            closeModalOrder();
+            showToast(`Pedido ${existing.id} actualizado con ${existing.items.length} item(s).`, 'success');
+        } else {
+            showToast('No se encontró el pedido a editar.', 'error');
+        }
+        return;
+    }
+
+    // Modo creacion: agregar un pedido nuevo
+    // Se pasa el array existente para generar ORDR01, ORDR02...
     const items = _orderDraftItems.map(it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad }));
     const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items, _existingOrders: sc.orders });
     sc.orders.push(order);
@@ -905,7 +995,10 @@ function renderOrdersList() {
                       style="color:${stStyle.color};border-color:${stStyle.color};opacity:.9;font-size:.62rem;margin-left:.2rem">
                     ${stStyle.label}
                 </span>
-                <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${order.id}" title="Eliminar pedido" style="margin-left:auto">
+                <button class="btn btn--icon btn--xs" data-edit-order="${order.id}" title="Editar pedido" style="margin-left:auto">
+                    <span class="icon icon--sm" aria-hidden="true">edit</span>
+                </button>
+                <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${order.id}" title="Eliminar pedido">
                     <span class="icon icon--sm" aria-hidden="true">delete</span>
                 </button>
             </div>
@@ -917,11 +1010,36 @@ function renderOrdersList() {
 
     container.innerHTML = cards;
 
-    container.querySelectorAll('[data-delete-order]').forEach(btn => {
-        // Bloquear eliminacion de pedidos durante simulacion activa
-        if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) {
+    const isLocked = typeof simIsOrderEditingLocked === 'function'
+        ? simIsOrderEditingLocked()
+        : (typeof simIsEditingLocked === 'function' && simIsEditingLocked());
+
+    // Bloquear btn-add-order si la simulacion esta activa
+    const btnAddOrder = document.getElementById('btn-add-order');
+    if (btnAddOrder) {
+        btnAddOrder.disabled = isLocked;
+        btnAddOrder.title    = isLocked ? 'No disponible mientras hay una simulacion activa' : '';
+    }
+
+    const MSG_LOCKED = 'No disponible mientras hay una simulacion activa';
+
+    // Botones de editar pedido
+    container.querySelectorAll('[data-edit-order]').forEach(btn => {
+        if (isLocked) {
             btn.disabled = true;
-            btn.title = 'No disponible mientras hay una simulacion activa';
+            btn.title    = MSG_LOCKED;
+            return;
+        }
+        btn.addEventListener('click', () => {
+            openModalOrder(btn.dataset.editOrder);
+        });
+    });
+
+    // Botones de eliminar pedido
+    container.querySelectorAll('[data-delete-order]').forEach(btn => {
+        if (isLocked) {
+            btn.disabled = true;
+            btn.title    = MSG_LOCKED;
             return;
         }
         btn.addEventListener('click', () => {

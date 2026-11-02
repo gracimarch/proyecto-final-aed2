@@ -136,6 +136,67 @@ class WaveManager:
         # recalcularlas en cada wave: {product_id: set de celdas}.
         self._pickup_cache = {}
 
+        # Validar consistencia de stock: la suma de unidades pedidas por
+        # producto no puede superar el stock disponible en los racks.
+        # Defensa en profundidad para escenarios importados por JSON.
+        if warehouse is not None and self.orders:
+            self._validate_stock_consistency()
+
+    # ------------------------------------------------------------------
+    # Validacion de stock (defensa en profundidad)
+    # ------------------------------------------------------------------
+
+    def _validate_stock_consistency(self) -> None:
+        """
+        Verifica que la suma de unidades requeridas por cada producto a lo
+        largo de TODOS los pedidos pendientes no supere el stock disponible
+        (cantidad_disponible) en los racks del almacén.
+
+        Los pedidos inviables se registran en self.unprocessable_orders con
+        el motivo 'Stock insuficiente en almacén'.
+        """
+        if self.warehouse is None:
+            return
+
+        # Indice de stock disponible por product_id
+        stock_disponible: dict[str, int] = {}
+        products = (
+            self.warehouse.products.values()
+            if isinstance(self.warehouse.products, dict)
+            else self.warehouse.products
+        )
+        for product in products:
+            pid = product.product_id
+            stock_disponible[pid] = stock_disponible.get(pid, 0) + product.cantidad_disponible
+
+        # Acumular demanda total por producto en pedidos pendientes
+        demanda: dict[str, int] = {}
+        for order in self.get_pending_orders():
+            for item in order.pending_items:
+                pid = item.product.product_id
+                demanda[pid] = demanda.get(pid, 0) + item.cantidad
+
+        # Detectar sobredemanda
+        sobredemandados: set[str] = set()
+        for pid, total in demanda.items():
+            disponible = stock_disponible.get(pid, 0)
+            if total > disponible:
+                sobredemandados.add(pid)
+
+        if not sobredemandados:
+            return
+
+        # Registrar cada pedido que referencia un producto sobredemandado
+        pedidos_reportados = {o.order_id for o, _ in self.unprocessable_orders}
+        for order in self.get_pending_orders():
+            for item in order.pending_items:
+                pid = item.product.product_id
+                if pid in sobredemandados and order.order_id not in pedidos_reportados:
+                    motivo = "Stock insuficiente en almacén"
+                    self.unprocessable_orders.append((order, motivo))
+                    pedidos_reportados.add(order.order_id)
+                    break
+
     # ------------------------------------------------------------------
     # Pedidos y pickers
     # ------------------------------------------------------------------
@@ -273,14 +334,20 @@ class WaveManager:
         BFS O(V + E) más recorrer los candidatos O(P): en total O(P · (V + E + P)).
         """
         self.unprocessable_orders = []
+        if self.warehouse is not None and self.orders:
+            self._validate_stock_consistency()
+
         todos_los_pickers = self._register_pickers(pickers)
         max_peso = self._max_capacity(todos_los_pickers)
         if max_peso <= 0:
             return []
 
         # 1. Ítems posibles de cada pedido. Los imposibles se informan y no se usan.
+        orders_imposibles = {o.order_id for o, _ in self.unprocessable_orders}
         viable = {}    # {order_id: lista de ítems que sí pueden entrar}
         for order in self.get_pending_orders():
+            if order.order_id in orders_imposibles:
+                continue
             posibles = []
             for item in order.pending_items:
                 ok, motivo = self._validate_item_feasibility(order, item, max_peso)
