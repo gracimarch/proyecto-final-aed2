@@ -43,8 +43,13 @@ class WarehouseEditor {
         this._panStart   = null;
         this._panOrigin  = null;
 
+        // Render bajo demanda: el renderer avisa cuando su estado cambia
+        // (hover, pan, selección, rutas, tema…).
+        if (this.renderer) this.renderer.onDirty = () => this.requestRender();
+
         // Loop de render
         this._animFrame = null;
+        this.isDirty   = true;   // fuerza el primer dibujo
         this._startLoop();
 
         this._bindEvents();
@@ -90,11 +95,20 @@ class WarehouseEditor {
 
     // ── Render loop ───────────────────────────────────────────────
 
+    /** Marca el canvas como sucio: se redibuja en el próximo frame. */
+    requestRender() {
+        this.isDirty = true;
+    }
+
     _startLoop() {
         const loop = () => {
             // Agendar antes de dibujar: si render() lanza una excepción,
             // el loop no debe morir y dejar el canvas congelado.
             this._animFrame = requestAnimationFrame(loop);
+            // Render bajo demanda: sin cambios no se toca el canvas
+            // (CPU ≈ 0% en reposo y con la simulación pausada).
+            if (!this.isDirty) return;
+            this.isDirty = false;
             try {
                 this.renderer.render();
                 this._renderErrorLogged = false;
@@ -167,6 +181,7 @@ class WarehouseEditor {
             case 'aisle':     this._onAisleDown(cell);        break;
             case 'move-rack': this._onMoveRackDown(cell);     break;
         }
+        this.requestRender();
     }
 
     // ── Mouse move ────────────────────────────────────────────────
@@ -294,6 +309,8 @@ class WarehouseEditor {
         this._movingElement  = null;
         this._isDragging     = false;
         this.renderer.cursorRect = null;
+        // Los commits de arriba ya invalidaron la capa si cambiaron geometría.
+        this.requestRender();
     }
 
     // ── Mouse leave ───────────────────────────────────────────────
@@ -308,6 +325,7 @@ class WarehouseEditor {
         this._movingRack         = null;
         this._movingElement      = null;
         this._isDragging         = false;
+        this.requestRender();
     }
 
     // ── Wheel (zoom) ──────────────────────────────────────────────

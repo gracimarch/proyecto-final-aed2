@@ -842,9 +842,9 @@ function submitOrder() {
 
     const priority = parseInt(DOM.inputOrderPriority().value) || 3;
 
-    // Crear Order con OrderItem
+    // Crear Order con OrderItem — se pasa el array existente para generar ORDR01, ORDR02...
     const items = _orderDraftItems.map(it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad }));
-    const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items });
+    const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items, _existingOrders: sc.orders });
     sc.orders.push(order);
 
     renderOrdersList();
@@ -1250,6 +1250,7 @@ function _showSelectionDoor(door) {
     `;
     body.querySelector('#sel-door-tipo')?.addEventListener('change', e => {
         door.tipo = e.target.value;
+        _renderer?.invalidateStaticLayer();
     });
     body.querySelector('#sel-del-door-btn')?.addEventListener('click', () => {
         _activeScenario().removeDoor(door.id);
@@ -1329,7 +1330,7 @@ function _showSelectionDispatch(dz) {
             return;
         }
         dz.puertaId = newId;
-        _renderer?.render();
+        _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         if (_wizardScenario) _updateWizardValidMsg();
     });
@@ -1338,6 +1339,7 @@ function _showSelectionDispatch(dz) {
         const val = parseFloat(body.querySelector('#sel-dz-weight').value);
         if (!val || val < 1) { showToast('Peso máximo inválido (mínimo 1 kg).', 'warning'); return; }
         dz.pesoMaxKg = val;
+        _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         showToast(`Zona ${dz.id}: peso máximo actualizado a ${val} kg`, 'info');
     });
@@ -1386,6 +1388,7 @@ function _showSelectionAisle(aisle) {
     `;
     body.querySelector('#sel-aisle-sentido')?.addEventListener('change', e => {
         aisle.sentido = e.target.value;
+        _renderer?.invalidateStaticLayer();
     });
     body.querySelector('#sel-del-aisle-btn')?.addEventListener('click', () => {
         _activeScenario().removeAisle(aisle.id);

@@ -1,4 +1,4 @@
-﻿/* ================================================================
+/* ================================================================
    API.JS
    Funciones que se comunican con el servidor Flask.
 
@@ -65,7 +65,7 @@ async function apiGenerateWaves(escenario) {
  * Le pide al servidor el recorrido de una wave con la estrategia elegida.
  *
  * @param {Object} escenario   Resultado de Scenario.toJSON().
- * @param {string} waveId      ID de la wave a recorrer (ej. "WAVE_01").
+ * @param {string} waveId      ID de la wave a recorrer (ej. "WAVE01").
  * @param {string} estrategia  "orden" o "cercania".
  * @param {string} buscador    "bfs" o "astar".
  * @returns {Promise<Object>}  RouteResult serializado con los campos:

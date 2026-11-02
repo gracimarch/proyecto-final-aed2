@@ -255,7 +255,7 @@ class WaveManager:
     def generate_waves(
         self,
         pickers: list[Picker] | None = None,
-        prefix: str = "WAVE_",
+        prefix: str = "WAVE",
     ) -> list[Wave]:
         """
         Arma waves con los ítems pendientes (etapa 1) y después asigna
@@ -263,7 +263,7 @@ class WaveManager:
 
         Args:
             pickers: Pickers extra a considerar (por defecto, los del warehouse).
-            prefix : Prefijo de los ids de las waves ("WAVE_01", "WAVE_02"...).
+            prefix : Prefijo de los ids de las waves ("WAVE01", "WAVE02"...).
 
         Returns:
             Las waves nuevas, en orden de creación. Las que no consiguieron
