@@ -1250,6 +1250,7 @@ function _showSelectionDoor(door) {
     `;
     body.querySelector('#sel-door-tipo')?.addEventListener('change', e => {
         door.tipo = e.target.value;
+        _renderer?.invalidateStaticLayer();
     });
     body.querySelector('#sel-del-door-btn')?.addEventListener('click', () => {
         _activeScenario().removeDoor(door.id);
@@ -1329,7 +1330,7 @@ function _showSelectionDispatch(dz) {
             return;
         }
         dz.puertaId = newId;
-        _renderer?.render();
+        _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         if (_wizardScenario) _updateWizardValidMsg();
     });
@@ -1338,6 +1339,7 @@ function _showSelectionDispatch(dz) {
         const val = parseFloat(body.querySelector('#sel-dz-weight').value);
         if (!val || val < 1) { showToast('Peso máximo inválido (mínimo 1 kg).', 'warning'); return; }
         dz.pesoMaxKg = val;
+        _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         showToast(`Zona ${dz.id}: peso máximo actualizado a ${val} kg`, 'info');
     });
@@ -1386,6 +1388,7 @@ function _showSelectionAisle(aisle) {
     `;
     body.querySelector('#sel-aisle-sentido')?.addEventListener('change', e => {
         aisle.sentido = e.target.value;
+        _renderer?.invalidateStaticLayer();
     });
     body.querySelector('#sel-del-aisle-btn')?.addEventListener('click', () => {
         _activeScenario().removeAisle(aisle.id);

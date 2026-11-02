@@ -158,6 +158,15 @@ function _isLastFrame() {
     return _simulation !== null && _frameIndex >= _simulation.frames.length - 1;
 }
 
+/** Pide un repintado del canvas en el próximo frame (render bajo demanda). */
+function _requestCanvasRender() {
+    if (typeof _editor !== 'undefined' && _editor) {
+        _editor.requestRender();
+    } else if (typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.requestRender();
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Generar waves
@@ -190,25 +199,40 @@ async function simGenerateWaves() {
     }
 }
 
-/** Rellena la lista de waves en el sidebar izquierdo (#waves-list). */
-function _renderWavesList() {
-    const list = _dom('waves-list');
-    if (!list) return;
+// ── Estado del DOM de waves (actualizaciones quirúrgicas) ────────
 
-    if (_waves.length === 0) {
-        list.innerHTML = '<p class="empty-msg">Sin waves generadas.</p>';
-        return;
-    }
+/** Array de waves con el que se construyó #waves-list (control de identidad). */
+let _wavesListSource = null;
 
-    const items = _waves.map(w => {
-        // Soportar picker_ids (lista nueva) y picker_id (compat)
-        const ids = (w.picker_ids && w.picker_ids.length > 0)
-            ? w.picker_ids
-            : (w.picker_id ? [w.picker_id] : []);
-        const pickerTexto = ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014';
-        const isSelected  = w.wave_id === _selectedWaveId;
-        return `
-        <div class="wave-item ${isSelected ? 'wave-item--selected' : ''}"
+/** Nodos mutables por wave_id: { card, badge, pickers, badgeText, pickersText }. */
+let _wavesListNodes = new Map();
+
+/** Delegación de click: se asocia una única vez al contenedor #waves-list. */
+function _ensureWavesListDelegation(list) {
+    if (list.dataset.wavesDelegated === '1') return;
+    list.dataset.wavesDelegated = '1';
+    list.addEventListener('click', (e) => {
+        const card = e.target.closest('.wave-item');
+        if (!card || !list.contains(card)) return;
+        _selectedWaveId = card.dataset.waveId;
+        _renderWavesList();   // solo actualiza la clase de selección
+        showToast(`Wave ${_selectedWaveId} seleccionada para comparar.`, 'info');
+    });
+}
+
+/** Texto de la línea "Picker(s): ..." de una wave. */
+function _wavePickerText(w) {
+    const ids = (w.picker_ids && w.picker_ids.length > 0)
+        ? w.picker_ids
+        : (w.picker_id ? [w.picker_id] : []);
+    return `Picker${ids.length > 1 ? 's' : ''}: ` +
+           (ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014');
+}
+
+/** Construye la estructura completa (solo al generar/reiniciar waves). */
+function _buildWavesListDOM(list) {
+    list.innerHTML = _waves.map(w => `
+        <div class="wave-item ${w.wave_id === _selectedWaveId ? 'wave-item--selected' : ''}"
              data-wave-id="${w.wave_id}" style="cursor:pointer">
             <div class="wave-item__header">
                 <span class="wave-item__id">${w.wave_id}</span>
@@ -219,22 +243,76 @@ function _renderWavesList() {
                 <span>${w.unidades} uds &middot; ${w.peso_kg} kg</span>
             </div>
             <div class="wave-item__meta">
-                <span>Picker${ids.length > 1 ? 's' : ''}: ${pickerTexto}</span>
+                <span class="wave-item__pickers">${_wavePickerText(w)}</span>
                 <span>${w.pedidos.join(', ')}</span>
             </div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
 
-    list.innerHTML = items;
-
-    // Click en una card de wave: la selecciona para "Comparar".
+    // Cachear los nodos que mutan durante la simulación.
+    _wavesListNodes.clear();
     list.querySelectorAll('.wave-item').forEach(card => {
-        card.addEventListener('click', () => {
-            _selectedWaveId = card.dataset.waveId;
-            _renderWavesList();   // re-renderiza para destacar visualmente la wave
-            showToast(`Wave ${_selectedWaveId} seleccionada para comparar.`, 'info');
+        _wavesListNodes.set(card.dataset.waveId, {
+            card,
+            badge:       card.querySelector('.wave-item__badge'),
+            pickers:     card.querySelector('.wave-item__pickers'),
+            badgeText:   null,
+            pickersText: null,
         });
     });
+}
+
+/** Actualiza solo los valores que cambiaron (status, pickers, selección). */
+function _updateWavesListDOM() {
+    for (const w of _waves) {
+        const node = _wavesListNodes.get(w.wave_id);
+        if (!node) continue;
+
+        const isSelected = w.wave_id === _selectedWaveId;
+        if (node.card.classList.contains('wave-item--selected') !== isSelected) {
+            node.card.classList.toggle('wave-item--selected', isSelected);
+        }
+
+        if (node.badgeText !== w.status) {
+            node.badge.textContent = w.status;
+            node.badgeText = w.status;
+        }
+
+        const pickersText = _wavePickerText(w);
+        if (node.pickersText !== pickersText) {
+            node.pickers.textContent = pickersText;
+            node.pickersText = pickersText;
+        }
+    }
+}
+
+/**
+ * Rellena/actualiza la lista de waves del sidebar (#waves-list).
+ * La estructura se construye una sola vez por set de waves; en cada tick
+ * solo se tocan los nodos cuyos valores cambiaron.
+ */
+function _renderWavesList() {
+    const list = _dom('waves-list');
+    if (!list) return;
+
+    _ensureWavesListDelegation(list);
+
+    if (_waves.length === 0) {
+        // Mostrar el mensaje vacío si todavía hay cards o si falta el texto.
+        if (list.querySelector('.wave-item') || !list.querySelector('.empty-msg')) {
+            list.innerHTML = '<p class="empty-msg">Sin waves generadas.</p>';
+        }
+        _wavesListSource = null;
+        _wavesListNodes.clear();
+        return;
+    }
+
+    // Reconstruir solo cuando cambia el set de waves (generar / reiniciar).
+    if (_wavesListSource !== _waves || list.querySelector('.wave-item') === null) {
+        _buildWavesListDOM(list);
+        _wavesListSource = _waves;
+    }
+
+    _updateWavesListDOM();
 }
 
 
@@ -242,19 +320,64 @@ function _renderWavesList() {
 // Panel de flota (estado de cada picker en el frame actual)
 // ---------------------------------------------------------------------------
 
+// ── Estado del DOM de flota (actualizaciones quirúrgicas) ────────
+
+/** Firma (ids en orden) del set de filas actualmente renderizado. */
+let _fleetSignature = null;
+
+/** Nodos mutables de cada fila: { wave, status, waveText, statusText }. */
+let _fleetNodes = [];
+
 function _renderFleetStatus() {
     const container = _dom('fleet-status');
     if (!container) return;
 
     const frame = _currentFrame();
-    const rows  = frame ? _buildRowsFromFrame(frame) : _buildRowsFromWaves();
+    const rows  = frame ? _buildFleetDataFromFrame(frame) : _buildFleetDataFromWaves();
 
     if (rows.length === 0) {
-        container.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
+        if (_fleetSignature !== 'empty') {
+            container.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
+            _fleetSignature = 'empty';
+            _fleetNodes     = [];
+        }
         return;
     }
 
-    container.innerHTML = rows.join('');
+    // Solo se reconstruyen las filas cuando cambia el set/orden de pickers.
+    const signature = rows.map(r => r.id).join('|');
+    if (_fleetSignature !== signature) {
+        container.innerHTML = rows.map(r => `
+            <div class="fleet-row" data-picker-id="${r.id}">
+                <span class="fleet-row__dot" style="background:${_pickerColor(r.id)}"></span>
+                <span class="fleet-row__picker">${r.id}</span>
+                <span class="fleet-row__wave"></span>
+                <span class="fleet-row__status"></span>
+            </div>`).join('');
+
+        _fleetNodes = Array.from(container.querySelectorAll('.fleet-row')).map(row => ({
+            wave:       row.querySelector('.fleet-row__wave'),
+            status:     row.querySelector('.fleet-row__status'),
+            waveText:   null,
+            statusText: null,
+        }));
+        _fleetSignature = signature;
+    }
+
+    // Actualización quirúrgica: solo el texto que cambió.
+    for (let i = 0; i < rows.length; i++) {
+        const node = _fleetNodes[i];
+        if (!node) continue;
+        const { wave, status } = rows[i];
+        if (node.waveText !== wave) {
+            node.wave.textContent = wave;
+            node.waveText = wave;
+        }
+        if (node.statusText !== status) {
+            node.status.textContent = status;
+            node.statusText = status;
+        }
+    }
 }
 
 function _pickerColor(pickerId) {
@@ -263,7 +386,7 @@ function _pickerColor(pickerId) {
     return picker ? picker.color : '#888';
 }
 
-function _buildRowsFromWaves() {
+function _buildFleetDataFromWaves() {
     // Generar una fila por picker (las waves multi-picker producen varias filas)
     const rows = [];
     for (const w of _waves) {
@@ -271,26 +394,18 @@ function _buildRowsFromWaves() {
             ? w.picker_ids
             : (w.picker_id ? [w.picker_id] : []);
         for (const pid of ids) {
-            rows.push(`
-                <div class="fleet-row">
-                    <span class="fleet-row__dot" style="background:${_pickerColor(pid)}"></span>
-                    <span class="fleet-row__picker">${pid}</span>
-                    <span class="fleet-row__wave">${w.wave_id}</span>
-                    <span class="fleet-row__status">${w.status}</span>
-                </div>`);
+            rows.push({ id: pid, wave: w.wave_id, status: w.status });
         }
     }
     return rows;
 }
 
-function _buildRowsFromFrame(frame) {
-    return frame.pickers.map(p => `
-        <div class="fleet-row">
-            <span class="fleet-row__dot" style="background:${_pickerColor(p.id)}"></span>
-            <span class="fleet-row__picker">${p.id}</span>
-            <span class="fleet-row__wave">${p.wave || '—'}</span>
-            <span class="fleet-row__status">${p.estado} · ${p.carga_kg} kg</span>
-        </div>`);
+function _buildFleetDataFromFrame(frame) {
+    return frame.pickers.map(p => ({
+        id:     p.id,
+        wave:   p.wave || '—',
+        status: `${p.estado} · ${p.carga_kg} kg`,
+    }));
 }
 
 
@@ -352,6 +467,7 @@ function _resetPlayback() {
     if (_initialWavesSnapshot.length > 0) {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
+    _requestCanvasRender();   // los pickers volvieron a su posición inicial
 }
 
 /**
@@ -387,6 +503,7 @@ function _showFrame(index) {
     _renderWavesList();
     _renderFleetStatus();
     _updateStepButtons();
+    _requestCanvasRender();   // este tick movió pickers/sprites en el canvas
 }
 
 function _applyEvent(evento) {
@@ -529,6 +646,7 @@ function _onSimulationComplete() {
     if (sc) {
         for (const picker of sc.pickers) picker.isWalking = false;
     }
+    _requestCanvasRender();   // los pickers vuelven al sprite idle
     _updatePlayPauseBtn(false);
     _focusModeUserSet = false;
     _setFocusMode(false);
@@ -741,8 +859,7 @@ function simReset() {
     _selectedWaveId       = null;
     _focusModeUserSet     = false;
 
-    const wavesList = _dom('waves-list');
-    if (wavesList) wavesList.innerHTML = '<p class="empty-msg">Sin waves generadas.</p>';
+    _renderWavesList();
 
     _clearMetrics();
     _clearCollected();
@@ -752,6 +869,7 @@ function simReset() {
 
     _clearRoutesFromRenderer();
     _renderFleetStatus();
+    _requestCanvasRender();
     _updatePlayPauseBtn(false);
     _setFocusMode(false);
 }
