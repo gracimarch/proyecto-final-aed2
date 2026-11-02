@@ -191,6 +191,7 @@ async function simGenerateWaves() {
         _frameIndex = -1;
         _renderWavesList();
         _renderFleetStatus();
+        if (typeof renderOrdersList === 'function') renderOrdersList();
         showToast(`${_waves.length} wave(s) generada(s).`, 'success');
     } catch (err) {
         showToast(err.error || 'Error al generar waves.', 'error');
@@ -468,6 +469,7 @@ function _resetPlayback() {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
     _requestCanvasRender();   // los pickers volvieron a su posición inicial
+    if (typeof renderOrdersList === 'function') renderOrdersList();
 }
 
 /**
@@ -502,6 +504,7 @@ function _showFrame(index) {
     _pushRoutesToRenderer(frame);
     _renderWavesList();
     _renderFleetStatus();
+    if (typeof renderOrdersList === 'function') renderOrdersList();
     _updateStepButtons();
     _requestCanvasRender();   // este tick movió pickers/sprites en el canvas
 }
@@ -638,6 +641,7 @@ function simRestart() {
     _setEditingLock(false);     // devuelve la edicion al usuario
     _renderWavesList();
     _renderFleetStatus();
+    if (typeof renderOrdersList === 'function') renderOrdersList();
     showToast('Simulación reiniciada. Podés editar el escenario.', 'info');
 }
 
@@ -843,6 +847,22 @@ function _renderComparison(datos, options = {}) {
 // Reset completo de simulacion (lo llama ui.js al cambiar de escenario)
 // ---------------------------------------------------------------------------
 
+/**
+ * Calcula el estado visible de un pedido basado en el estado actual de _waves.
+ * Devuelve: 'PENDIENTE' | 'EN_WAVE' | 'EN_PROCESO' | 'COMPLETADO'
+ */
+function simGetOrderStatus(orderId) {
+    if (!_waves || _waves.length === 0) return 'PENDIENTE';
+    const wavesDelPedido = _waves.filter(w => w.pedidos && w.pedidos.includes(orderId));
+    if (wavesDelPedido.length === 0) return 'PENDIENTE';
+    const todas       = wavesDelPedido.length;
+    const completadas = wavesDelPedido.filter(w => w.status === 'COMPLETADA').length;
+    const enProceso   = wavesDelPedido.filter(w => w.status === 'EN_PROCESO').length;
+    if (completadas === todas) return 'COMPLETADO';
+    if (enProceso > 0 || (completadas > 0 && completadas < todas)) return 'EN_PROCESO';
+    return 'EN_WAVE';
+}
+
 function simReset() {
     simPause();
     _setEditingLock(false);     // garantiza que el reset siempre libera la edicion
@@ -869,6 +889,7 @@ function simReset() {
 
     _clearRoutesFromRenderer();
     _renderFleetStatus();
+    if (typeof renderOrdersList === 'function') renderOrdersList();
     _requestCanvasRender();
     _updatePlayPauseBtn(false);
     _setFocusMode(false);
@@ -1049,6 +1070,7 @@ function simStepBack() {
     }
     _renderWavesList();
     _renderFleetStatus();
+    if (typeof renderOrdersList === 'function') renderOrdersList();
     _updateStepButtons();
 }
 
