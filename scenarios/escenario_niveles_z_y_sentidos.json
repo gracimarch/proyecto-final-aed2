@@ -1,0 +1,212 @@
+{
+  "warehouse": {
+    "dimensiones": {
+      "ancho_x": 18,
+      "largo_y": 16
+    },
+    "puertas": [
+      {
+        "id": "PUERTA_OUT_1",
+        "tipo": "OUTBOUND",
+        "ubicacion": {"x": 8, "y": 0}
+      }
+    ],
+    "zonas_despacho": [
+      {
+        "id": "ZONA_CENTRAL",
+        "puerta_id": "PUERTA_OUT_1",
+        "ubicacion": {"x": 7, "y": 1},
+        "ancho": 4,
+        "alto": 2,
+        "peso_max_kg": 500.0
+      }
+    ],
+    "racks": [
+      {
+        "id": "R1",
+        "ubicacion": {"x": 2, "y": 4},
+        "ancho": 2,
+        "alto": 8
+      },
+      {
+        "id": "R2",
+        "ubicacion": {"x": 8, "y": 4},
+        "ancho": 2,
+        "alto": 8
+      },
+      {
+        "id": "R3",
+        "ubicacion": {"x": 14, "y": 4},
+        "ancho": 2,
+        "alto": 8
+      }
+    ],
+    "pasillos": [
+      {
+        "id": "PAS_V0",
+        "ubicacion": {"x": 0, "y": 4},
+        "ancho": 2,
+        "alto": 8,
+        "sentido": "N"
+      },
+      {
+        "id": "PAS_V1",
+        "ubicacion": {"x": 4, "y": 4},
+        "ancho": 4,
+        "alto": 8,
+        "sentido": "S"
+      },
+      {
+        "id": "PAS_V2",
+        "ubicacion": {"x": 10, "y": 4},
+        "ancho": 4,
+        "alto": 8,
+        "sentido": "N"
+      },
+      {
+        "id": "PAS_V3",
+        "ubicacion": {"x": 16, "y": 4},
+        "ancho": 2,
+        "alto": 8,
+        "sentido": "S"
+      },
+      {
+        "id": "PAS_H_INF",
+        "ubicacion": {"x": 0, "y": 3},
+        "ancho": 18,
+        "alto": 1,
+        "sentido": "AMBOS"
+      },
+      {
+        "id": "PAS_H_SUP",
+        "ubicacion": {"x": 0, "y": 12},
+        "ancho": 18,
+        "alto": 4,
+        "sentido": "AMBOS"
+      }
+    ]
+  },
+  "pickers": [
+    {
+      "id": "PK_NORTE",
+      "posicion_inicial": {"x": 1, "y": 3},
+      "capacidad_carga_kg": 100.0
+    },
+    {
+      "id": "PK_SUR",
+      "posicion_inicial": {"x": 16, "y": 3},
+      "capacidad_carga_kg": 100.0
+    }
+  ],
+  "productos": [
+    {
+      "id": "P301_Z1",
+      "nombre": "Caja Tornillos (Nivel 1)",
+      "rack_id": "R1",
+      "ubicacion": {"x": 2, "y": 5, "z": 1},
+      "cantidad_disponible": 50,
+      "peso_kg": 1.0
+    },
+    {
+      "id": "P302_Z2",
+      "nombre": "Caja Tarugos (Nivel 2)",
+      "rack_id": "R1",
+      "ubicacion": {"x": 2, "y": 5, "z": 2},
+      "cantidad_disponible": 40,
+      "peso_kg": 1.2
+    },
+    {
+      "id": "P303_Z3",
+      "nombre": "Caja Clavos (Nivel 3)",
+      "rack_id": "R1",
+      "ubicacion": {"x": 2, "y": 5, "z": 3},
+      "cantidad_disponible": 30,
+      "peso_kg": 1.5
+    },
+    {
+      "id": "P304_Z1",
+      "nombre": "Taladro Inalámbrico",
+      "rack_id": "R1",
+      "ubicacion": {"x": 3, "y": 8, "z": 1},
+      "cantidad_disponible": 15,
+      "peso_kg": 2.0
+    },
+    {
+      "id": "P305_Z2",
+      "nombre": "Batería Taladro",
+      "rack_id": "R1",
+      "ubicacion": {"x": 3, "y": 8, "z": 2},
+      "cantidad_disponible": 20,
+      "peso_kg": 0.8
+    },
+    {
+      "id": "P306_Z1",
+      "nombre": "Amoladora Angular",
+      "rack_id": "R2",
+      "ubicacion": {"x": 8, "y": 6, "z": 1},
+      "cantidad_disponible": 12,
+      "peso_kg": 3.0
+    },
+    {
+      "id": "P307_Z2",
+      "nombre": "Discos de Corte",
+      "rack_id": "R2",
+      "ubicacion": {"x": 8, "y": 6, "z": 2},
+      "cantidad_disponible": 50,
+      "peso_kg": 0.5
+    },
+    {
+      "id": "P308_Z1",
+      "nombre": "Compresor de Aire",
+      "rack_id": "R3",
+      "ubicacion": {"x": 14, "y": 7, "z": 1},
+      "cantidad_disponible": 8,
+      "peso_kg": 14.0
+    },
+    {
+      "id": "P309_Z2",
+      "nombre": "Manguera Espiral",
+      "rack_id": "R3",
+      "ubicacion": {"x": 14, "y": 7, "z": 2},
+      "cantidad_disponible": 25,
+      "peso_kg": 1.5
+    }
+  ],
+  "pedidos": [
+    {
+      "id": "PED_Z_STACK",
+      "prioridad": 5,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P301_Z1", "cantidad": 1},
+        {"producto_id": "P302_Z2", "cantidad": 1},
+        {"producto_id": "P303_Z3", "cantidad": 1}
+      ]
+    },
+    {
+      "id": "PED_HERRAMIENTAS",
+      "prioridad": 4,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P304_Z1", "cantidad": 1},
+        {"producto_id": "P305_Z2", "cantidad": 2},
+        {"producto_id": "P306_Z1", "cantidad": 1}
+      ]
+    },
+    {
+      "id": "PED_TALLER",
+      "prioridad": 3,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P307_Z2", "cantidad": 3},
+        {"producto_id": "P308_Z1", "cantidad": 1},
+        {"producto_id": "P309_Z2", "cantidad": 1}
+      ]
+    }
+  ],
+  "configuracion": {
+    "wave_max_pedidos": 2,
+    "wave_max_productos": 10
+  }
+}
+
