@@ -926,21 +926,14 @@ function simToggleFocusMode() {
 
 /**
  * Devuelve true cuando la simulacion esta activa (corriendo o pausada).
+ * Bloquea tanto las operaciones de edicion del almacen como las de pedidos.
+ * Se libera al reiniciar, resetear o completar la simulacion.
  * Lo consultan editor.js y ui.js para bloquear las operaciones de edicion.
  */
 function simIsEditingLocked() {
     return _simulationLocked;
 }
 
-/**
- * Devuelve true cuando NO se deben permitir ediciones en los pedidos.
- * Identico a simIsEditingLocked(): bloquea en ejecucion Y en pausa.
- * Solo se permite editar pedidos cuando la simulacion esta sin iniciar
- * o fue reiniciada (simRestart / simReset).
- */
-function simIsOrderEditingLocked() {
-    return _simulationLocked;
-  
 // ---------------------------------------------------------------------------
 // Tooltip de pickers: acceso al estado de simulacion del frame actual
 // ---------------------------------------------------------------------------
