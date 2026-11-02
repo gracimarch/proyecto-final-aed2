@@ -745,7 +745,8 @@ class WarehouseRenderer {
 
         // Calcular cuántas líneas y centrar verticalmente el bloque
         const lines = ['DESPACHO'];
-        if (dz.puertaId)           lines.push(dz.puertaId);
+        lines.push(dz.id);
+        if (dz.puertaId)           lines.push(`Puerta: ${dz.puertaId}`);
         lines.push(`Máx: ${dz.pesoMaxKg || 500} kg`);
 
         const lineHeight = 11;

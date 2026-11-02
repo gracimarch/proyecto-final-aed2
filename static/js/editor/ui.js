@@ -43,11 +43,11 @@ const DOM = {
     // Modal producto
     modalProduct:   () => document.getElementById('modal-product'),
     inputProdName:  () => document.getElementById('input-prod-name'),
-    inputProdSKU:   () => document.getElementById('input-prod-sku'),
     inputProdQty:   () => document.getElementById('input-prod-qty'),
     inputProdWeight:() => document.getElementById('input-prod-weight'),
     inputProdZ:     () => document.getElementById('input-prod-z'),
     labelProdCell:  () => document.getElementById('label-prod-cell'),
+    labelProdId:    () => document.getElementById('label-prod-id'),
     btnAddProd:     () => document.getElementById('btn-add-prod'),
     btnCancelProd:  () => document.getElementById('btn-cancel-prod'),
     modalProdTitle: () => document.getElementById('modal-prod-title'),
@@ -186,7 +186,7 @@ function initEditorUI() {
     DOM.btnAddProd().addEventListener('click', () => submitProduct());
 
     // Enter en campos de producto
-    [DOM.inputProdName(), DOM.inputProdSKU(), DOM.inputProdQty()].forEach(el => {
+    [DOM.inputProdName(), DOM.inputProdQty()].forEach(el => {
         el.addEventListener('keydown', e => { if (e.key === 'Enter') submitProduct(); });
     });
 
@@ -586,20 +586,25 @@ function openModalProduct(rack, targetCell = null) {
     _productTargetRack = rack;
     _productTargetCell = targetCell;
 
+    // Calcular el código secuencial que tendrá el producto (PRD001, PRD002...).
+    // El usuario no elige el id; se genera automáticamente.
+    const nextId = _genSeqId('PRD', _activeScenario().getAllProducts(), 3);
+
     DOM.modalProdTitle().textContent = `Agregar producto → ${rack.id}`;
     DOM.inputProdName().value  = '';
-    DOM.inputProdSKU().value   = '';
     DOM.inputProdQty().value   = '1';
     DOM.inputProdWeight().value = '1.0';
 
     if (targetCell) {
         // Mostrar celda y calcular el siguiente nivel Z libre
         DOM.labelProdCell().textContent = `Celda: (${targetCell.x}, ${targetCell.y})`;
+        DOM.labelProdId().textContent   = `ID: ${nextId}`;
         const existingInCell = rack.products.filter(p => p.x === targetCell.x && p.y === targetCell.y);
         DOM.inputProdZ().value = existingInCell.length + 1;
     } else {
         // Fallback: primera celda del rack
         DOM.labelProdCell().textContent = `Celda: (${rack.x}, ${rack.y})`;
+        DOM.labelProdId().textContent   = `ID: ${nextId}`;
         const existingInCell = rack.products.filter(p => p.x === rack.x && p.y === rack.y);
         DOM.inputProdZ().value = existingInCell.length + 1;
     }
@@ -618,7 +623,6 @@ function submitProduct() {
     if (!_productTargetRack) return;
 
     const name   = DOM.inputProdName().value.trim();
-    const sku    = DOM.inputProdSKU().value.trim();
     const qty    = parseInt(DOM.inputProdQty().value)  || 1;
     const weight = parseFloat(DOM.inputProdWeight().value);
     const zVal   = parseInt(DOM.inputProdZ().value)    || 1;
@@ -645,9 +649,11 @@ function submitProduct() {
     const targetX = _productTargetCell ? _productTargetCell.x : _productTargetRack.x;
     const targetY = _productTargetCell ? _productTargetCell.y : _productTargetRack.y;
 
+    // El código/id se genera automáticamente de forma secuencial (PRD001, PRD002...);
+    // el usuario no elige el id. No se pasa sku: en Product el sku queda igual al id.
     const product = _activeScenario().addProduct(_productTargetRack.id, {
         name,
-        sku: sku || name.toUpperCase().replace(/\s/g, '_'),
+        sku: undefined,
         quantity: qty,
         pesoKg: weight,
         x: targetX,
