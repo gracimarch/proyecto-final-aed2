@@ -1,4 +1,4 @@
-"""
+﻿"""
 models/simulation.py
 
 Simulación de todos los pickers a la vez (consigna §12).
@@ -595,6 +595,60 @@ class Simulation:
 
     # ------------------------------------------------------------------
     # 5. Frames
+
+    # ------------------------------------------------------------------
+    # Helpers de serialización de frame
+    # ------------------------------------------------------------------
+
+    def _build_proximo_objetivo(self, picker, task, estado: str) -> dict:
+        """
+        Calcula el próximo objetivo inmediato del picker para mostrarlo
+        en el tooltip del frontend.
+        Devuelve: { "tipo": "PICKING"|"DESPACHO"|"ESPERA"|"FIN",
+                    "destino": [x, y] | None,
+                    "descripcion": str }
+        """
+        # Sin tarea asignada → libre
+        if task is None:
+            return {"tipo": "FIN", "destino": None, "descripcion": "En espera / sin wave"}
+
+        # Esperando por tráfico
+        if estado == "ESPERANDO":
+            return {"tipo": "ESPERA", "destino": None, "descripcion": "Esperando paso libre (tráfico)"}
+
+        # Aún tiene paradas de picking pendientes
+        if task.paradas:
+            # Primera celda que falta visitar
+            primera_celda = next(iter(task.paradas))
+            product_ids   = task.paradas[primera_celda]
+            # Intentar obtener nombres desde el warehouse
+            nombres = []
+            for pid in product_ids:
+                prod = self.warehouse.get_product(pid) if hasattr(self.warehouse, "get_product") else None
+                nombres.append(prod.name if prod else pid)
+            desc = f"Recoger: {', '.join(nombres)} en ({primera_celda[0]}, {primera_celda[1]})"
+            return {
+                "tipo":       "PICKING",
+                "destino":    list(primera_celda),
+                "descripcion": desc,
+            }
+
+        # Ya recogió todo; tiene descargas pendientes
+        if task.descargas:
+            celda, zone_id = task.descargas[0]
+            return {
+                "tipo":       "DESPACHO",
+                "destino":    list(celda),
+                "descripcion": f"Descargar en: {zone_id} ({celda[0]}, {celda[1]})",
+            }
+
+        # Carga en tránsito pero sin descargas programadas aún (recalculando)
+        if picker.carga:
+            return {"tipo": "DESPACHO", "destino": None, "descripcion": "Buscando zona de despacho..."}
+
+        # Todo completado
+        return {"tipo": "FIN", "destino": None, "descripcion": "Ruta completada / En espera"}
+
     # ------------------------------------------------------------------
 
     def _save_frame(self) -> None:
@@ -618,16 +672,34 @@ class Simulation:
             elif picker.picker_id in self.esperando:
                 estado = "ESPERANDO"
             paso = None
-            if picker.picker_id in self.tasks:
-                paso = self.tasks[picker.picker_id].paso
+            task = self.tasks.get(picker.picker_id)
+            if task is not None:
+                paso = task.paso
+
+            # ── Carga actual: ítems que el picker lleva en tránsito ──────
+            carga_items = []
+            for item in picker.carga:
+                carga_items.append({
+                    "producto_id": item.product.product_id,
+                    "nombre":      item.product.name,
+                    "cantidad":    item.cantidad,
+                    "peso_kg":     round(item.total_weight, 3),
+                })
+
+            # ── Próximo objetivo inmediato ───────────────────────────────
+            proximo_objetivo = self._build_proximo_objetivo(picker, task, estado)
+
             pickers.append({
-                "id": picker.picker_id,
-                "x": picker.posicion_actual[0],
-                "y": picker.posicion_actual[1],
-                "estado": estado,
-                "wave": picker.assigned_wave_id,
+                "id":       picker.picker_id,
+                "x":        picker.posicion_actual[0],
+                "y":        picker.posicion_actual[1],
+                "estado":   estado,
+                "wave":     picker.assigned_wave_id,
                 "carga_kg": round(picker.carried_weight, 2),
-                "paso": paso,
+                "paso":     paso,
+                # Datos enriquecidos para el tooltip del picker
+                "carga":            carga_items,
+                "proximo_objetivo": proximo_objetivo,
             })
 
         zonas = {}

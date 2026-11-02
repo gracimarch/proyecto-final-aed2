@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    EDITOR.CSS
    Estilos del editor de warehouse:
    modales, toolbar de herramientas, panel de selección,
@@ -1598,4 +1598,250 @@ select.sel-value option {
 
 [data-theme="light"] .rct-separator {
     background: rgba(0, 0, 0, 0.07);
+}
+
+/* ================================================================
+   PICKER TOOLTIP — Floating HUD overlay
+   Comparte el contenedor #rack-cell-tooltip pero con clases propias
+   prefijadas "pkt-" para no interferir con los estilos de rack.
+================================================================ */
+
+/* ── Encabezado del picker ────────────────────────────────────── */
+.pkt-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 7px;
+    background: var(--color-surface-2);
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* Dot con el color distintivo del picker */
+.pkt-header__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px currentColor;
+}
+
+.pkt-header__info {
+    flex: 1;
+    min-width: 0;
+}
+
+.pkt-header__name {
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pkt-header__id {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--color-text-muted);
+    margin-top: 1px;
+}
+
+/* Badge de estado con color dinámico (seteado inline) */
+.pkt-header__status {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid;
+    flex-shrink: 0;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+}
+
+/* ── Secciones genéricas (wave, carga) ───────────────────────── */
+.pkt-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 10px;
+    font-size: var(--font-size-xs);
+}
+
+.pkt-section--small {
+    padding: 2px 10px 5px;
+}
+
+.pkt-section--wave {
+    background: rgba(79, 156, 249, 0.04);
+}
+
+.pkt-section__label {
+    color: var(--color-text-muted);
+    font-size: 0.68rem;
+}
+
+.pkt-section__label--block {
+    display: block;
+    padding: 5px 10px 3px;
+    color: var(--color-text-muted);
+    font-size: 0.68rem;
+}
+
+.pkt-section__value {
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+}
+
+.pkt-muted {
+    color: var(--color-text-dim) !important;
+    font-style: italic;
+    font-weight: 400 !important;
+}
+
+/* ── Barra de progreso de capacidad ──────────────────────────── */
+.pkt-progress-bar {
+    height: 4px;
+    background: var(--color-border);
+    border-radius: 2px;
+    margin: 0 10px;
+    overflow: hidden;
+}
+
+.pkt-progress-bar__fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.2s ease;
+    min-width: 2px;
+}
+
+/* ── Lista de ítems en tránsito ──────────────────────────────── */
+.pkt-cargo {
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 4px;
+    max-height: 170px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-2) transparent;
+}
+
+.pkt-cargo::-webkit-scrollbar       { width: 3px; }
+.pkt-cargo::-webkit-scrollbar-track { background: transparent; }
+.pkt-cargo::-webkit-scrollbar-thumb { background: var(--color-border-2); border-radius: 2px; }
+
+.pkt-cargo-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 5px 10px;
+}
+
+.pkt-cargo-item__name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pkt-cargo-item__meta {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+/* ── Próximo objetivo ─────────────────────────────────────────── */
+.pkt-objective {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 6px 10px 8px;
+    border-left: 3px solid var(--color-primary);
+    margin: 0;
+    background: rgba(79, 156, 249, 0.04);
+}
+
+.pkt-objective__icon {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 13px !important;
+}
+
+.pkt-objective__desc {
+    font-size: 0.68rem;
+    color: var(--color-text);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+/* ── Ajuste tema claro ────────────────────────────────────────── */
+[data-theme="light"] .pkt-header {
+    background: #f4f7fb;
+    border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .pkt-section--wave {
+    background: rgba(37, 99, 235, 0.04);
+}
+
+[data-theme="light"] .pkt-objective {
+    background: rgba(37, 99, 235, 0.04);
+}
+
+[data-theme="light"] .pkt-progress-bar {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+
+/* =========================================================
+   TOOLTIP PICKER — MODO FIJADO (PINNED)
+   ========================================================= */
+
+/* Estado anclado: habilita interacción y resalta con borde de 1px */
+#rack-cell-tooltip.is-pinned {
+    pointer-events: auto;
+    border-color: var(--pkt-pin-color, var(--color-primary));
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* Botón de cierre — solo visible en modo pinned */
+.pkt-header__close {
+    display: none;
+    flex-shrink: 0;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 5px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+#rack-cell-tooltip.is-pinned .pkt-header__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pkt-header__close:hover {
+    background: var(--color-surface-2);
+    border-color: var(--color-border-2);
+    color: var(--color-text);
+}
+
+/* Tema claro */
+[data-theme="light"] #rack-cell-tooltip.is-pinned {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .pkt-cargo::-webkit-scrollbar-thumb {
+    background: var(--color-border);
 }

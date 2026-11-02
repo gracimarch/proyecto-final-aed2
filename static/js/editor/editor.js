@@ -59,6 +59,7 @@ class WarehouseEditor {
         // celdas de rack con productos. Todo en el editor: sin acoplamiento al UI.
         this._tooltip        = null;   // <div id="rack-cell-tooltip">
         this._tooltipCellKey = null;   // "cx,cy" última celda renderizada (para evitar re-renders)
+        this._pinnedPickerId = null;  // picker anclado (click): bloquea hover del resto
         this._initTooltip();
     }
 
@@ -202,6 +203,7 @@ class WarehouseEditor {
             const dy = sp.y - this._panStart.y;
             this.renderer.panX = this._panOrigin.x + dx;
             this.renderer.panY = this._panOrigin.y + dy;
+            this._hideTooltip();
             return;
         }
 
@@ -325,6 +327,24 @@ class WarehouseEditor {
         this._movingElement  = null;
         this._isDragging     = false;
         this.renderer.cursorRect = null;
+
+        // — Clic limpio en picker: anclar/desanclar tooltip —
+        // Solo si no hubo arrastre ni paneo, y el botón fue el izquierdo.
+        if (!this._isDragging) {
+            const clickCell   = this._cellAt(e);
+            const clickPicker = this.scenario ? this.scenario.getPickerAt(clickCell.x, clickCell.y) : null;
+            if (clickPicker) {
+                // Si ya estaba anclado en este mismo picker, desanclar (toggle)
+                if (this._pinnedPickerId === clickPicker.id) {
+                    this._hideTooltip();
+                } else {
+                    this._pinPickerTooltip(clickPicker, e);
+                }
+            } else if (this._pinnedPickerId !== null) {
+                // Click en celda vacía/rack → desanclar
+                this._hideTooltip();
+            }
+        }
         // Los commits de arriba ya invalidaron la capa si cambiaron geometría.
         this.requestRender();
     }
@@ -341,6 +361,9 @@ class WarehouseEditor {
         this._movingRack         = null;
         this._movingElement      = null;
         this._isDragging         = false;
+        if (this._pinnedPickerId === null) {
+            this._hideTooltip();
+        }
         this.requestRender();
     }
 
@@ -609,8 +632,6 @@ class WarehouseEditor {
      */
     _initTooltip() {
         this._tooltip = document.getElementById('rack-cell-tooltip');
-        // Si el elemento no está en el HTML (escenario de test), lo creamos
-        // e insertamos dentro del canvas-wrapper.
         if (!this._tooltip) {
             this._tooltip = document.createElement('div');
             this._tooltip.id = 'rack-cell-tooltip';
@@ -619,6 +640,23 @@ class WarehouseEditor {
             const wrapper = this.canvas.closest('.canvas-wrapper') || this.canvas.parentElement;
             if (wrapper) wrapper.appendChild(this._tooltip);
         }
+
+        // Aislar scroll del canvas: cuando el tooltip está fijado y el usuario
+        // scrollea sobre él, no debe dispararse el zoom/pan del canvas.
+        this._tooltip.addEventListener('wheel', e => {
+            if (this._pinnedPickerId !== null) e.stopPropagation();
+        }, { passive: true });
+        // Aislar clicks dentro del tooltip fijado (evitar desanclar al interactuar/seleccionar)
+        this._tooltip.addEventListener('mousedown', e => {
+            if (this._pinnedPickerId !== null) e.stopPropagation();
+        });
+
+        // Cerrar tooltip fijado con Escape
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && this._pinnedPickerId !== null) {
+                this._hideTooltip();
+            }
+        });
     }
 
     /**
@@ -631,26 +669,123 @@ class WarehouseEditor {
     _updateTooltip(cx, cy, e) {
         if (!this._tooltip || !this.scenario) { this._hideTooltip(); return; }
 
-        // ── 1. Verificar que hay un rack y que tiene productos en esta celda ──
+        // Si hay un picker anclado, solo dejar que se actualice esa celda
+        // (para refrescar datos de simulación). No mostrar otro tooltip.
+        if (this._pinnedPickerId !== null) {
+            const pinnedPicker = this.scenario.getPickerAt(cx, cy);
+            if (pinnedPicker && pinnedPicker.id === this._pinnedPickerId) {
+                // Misma celda del picker anclado → actualizar datos sin mover posición
+                this._refreshPinnedPickerTooltip(pinnedPicker);
+            }
+            return;
+        }
+
+        // — 1. Picker en la celda → tooltip de picker —
+        const picker = this.scenario.getPickerAt(cx, cy);
+        if (picker) {
+            this._updatePickerTooltip(picker, cx, cy, e);
+            return;
+        }
+
+        // — 2. Rack con productos → tooltip de celda —
         const rack = this.scenario.getRackAt(cx, cy);
         if (!rack) { this._hideTooltip(); return; }
 
         const cellProds = rack.products
             .filter(p => p.x === cx && p.y === cy)
-            .sort((a, b) => a.z - b.z);   // ordenar por nivel Z ascendente
+            .sort((a, b) => a.z - b.z);
 
         if (cellProds.length === 0) { this._hideTooltip(); return; }
 
-        // ── 2. Actualizar contenido solo si la celda cambió ───────────────────
-        const cellKey = `${cx},${cy}`;
+        // — 3. Actualizar contenido solo si la celda cambió —
+        const cellKey = `rack:${cx},${cy}`;
         if (cellKey !== this._tooltipCellKey) {
             this._tooltipCellKey = cellKey;
             this._tooltip.innerHTML = this._buildTooltipHTML(rack, cx, cy, cellProds);
         }
 
-        // ── 3. Mostrar y posicionar ───────────────────────────────────────────
+        // — 4. Mostrar y posicionar —
         this._positionTooltip(e);
         this._tooltip.classList.add('visible');
+    }
+
+    /**
+     * Muestra el tooltip de un picker en modo hover (efímero).
+     * No se activa si hay un picker anclado distinto.
+     */
+    _updatePickerTooltip(picker, cx, cy, e) {
+        const cellKey = `picker:${picker.id}`;
+        if (cellKey !== this._tooltipCellKey) {
+            this._tooltipCellKey = cellKey;
+            const runtimeData = (typeof simGetPickerRuntimeData === 'function')
+                ? simGetPickerRuntimeData(picker.id, picker)
+                : { ...picker, estado: 'LIBRE', wave: null, carga_kg: 0,
+                    carga: [], proximo_objetivo: { tipo: 'FIN', destino: null, descripcion: 'En espera / sin wave' } };
+            this._tooltip.innerHTML = this._buildPickerTooltipHTML(runtimeData, false);
+        }
+        this._positionTooltip(e);
+        this._tooltip.classList.add('visible');
+    }
+
+    /**
+     * Ancla el tooltip de un picker (click limpio).
+     * Congela la posición actual y activa el modo interactivo.
+     */
+    _pinPickerTooltip(picker, e) {
+        const runtimeData = (typeof simGetPickerRuntimeData === 'function')
+            ? simGetPickerRuntimeData(picker.id, picker)
+            : { ...picker, estado: 'LIBRE', wave: null, carga_kg: 0,
+                carga: [], proximo_objetivo: { tipo: 'FIN', destino: null, descripcion: 'En espera / sin wave' } };
+
+        this._pinnedPickerId  = picker.id;
+        this._tooltipCellKey  = `picker:${picker.id}`;
+        this._tooltip.innerHTML = this._buildPickerTooltipHTML(runtimeData, true);
+        this._positionTooltip(e);  // congela la posición en el momento del click
+        this._tooltip.classList.add('visible');
+        this._tooltip.classList.add('is-pinned');
+        this._tooltip.style.setProperty('--pkt-pin-color', runtimeData.color || '#4f9cf9');
+
+        // Botón cerrar dentro del tooltip
+        const closeBtn = this._tooltip.querySelector('.pkt-header__close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._hideTooltip();
+            }, { once: true });
+        }
+    }
+
+    /**
+     * Refresca los datos del picker anclado sin mover la posición ni perder
+     * el scroll actual del área de carga.
+     */
+    _refreshPinnedPickerTooltip(picker) {
+        if (!this._tooltip || this._pinnedPickerId !== picker.id) return;
+        const runtimeData = (typeof simGetPickerRuntimeData === 'function')
+            ? simGetPickerRuntimeData(picker.id, picker)
+            : { ...picker, estado: 'LIBRE', wave: null, carga_kg: 0,
+                carga: [], proximo_objetivo: { tipo: 'FIN', destino: null, descripcion: 'En espera / sin wave' } };
+
+        // Preservar scrollTop del contenedor de carga antes de reescribir el DOM
+        const cargoEl   = this._tooltip.querySelector('.pkt-cargo');
+        const savedScroll = cargoEl ? cargoEl.scrollTop : 0;
+
+        this._tooltip.innerHTML = this._buildPickerTooltipHTML(runtimeData, true);
+        this._tooltip.classList.add('is-pinned');
+        this._tooltip.style.setProperty('--pkt-pin-color', runtimeData.color || '#4f9cf9');
+
+        // Restaurar scroll
+        const newCargoEl = this._tooltip.querySelector('.pkt-cargo');
+        if (newCargoEl) newCargoEl.scrollTop = savedScroll;
+
+        // Re-enlazar botón cerrar
+        const closeBtn = this._tooltip.querySelector('.pkt-header__close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._hideTooltip();
+            }, { once: true });
+        }
     }
 
     /** Construye el HTML interno del tooltip. Puro, sin efectos secundarios. */
@@ -702,6 +837,115 @@ class WarehouseEditor {
      * Posiciona el tooltip cerca del cursor, con detección de bordes para
      * que nunca se salga del canvas-wrapper ni de la ventana.
      */
+    /**
+     * Construye el HTML del tooltip de un picker.
+     * Recibe los datos ya enriquecidos de simGetPickerRuntimeData (o datos base).
+     */
+    _buildPickerTooltipHTML(d, isPinned = false) {
+        // ── Mapeo de estado → color semántico ─────────────────────
+        const estadoColors = {
+            'EN_RECORRIDO': 'var(--color-primary)',
+            'RECOGIENDO':   'var(--color-success)',
+            'DESCARGANDO':  'var(--color-accent)',
+            'ESPERANDO':    'var(--color-warning)',
+            'ASIGNADO':     'var(--color-primary)',
+            'LIBRE':        'var(--color-text-muted)',
+        };
+        const estadoColor = estadoColors[d.estado] || 'var(--color-text-muted)';
+        const estadoLabel = d.estado || 'LIBRE';
+
+        // ── Capacidad ──────────────────────────────────────────────
+        const capMax = d.capacidadKg ?? 100;
+        const capUsed = d.carga_kg ?? 0;
+        const capPct  = Math.min(100, Math.round((capUsed / capMax) * 100));
+        const capColor = capPct > 85 ? 'var(--color-danger)' : capPct > 60 ? 'var(--color-warning)' : 'var(--color-success)';
+        const capLib = Math.max(0, capMax - capUsed).toFixed(2);
+
+        // - Encabezado -
+        const closeBtnHTML = isPinned
+            ? `<button class="pkt-header__close" title="Cerrar" aria-label="Cerrar tooltip">&#x2715;</button>`
+            : '';
+        const header = 
+`
+            <div class="pkt-header">
+                <span class="pkt-header__dot" style="background:${this._esc(d.color || 
+'#4f9cf9'
+)}"></span>
+                <div class="pkt-header__info">
+                    <div class="pkt-header__name">${this._esc(d.name || d.id)}</div>
+                    <div class="pkt-header__id">${this._esc(d.id)}&nbsp;&bull;&nbsp;(X:${d.x}&thinsp;Y:${d.y})</div>
+                </div>
+                <span class="pkt-header__status" style="color:${estadoColor};border-color:${estadoColor}">${this._esc(estadoLabel)}</span>
+                ${closeBtnHTML}
+            </div>
+`;
+
+        // ── Wave ───────────────────────────────────────────────────
+        const waveHTML = `
+            <div class="pkt-section pkt-section--wave">
+                <span class="pkt-section__label">Wave</span>
+                <span class="pkt-section__value ${d.wave ? '' : 'pkt-muted'}">${d.wave ? this._esc(d.wave) : 'Sin asignar'}</span>
+            </div>`;
+
+        // ── Capacidad + barra ──────────────────────────────────────
+        const capacidadHTML = `
+            <div class="pkt-section">
+                <span class="pkt-section__label">Carga</span>
+                <span class="pkt-section__value">${capUsed.toFixed(2)}&thinsp;kg / ${capMax.toFixed(2)}&thinsp;kg</span>
+            </div>
+            <div class="pkt-progress-bar">
+                <div class="pkt-progress-bar__fill" style="width:${capPct}%;background:${capColor}"></div>
+            </div>
+            <div class="pkt-section pkt-section--small">
+                <span class="pkt-section__label">Libre</span>
+                <span class="pkt-section__value">${capLib}&thinsp;kg</span>
+            </div>`;
+
+        // ── Ítems en tránsito ──────────────────────────────────────
+        let cargaHTML = '';
+        if (d.carga && d.carga.length > 0) {
+            const items = d.carga.map(item => `
+                <div class="pkt-cargo-item">
+                    <span class="pkt-cargo-item__name">${this._esc(item.nombre || item.producto_id)}</span>
+                    <div class="pkt-cargo-item__meta">
+                        <span class="rct-chip rct-chip--stock">${item.cantidad}&thinsp;u.</span>
+                        <span class="rct-chip rct-chip--weight">${(item.peso_kg ?? 0).toFixed(2)}&thinsp;kg</span>
+                        <span class="rct-chip rct-chip--coord">${this._esc(item.producto_id)}</span>
+                    </div>
+                </div>`).join('<div class="rct-separator"></div>');
+            cargaHTML = `<div class="pkt-section__label pkt-section__label--block">En tránsito</div><div class="pkt-cargo">${items}</div>`;
+        } else {
+            cargaHTML = `<div class="pkt-section pkt-section--small">
+                <span class="pkt-section__label">En tránsito</span>
+                <span class="pkt-section__value pkt-muted">Sin carga (0.0 kg)</span>
+            </div>`;
+        }
+
+        // ── Próximo objetivo ───────────────────────────────────────
+        const obj = d.proximo_objetivo || { tipo: 'FIN', descripcion: 'En espera' };
+        const objIcons = { PICKING: 'shopping_bag', DESPACHO: 'local_shipping', ESPERA: 'hourglass_empty', FIN: 'check_circle' };
+        const objColors = { PICKING: 'var(--color-primary)', DESPACHO: 'var(--color-accent)', ESPERA: 'var(--color-warning)', FIN: 'var(--color-success)' };
+        const objIcon  = objIcons[obj.tipo]  || 'help';
+        const objColor = objColors[obj.tipo] || 'var(--color-text-muted)';
+        const destStr  = obj.destino ? ` (${obj.destino[0]}, ${obj.destino[1]})` : '';
+        const objHTML  = `
+            <div class="pkt-objective" style="border-left-color:${objColor}">
+                <span class="pkt-objective__icon icon icon--16 icon--filled" style="color:${objColor}">${objIcon}</span>
+                <span class="pkt-objective__desc">${this._esc(obj.descripcion)}${this._esc(destStr)}</span>
+            </div>`;
+
+        return header + `
+            <div class="rct-body">
+                ${waveHTML}
+                <div class="rct-separator"></div>
+                ${capacidadHTML}
+                <div class="rct-separator"></div>
+                ${cargaHTML}
+                <div class="rct-separator"></div>
+                ${objHTML}
+            </div>`;
+    }
+
     _positionTooltip(e) {
         const tt = this._tooltip;
         const wrapper = this.canvas.closest('.canvas-wrapper') || this.canvas.parentElement;
@@ -743,11 +987,13 @@ class WarehouseEditor {
         tt.style.visibility = '';
     }
 
-    /** Oculta el tooltip y limpia la clave de celda cacheada. */
+    /** Oculta el tooltip, desancla el picker y limpia el estado cacheado. */
     _hideTooltip() {
         if (!this._tooltip) return;
         this._tooltip.classList.remove('visible');
-        this._tooltipCellKey = null;
+        this._tooltip.classList.remove('is-pinned');
+        this._tooltipCellKey  = null;
+        this._pinnedPickerId  = null;
     }
 
     /** Escapa caracteres HTML para evitar XSS en nombres/SKUs. */
