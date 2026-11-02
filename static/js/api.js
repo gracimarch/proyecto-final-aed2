@@ -125,17 +125,19 @@ async function apiCompareAllCombinations(escenario) {
 /**
  * Le pide al servidor que simule todas las waves con todos los pickers.
  *
- * @param {Object} escenario   Resultado de Scenario.toJSON().
- * @param {string} estrategia  "orden" o "cercania".
- * @param {string} buscador    "bfs" o "astar".
- * @returns {Promise<Object>}  { frames, metricas, rutas, error }.
+ * @param {Object} escenario    Resultado de Scenario.toJSON().
+ * @param {string} estrategia   "orden" o "cercania".
+ * @param {string} buscador     "bfs" o "astar".
+ * @param {number} velocidad    Multiplicador de ticks por frame (1 a 10).
+ * @returns {Promise<Object>}   { frames, metricas, rutas, error }.
  *     Cada frame: { tick, pickers: [{id, x, y, estado, wave, carga_kg, paso}],
  *                   zonas: {zona_id: kg}, eventos: [...] }.
  */
-async function apiSimulate(escenario, estrategia, buscador) {
+async function apiSimulate(escenario, estrategia, buscador, velocidad = 1) {
     return await _post('/api/simulacion', {
         escenario,
         estrategia: estrategia,
         buscador:   buscador,
+        velocidad:  velocidad,
     });
 }
