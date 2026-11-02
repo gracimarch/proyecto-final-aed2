@@ -471,25 +471,21 @@
             </div>
 
             <div class="modal__body">
-                <span id="label-prod-cell" class="modal__subtitle" style="display:block;margin-bottom:.6rem;font-size:.72rem;color:var(--color-accent,#4f9cf9);font-family:'JetBrains Mono',monospace;">Celda: (—, —)</span>
+                <div class="form-row">
+                    <span id="label-prod-cell" class="modal__subtitle" style="font-size:.72rem;color:var(--color-accent,#4f9cf9);font-family:'JetBrains Mono',monospace;">Celda: (—, —)</span>
+                    <span id="label-prod-id" class="modal__subtitle" style="font-size:.72rem;color:var(--color-text-muted,#94a3b8);font-family:'JetBrains Mono',monospace;text-align:right;display:block;width:100%;">ID: PRD—</span>
+                </div>
                 <div class="form-group">
                     <label class="form-label" for="input-prod-name">Nombre del producto <span class="form-required">*</span></label>
                     <input class="form-input" type="text" id="input-prod-name"
                            placeholder="ej: Auriculares BT" maxlength="60" autocomplete="off">
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label" for="input-prod-sku">SKU / Código</label>
-                        <input class="form-input" type="text" id="input-prod-sku"
-                               placeholder="ej: SKU-001" maxlength="30" autocomplete="off">
-                    </div>
+                <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr;">
                     <div class="form-group">
                         <label class="form-label" for="input-prod-qty">Cantidad</label>
                         <input class="form-input form-input--num" type="number" id="input-prod-qty"
                                min="1" max="9999" value="1">
                     </div>
-                </div>
-                <div class="form-row">
                     <div class="form-group">
                         <label class="form-label" for="input-prod-weight">Peso (kg)</label>
                         <input class="form-input form-input--num" type="number" id="input-prod-weight"

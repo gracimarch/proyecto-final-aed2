@@ -1322,6 +1322,26 @@ select.sel-value option {
     display: flex;
     flex-direction: column;
     gap: .35rem;
+    max-height: 240px;
+    overflow-y: auto;
+    padding-right: 6px;
+    box-sizing: border-box;
+}
+
+/* Barra de scroll sutil para la lista de flota */
+.fleet-status::-webkit-scrollbar {
+    width: 8px;
+}
+.fleet-status::-webkit-scrollbar-track {
+    background: rgba(255,255,255,.03);
+    border-radius: 4px;
+}
+.fleet-status::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.25);
+    border-radius: 4px;
+}
+.fleet-status::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,.4);
 }
 
 /* Una fila por picker activo en la simulacion */
