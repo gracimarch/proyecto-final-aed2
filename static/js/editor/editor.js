@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    WAREHOUSE EDITOR
    Maneja la interacción del usuario con el canvas:
    colocar/remover racks, productos y pickers.
@@ -53,6 +53,13 @@ class WarehouseEditor {
         this._startLoop();
 
         this._bindEvents();
+
+        // ── Tooltip flotante de celda ──────────────────────────────
+        // Gestiona el tooltip HTML que aparece al hacer hover sobre
+        // celdas de rack con productos. Todo en el editor: sin acoplamiento al UI.
+        this._tooltip        = null;   // <div id="rack-cell-tooltip">
+        this._tooltipCellKey = null;   // "cx,cy" última celda renderizada (para evitar re-renders)
+        this._initTooltip();
     }
 
     // ── Scenario ─────────────────────────────────────────────────
@@ -260,6 +267,15 @@ class WarehouseEditor {
                 // door o picker: 1×1, el cursor indica la celda destino
                 this.renderer.cursorRect = { x: cell.x, y: cell.y, w: 1, h: 1 };
             }
+        }
+
+        // ── Tooltip: ocultar durante drag, mostrar si hay productos en la celda ──
+        const _isDraggingAny = this._isDragging || !!this._rackDragStart || !!this._dzDragStart
+                            || !!this._aisleDragStart || !!this._movingElement;
+        if (_isDraggingAny) {
+            this._hideTooltip();
+        } else {
+            this._updateTooltip(cell.x, cell.y, e);
         }
     }
 
@@ -583,6 +599,164 @@ class WarehouseEditor {
                 this.onEvent('error', 'No se pudo mover el picker (celda ocupada o fuera de límites).');
             }
         }
+    }
+
+    // ── Tooltip flotante de celda de rack ────────────────────────
+
+    /**
+     * Obtiene (o crea si no existe) el elemento DOM del tooltip
+     * y lo guarda en this._tooltip.
+     */
+    _initTooltip() {
+        this._tooltip = document.getElementById('rack-cell-tooltip');
+        // Si el elemento no está en el HTML (escenario de test), lo creamos
+        // e insertamos dentro del canvas-wrapper.
+        if (!this._tooltip) {
+            this._tooltip = document.createElement('div');
+            this._tooltip.id = 'rack-cell-tooltip';
+            this._tooltip.className = 'rack-cell-tooltip';
+            this._tooltip.setAttribute('aria-hidden', 'true');
+            const wrapper = this.canvas.closest('.canvas-wrapper') || this.canvas.parentElement;
+            if (wrapper) wrapper.appendChild(this._tooltip);
+        }
+    }
+
+    /**
+     * Muestra u oculta el tooltip según si la celda (cx, cy) de un rack
+     * contiene productos. Evita reescribir el DOM si la celda no cambió.
+     * @param {number} cx   - coordenada X lógica de la celda
+     * @param {number} cy   - coordenada Y lógica de la celda
+     * @param {MouseEvent} e - evento original (para posicionar el tooltip)
+     */
+    _updateTooltip(cx, cy, e) {
+        if (!this._tooltip || !this.scenario) { this._hideTooltip(); return; }
+
+        // ── 1. Verificar que hay un rack y que tiene productos en esta celda ──
+        const rack = this.scenario.getRackAt(cx, cy);
+        if (!rack) { this._hideTooltip(); return; }
+
+        const cellProds = rack.products
+            .filter(p => p.x === cx && p.y === cy)
+            .sort((a, b) => a.z - b.z);   // ordenar por nivel Z ascendente
+
+        if (cellProds.length === 0) { this._hideTooltip(); return; }
+
+        // ── 2. Actualizar contenido solo si la celda cambió ───────────────────
+        const cellKey = `${cx},${cy}`;
+        if (cellKey !== this._tooltipCellKey) {
+            this._tooltipCellKey = cellKey;
+            this._tooltip.innerHTML = this._buildTooltipHTML(rack, cx, cy, cellProds);
+        }
+
+        // ── 3. Mostrar y posicionar ───────────────────────────────────────────
+        this._positionTooltip(e);
+        this._tooltip.classList.add('visible');
+    }
+
+    /** Construye el HTML interno del tooltip. Puro, sin efectos secundarios. */
+    _buildTooltipHTML(rack, cx, cy, cellProds) {
+        const total = cellProds.length;
+        const itemLabel = total === 1 ? '1 producto' : `${total} productos`;
+
+        // ── Encabezado ────────────────────────────────────────────
+        const header = `
+            <div class="rct-header">
+                <span class="rct-header__icon icon icon--filled icon--16" aria-hidden="true">shelves</span>
+                <div class="rct-header__info">
+                    <div class="rct-header__rack">${this._esc(rack.id)}</div>
+                    <div class="rct-header__pos">Celda&nbsp;(X:${cx}&thinsp;Y:${cy})</div>
+                </div>
+                <span class="rct-header__badge">${itemLabel}</span>
+            </div>`;
+
+        // ── Lista de productos ─────────────────────────────────────
+        const prodsHTML = cellProds.map((p, i) => {
+            const sep = i > 0 ? '<div class="rct-separator" aria-hidden="true"></div>' : '';
+            return `${sep}
+                <div class="rct-product">
+                    <div class="rct-product__head">
+                        <span class="rct-product__z" title="Nivel Z">Z${p.z}</span>
+                        <span class="rct-product__name" title="${this._esc(p.name)}">${this._esc(p.name)}</span>
+                    </div>
+                    <div class="rct-product__sku">${this._esc(p.sku || p.id)}</div>
+                    <div class="rct-product__meta">
+                        <span class="rct-chip rct-chip--stock" title="Stock disponible">
+                            <span class="icon icon--16 icon--filled" style="font-size:10px">inventory_2</span>
+                            ${p.quantity}&thinsp;u.
+                        </span>
+                        <span class="rct-chip rct-chip--weight" title="Peso unitario">
+                            <span class="icon icon--16 icon--filled" style="font-size:10px">weight</span>
+                            ${p.pesoKg.toFixed(2)}&thinsp;kg
+                        </span>
+                        <span class="rct-chip rct-chip--coord" title="Coordenadas 3D exactas">
+                            (${p.x},&thinsp;${p.y},&thinsp;${p.z})
+                        </span>
+                    </div>
+                </div>`;
+        }).join('');
+
+        return header + `<div class="rct-body">${prodsHTML}</div>`;
+    }
+
+    /**
+     * Posiciona el tooltip cerca del cursor, con detección de bordes para
+     * que nunca se salga del canvas-wrapper ni de la ventana.
+     */
+    _positionTooltip(e) {
+        const tt = this._tooltip;
+        const wrapper = this.canvas.closest('.canvas-wrapper') || this.canvas.parentElement;
+        if (!wrapper) return;
+
+        const wRect = wrapper.getBoundingClientRect();
+        const OFFSET = 16;
+
+        // Posición relativa al wrapper (para position: absolute)
+        let left = e.clientX - wRect.left + OFFSET;
+        let top  = e.clientY - wRect.top  + OFFSET;
+
+        // Asegurar que el tooltip esté visible antes de medir su tamaño
+        tt.style.visibility = 'hidden';
+        tt.style.left = `${left}px`;
+        tt.style.top  = `${top}px`;
+
+        // Medir (forzar layout del tooltip)
+        const ttW = tt.offsetWidth;
+        const ttH = tt.offsetHeight;
+        const wW  = wrapper.offsetWidth;
+        const wH  = wrapper.offsetHeight;
+
+        // Ajuste horizontal: si desborda por la derecha, mover a la izquierda del cursor
+        if (left + ttW > wW - 4) {
+            left = e.clientX - wRect.left - ttW - OFFSET;
+        }
+        // Ajuste vertical: si desborda por abajo, mover encima del cursor
+        if (top + ttH > wH - 4) {
+            top = e.clientY - wRect.top - ttH - OFFSET;
+        }
+
+        // Clamp para que no salga por arriba/izquierda
+        left = Math.max(4, left);
+        top  = Math.max(4, top);
+
+        tt.style.left = `${left}px`;
+        tt.style.top  = `${top}px`;
+        tt.style.visibility = '';
+    }
+
+    /** Oculta el tooltip y limpia la clave de celda cacheada. */
+    _hideTooltip() {
+        if (!this._tooltip) return;
+        this._tooltip.classList.remove('visible');
+        this._tooltipCellKey = null;
+    }
+
+    /** Escapa caracteres HTML para evitar XSS en nombres/SKUs. */
+    _esc(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     // Kept for backwards compat
