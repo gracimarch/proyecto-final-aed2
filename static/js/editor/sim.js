@@ -932,6 +932,15 @@ function simIsEditingLocked() {
     return _simulationLocked;
 }
 
+/**
+ * Devuelve true cuando NO se deben permitir ediciones en los pedidos.
+ * Identico a simIsEditingLocked(): bloquea en ejecucion Y en pausa.
+ * Solo se permite editar pedidos cuando la simulacion esta sin iniciar
+ * o fue reiniciada (simRestart / simReset).
+ */
+function simIsOrderEditingLocked() {
+    return _simulationLocked;
+  
 // ---------------------------------------------------------------------------
 // Tooltip de pickers: acceso al estado de simulacion del frame actual
 // ---------------------------------------------------------------------------
