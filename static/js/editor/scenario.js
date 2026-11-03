@@ -625,9 +625,16 @@ class Scenario {
         s.orders = (data.pedidos || []).map(o => Order.fromJSON(o));
         s.waveMaxPedidos = config.wave_max_pedidos != null ? config.wave_max_pedidos : 5;
         s.waveMaxProductos = config.wave_max_productos != null ? config.wave_max_productos : 20;
-        const pickerColors = meta.pickerColors || [];
-        for (const pc of pickerColors) { const pk = s.pickers.find(p => p.id === pc.id); if (pk) { pk.color = pc.color; pk.name = pc.name; } }
-        s.pickers.forEach((pk, i) => { if (!pk.color) pk.color = PICKER_COLORS[i % PICKER_COLORS.length]; });
+        const pickerColorsMap = {};
+        (meta.pickerColors || []).forEach(pc => { pickerColorsMap[pc.id] = pc.color; });
+
+        // Alternativa A: asignar colores por orden de llegada (índice en el array),
+        // ciclando la paleta si hay más pickers que colores. Respeta colores
+        // guardados por ID si existen en el JSON.
+        s.pickers.forEach((pk, i) => {
+            const savedColor = pickerColorsMap[pk.id];
+            pk.color = savedColor || PICKER_COLORS[i % PICKER_COLORS.length];
+        });
         const rackMap = Object.fromEntries(s.racks.map(r => [r.id, r]));
         for (const pData of (data.productos || [])) { const product = Product.fromJSON(pData); const rack = rackMap[product.rackId]; if (rack) rack.products.push(product); }
         s._nextPickerColorIdx = meta._nextPickerColorIdx != null ? meta._nextPickerColorIdx : s.pickers.length;

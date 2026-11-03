@@ -97,11 +97,11 @@ function _dom(id) { return document.getElementById(id); }
 // Velocidades en ms/tick segun el valor del slider (1 a 5)
 // ---------------------------------------------------------------------------
 
-const SPEED_MS = { 1: 500, 2: 250, 3: 120, 4: 60, 5: 20 };
+const SPEED_MS = { 1: 500, 2: 250, 3: 120, 4: 60, 5: 20, 6: 15, 7: 12, 8: 10, 9: 8, 10: 5 };
 
 function _tickDelayMs() {
     const val = parseInt(_dom('range-speed')?.value || '1');
-    return SPEED_MS[val] || 200;
+    return SPEED_MS[val] || 5;
 }
 
 
@@ -149,6 +149,15 @@ function _getBuscadorValue() {
     return _dom('select-buscador')?.value || 'bfs';
 }
 
+function _getOndaValue() {
+    return _dom('select-onda')?.value || 'por_pedido';
+}
+
+function _getSpeedValue() {
+    const val = parseInt(_dom('range-speed')?.value || '1');
+    return val >= 1 && val <= 10 ? val : 1;
+}
+
 function _currentFrame() {
     if (!_simulation || _frameIndex < 0) return null;
     return _simulation.frames[_frameIndex];
@@ -184,8 +193,9 @@ async function simGenerateWaves() {
     const btn = _dom('btn-generate-wave');
     if (btn) btn.disabled = true;
 
+    const estrategiaWave = _getOndaValue();
     try {
-        _waves = await apiGenerateWaves(sc.toJSON());
+        _waves = await apiGenerateWaves(sc.toJSON(), estrategiaWave);
         _initialWavesSnapshot = JSON.parse(JSON.stringify(_waves));
         _simulation = null;     // las waves cambiaron: hay que volver a simular
         _frameIndex = -1;
@@ -434,7 +444,13 @@ async function _loadSimulation() {
     try {
         _restorePickerPositions();
         _saveInitialPickerPositions();
-        _simulation = await apiSimulate(sc.toJSON(), _getStrategyValue(), _getBuscadorValue());
+        _simulation = await apiSimulate(
+            sc.toJSON(),
+            _getStrategyValue(),
+            _getBuscadorValue(),
+            _getOndaValue(),
+            _getSpeedValue(),
+        );
     } catch (err) {
         showToast(err.error || 'Error al calcular la simulación.', 'error');
         return false;
@@ -722,6 +738,30 @@ async function simCompareAll() {
 }
 
 
+/**
+ * Genera las waves con ambos modos de armado ("por_pedido" y "por_cercania")
+ * sobre el mismo escenario y renderiza dos tablas lado a lado para comparar.
+ */
+async function simCompareWaves() {
+    const sc = _getScenario();
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+
+    const btn = _dom('btn-compare-waves');
+    if (btn) btn.disabled = true;
+
+    try {
+        showToast('Generando waves con ambos modos...', 'info');
+        const datos = await apiCompareWaves(sc.toJSON());
+        _renderWaveComparison(datos);
+        showToast('Comparación de modos de armado de waves lista.', 'success');
+    } catch (err) {
+        showToast(err.error || 'Error al comparar modos de armado de waves.', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 // Metricas y comparacion
 // ---------------------------------------------------------------------------
@@ -840,6 +880,88 @@ function _renderComparison(datos, options = {}) {
             </thead>
             <tbody>${filas}</tbody>
         </table>`;
+}
+
+
+/**
+ * Renderiza dos tablas (una por modo de armado de waves) para comparar.
+ * datos.comparacion = [ {estrategia, total_waves, total_unidades, total_peso_kg,
+ *   distancia_estimada_total, promedio_unidades_por_wave, waves: [...]}, ... ]
+ * datos.mismo_resultado indica si ambos modos produjeron exactamente lo mismo.
+ */
+function _renderWaveComparison(datos) {
+    const container = _dom('compare-waves-result');
+    if (!container || !datos || !Array.isArray(datos.comparacion)) return;
+
+    const ondaLabels = {
+        por_pedido:  'Por pedido (agrupar pedidos enteros)',
+        por_cercania: 'Por cercanía (juntar ítems cercanos)',
+    };
+
+    const mismoResultado = datos.mismo_resultado === true;
+
+    const tablas = datos.comparacion.map(entry => {
+        const totalWaves = entry.total_waves ?? 0;
+        const totalUnidades = entry.total_unidades ?? 0;
+        const totalPeso = (entry.total_peso_kg ?? 0).toFixed(3);
+        const distanciaTotal = (entry.distancia_estimada_total ?? 0).toFixed(2);
+        const promedio = (entry.promedio_unidades_por_wave ?? 0).toFixed(2);
+
+        const filasWave = (entry.waves || []).map(w => {
+            const pickerIds = (w.picker_ids || (w.picker_id ? [w.picker_id] : [])).join(', ') || '— en espera —';
+            return `
+            <tr>
+                <td class="compare-cell--name">${w.wave_id}</td>
+                <td class="text-right">${w.pedidos && w.pedidos.join(', ') || '—'}</td>
+                <td class="text-right">${w.unidades}</td>
+                <td class="text-right">${w.peso_kg} kg</td>
+                <td class="text-right">${w.distancia_estimada} celdas</td>
+                <td class="text-right">${pickerIds}</td>
+                <td class="text-right">${w.status}</td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div class="wave-compare-table">
+            <div class="wave-compare-table__header">
+                <strong>${ondaLabels[entry.estrategia] || entry.estrategia}</strong>
+                <span class="wave-compare-table__totals">
+                    ${totalWaves} wave(s) · ${totalUnidades} uds · ${totalPeso} kg · ${distanciaTotal} celdas est. · ${promedio} uds/wave
+                </span>
+            </div>
+            <table class="compare-table">
+                <thead>
+                    <tr>
+                        <th>Wave</th>
+                        <th>Pedidos</th>
+                        <th class="text-right">Unidades</th>
+                        <th class="text-right">Peso</th>
+                        <th class="text-right">Distancia est.</th>
+                        <th>Picker(s)</th>
+                        <th class="text-right">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>${filasWave}</tbody>
+            </table>
+        </div>`;
+    }).join('');
+
+    const aviso = mismoResultado
+        ? `<p class="wave-compare-hint wave-compare-hint--equal">
+             Ambas estrategias generaron exactamente las mismas waves para este escenario.
+             La diferencia por cercanía se nota más cuando hay productos de distintos pedidos
+             ubicados cerca entre sí en el mapa.
+           </p>`
+        : `<p class="wave-compare-hint">
+             Cada tabla muestra las waves generadas con ese modo de armado. Compará cantidad de waves,
+             unidades, peso y distancia estimada para decidir cuál conviene más.
+           </p>`;
+
+    container.innerHTML = `
+        ${mismoResultado ? `<div class="compare-badge compare-badge--equal">Mismo resultado en ambos modos</div>` : ''}
+        <div class="wave-compare-grid">${tablas}</div>
+        ${aviso}
+    `;
 }
 
 
@@ -1158,6 +1280,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCompare) btnCompare.addEventListener('click', simCompare);
     const btnCompareAll = _dom('btn-compare-all');
     if (btnCompareAll) btnCompareAll.addEventListener('click', simCompareAll);
+    const btnCompareWaves = _dom('btn-compare-waves');
+    if (btnCompareWaves) btnCompareWaves.addEventListener('click', simCompareWaves);
 
     const btnFocusMode = _dom('btn-focus-mode');
     if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
@@ -1165,15 +1289,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
     const selStrategy = _dom('select-strategy');
     const selBuscador = _dom('select-buscador');
+    const selOnda     = _dom('select-onda');
     const invalidar = () => { if (_simulation) simRestart(); };
     if (selStrategy) selStrategy.addEventListener('change', invalidar);
     if (selBuscador) selBuscador.addEventListener('change', invalidar);
+    if (selOnda) selOnda.addEventListener('change', invalidar);
 
     const rangeSpeed = _dom('range-speed');
     const speedLabel = _dom('speed-label');
     if (rangeSpeed && speedLabel) {
         rangeSpeed.addEventListener('input', (e) => {
             speedLabel.textContent = `${e.target.value}×`;
+            // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
+            if (_simulation) simRestart();
         });
     }
 });
