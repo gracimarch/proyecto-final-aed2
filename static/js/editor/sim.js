@@ -97,11 +97,11 @@ function _dom(id) { return document.getElementById(id); }
 // Velocidades en ms/tick segun el valor del slider (1 a 5)
 // ---------------------------------------------------------------------------
 
-const SPEED_MS = { 1: 500, 2: 250, 3: 120, 4: 60, 5: 20 };
+const SPEED_MS = { 1: 500, 2: 250, 3: 120, 4: 60, 5: 20, 6: 15, 7: 12, 8: 10, 9: 8, 10: 5 };
 
 function _tickDelayMs() {
     const val = parseInt(_dom('range-speed')?.value || '1');
-    return SPEED_MS[val] || 200;
+    return SPEED_MS[val] || 5;
 }
 
 
@@ -147,6 +147,11 @@ function _getStrategyValue() {
 
 function _getBuscadorValue() {
     return _dom('select-buscador')?.value || 'bfs';
+}
+
+function _getSpeedValue() {
+    const val = parseInt(_dom('range-speed')?.value || '1');
+    return val >= 1 && val <= 10 ? val : 1;
 }
 
 function _currentFrame() {
@@ -434,7 +439,12 @@ async function _loadSimulation() {
     try {
         _restorePickerPositions();
         _saveInitialPickerPositions();
-        _simulation = await apiSimulate(sc.toJSON(), _getStrategyValue(), _getBuscadorValue());
+        _simulation = await apiSimulate(
+            sc.toJSON(),
+            _getStrategyValue(),
+            _getBuscadorValue(),
+            _getSpeedValue(),
+        );
     } catch (err) {
         showToast(err.error || 'Error al calcular la simulación.', 'error');
         return false;
@@ -1174,6 +1184,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rangeSpeed && speedLabel) {
         rangeSpeed.addEventListener('input', (e) => {
             speedLabel.textContent = `${e.target.value}×`;
+            // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
+            if (_simulation) simRestart();
         });
     }
 });

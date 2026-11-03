@@ -351,16 +351,27 @@ def api_simulacion():
     escenario  = body.get("escenario")
     estrategia = body.get("estrategia", "cercania")
     buscador   = body.get("buscador",   "bfs")
+    velocidad  = body.get("velocidad", 1)   # multiplicador de ticks por frame (1..10)
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
+
+    try:
+        velocidad = int(velocidad)
+        if velocidad < 1 or velocidad > 10:
+            raise ValueError("La velocidad debe estar entre 1 y 10.")
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
 
     try:
         warehouse = _build_warehouse(escenario)
         manager   = _build_wave_manager(escenario, warehouse)
         manager.generate_waves()
         manager.assign_pickers()
-        simulacion = Simulation(warehouse, manager, estrategia, buscador)
+        simulacion = Simulation(
+            warehouse, manager, estrategia, buscador,
+            speed_multiplier=velocidad,
+        )
         simulacion.run()
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
