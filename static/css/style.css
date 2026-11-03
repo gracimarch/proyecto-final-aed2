@@ -780,6 +780,60 @@ button:disabled {
     text-transform: uppercase;
 }
 
+/* ── Comparacion de modos de armado de waves (dos tablas lado a lado) ── */
+.wave-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 8px;
+}
+@media (max-width: 768px) {
+    .wave-compare-grid { grid-template-columns: 1fr; }
+}
+.wave-compare-table {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 6px);
+    overflow: hidden;
+    background: var(--color-surface, #0f172a);
+}
+.wave-compare-table__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--font-size-sm);
+}
+.wave-compare-table__totals {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+.wave-compare-hint {
+    margin-top: 10px;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    text-align: center;
+}
+.wave-compare-hint--equal {
+    color: var(--color-warning, #f59e0b);
+    font-weight: 600;
+}
+.compare-badge--equal {
+    display: inline-block;
+    margin-bottom: 8px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    border-radius: var(--radius-sm, 3px);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--color-warning, #f59e0b);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
 /* ── Chip de producto recogido ───────────────── */
 .collected-item {
     font-size: var(--font-size-xs);

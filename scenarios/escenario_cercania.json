@@ -1,0 +1,33 @@
+{
+  "warehouse": {
+    "dimensiones": {"ancho_x": 12, "largo_y": 10},
+    "puertas": [
+      {"id": "D1", "tipo": "OUTBOUND", "ubicacion": {"x": 5, "y": 0}}
+    ],
+    "zonas_despacho": [
+      {"id": "Z1", "puerta_id": "D1", "ubicacion": {"x": 4, "y": 1}, "ancho": 3, "alto": 2, "peso_max_kg": 500.0}
+    ],
+    "racks": [
+      {"id": "R_CERCA", "ubicacion": {"x": 1, "y": 4}, "ancho": 2, "alto": 4},
+      {"id": "R_LEJOS", "ubicacion": {"x": 9, "y": 4}, "ancho": 2, "alto": 4}
+    ],
+    "pasillos": [
+      {"id": "P_AMBOS", "ubicacion": {"x": 0, "y": 3}, "ancho": 12, "alto": 1, "sentido": "AMBOS"}
+    ]
+  },
+  "pickers": [
+    {"id": "PK_01", "posicion_inicial": {"x": 0, "y": 3}, "capacidad_carga_kg": 100.0}
+  ],
+  "productos": [
+    {"id": "P_A", "nombre": "Producto A (cerca)", "rack_id": "R_CERCA", "ubicacion": {"x": 1, "y": 4, "z": 1}, "cantidad_disponible": 10, "peso_kg": 1.0},
+    {"id": "P_B", "nombre": "Producto B (cerca)", "rack_id": "R_CERCA", "ubicacion": {"x": 2, "y": 5, "z": 1}, "cantidad_disponible": 10, "peso_kg": 1.0},
+    {"id": "P_C", "nombre": "Producto C (lejos)", "rack_id": "R_LEJOS", "ubicacion": {"x": 9, "y": 5, "z": 1}, "cantidad_disponible": 10, "peso_kg": 1.0},
+    {"id": "P_D", "nombre": "Producto D (lejos)", "rack_id": "R_LEJOS", "ubicacion": {"x": 10, "y": 6, "z": 1}, "cantidad_disponible": 10, "peso_kg": 1.0}
+  ],
+  "pedidos": [
+    {"id": "ORD_1", "prioridad": 5, "estado": "PENDIENTE", "items": [{"producto_id": "P_A", "cantidad": 1}, {"producto_id": "P_D", "cantidad": 1}]},
+    {"id": "ORD_2", "prioridad": 5, "estado": "PENDIENTE", "items": [{"producto_id": "P_B", "cantidad": 1}]},
+    {"id": "ORD_3", "prioridad": 4, "estado": "PENDIENTE", "items": [{"producto_id": "P_C", "cantidad": 1}]}
+  ],
+  "configuracion": {"wave_max_pedidos": 3, "wave_max_productos": 2}
+}

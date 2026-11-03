@@ -149,6 +149,10 @@ function _getBuscadorValue() {
     return _dom('select-buscador')?.value || 'bfs';
 }
 
+function _getOndaValue() {
+    return _dom('select-onda')?.value || 'por_pedido';
+}
+
 function _getSpeedValue() {
     const val = parseInt(_dom('range-speed')?.value || '1');
     return val >= 1 && val <= 10 ? val : 1;
@@ -189,8 +193,9 @@ async function simGenerateWaves() {
     const btn = _dom('btn-generate-wave');
     if (btn) btn.disabled = true;
 
+    const estrategiaWave = _getOndaValue();
     try {
-        _waves = await apiGenerateWaves(sc.toJSON());
+        _waves = await apiGenerateWaves(sc.toJSON(), estrategiaWave);
         _initialWavesSnapshot = JSON.parse(JSON.stringify(_waves));
         _simulation = null;     // las waves cambiaron: hay que volver a simular
         _frameIndex = -1;
@@ -232,7 +237,7 @@ function _wavePickerText(w) {
         ? w.picker_ids
         : (w.picker_id ? [w.picker_id] : []);
     return `Picker${ids.length > 1 ? 's' : ''}: ` +
-           (ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014');
+        (ids.length > 0 ? ids.join(', ') : '\u2014 en espera \u2014');
 }
 
 /** Construye la estructura completa (solo al generar/reiniciar waves). */
@@ -259,9 +264,9 @@ function _buildWavesListDOM(list) {
     list.querySelectorAll('.wave-item').forEach(card => {
         _wavesListNodes.set(card.dataset.waveId, {
             card,
-            badge:       card.querySelector('.wave-item__badge'),
-            pickers:     card.querySelector('.wave-item__pickers'),
-            badgeText:   null,
+            badge: card.querySelector('.wave-item__badge'),
+            pickers: card.querySelector('.wave-item__pickers'),
+            badgeText: null,
             pickersText: null,
         });
     });
@@ -339,13 +344,13 @@ function _renderFleetStatus() {
     if (!container) return;
 
     const frame = _currentFrame();
-    const rows  = frame ? _buildFleetDataFromFrame(frame) : _buildFleetDataFromWaves();
+    const rows = frame ? _buildFleetDataFromFrame(frame) : _buildFleetDataFromWaves();
 
     if (rows.length === 0) {
         if (_fleetSignature !== 'empty') {
             container.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
             _fleetSignature = 'empty';
-            _fleetNodes     = [];
+            _fleetNodes = [];
         }
         return;
     }
@@ -362,9 +367,9 @@ function _renderFleetStatus() {
             </div>`).join('');
 
         _fleetNodes = Array.from(container.querySelectorAll('.fleet-row')).map(row => ({
-            wave:       row.querySelector('.fleet-row__wave'),
-            status:     row.querySelector('.fleet-row__status'),
-            waveText:   null,
+            wave: row.querySelector('.fleet-row__wave'),
+            status: row.querySelector('.fleet-row__status'),
+            waveText: null,
             statusText: null,
         }));
         _fleetSignature = signature;
@@ -408,8 +413,8 @@ function _buildFleetDataFromWaves() {
 
 function _buildFleetDataFromFrame(frame) {
     return frame.pickers.map(p => ({
-        id:     p.id,
-        wave:   p.wave || '—',
+        id: p.id,
+        wave: p.wave || '—',
         status: `${p.estado} · ${p.carga_kg} kg`,
     }));
 }
@@ -443,6 +448,7 @@ async function _loadSimulation() {
             sc.toJSON(),
             _getStrategyValue(),
             _getBuscadorValue(),
+            _getOndaValue(),
             _getSpeedValue(),
         );
     } catch (err) {
@@ -471,7 +477,7 @@ async function _loadSimulation() {
 /** Vuelve todo a como estaba antes del frame 0 (sin borrar la simulacion). */
 function _resetPlayback() {
     _frameIndex = -1;
-    _routes     = {};
+    _routes = {};
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
@@ -526,12 +532,12 @@ function _applyEvent(evento) {
         // Ruta nueva (al empezar una wave, al desviarse o al cambiar de zona).
         const anterior = _routes[evento.picker];
         _routes[evento.picker] = {
-            path:    evento.path,
+            path: evento.path,
             paradas: evento.paradas || (anterior ? anterior.paradas : []),
         };
     } else if (evento.tipo === 'inicio_wave') {
         if (wave) {
-            wave.status    = 'EN_PROCESO';
+            wave.status = 'EN_PROCESO';
             wave.picker_id = evento.picker;   // compat con código legacy
             // Acumular en picker_ids para waves con varios pickers
             if (!wave.picker_ids) wave.picker_ids = [];
@@ -561,10 +567,10 @@ function _pushRoutesToRenderer(frame) {
         const ruta = _routes[p.id];
         if (!ruta || p.paso === null) continue;
         rutas.push({
-            path:    ruta.path,
+            path: ruta.path,
             paradas: ruta.paradas,
-            step:    p.paso + 1,     // el renderer pinta como recorrido hasta step - 1
-            color:   _pickerColor(p.id),
+            step: p.paso + 1,     // el renderer pinta como recorrido hasta step - 1
+            color: _pickerColor(p.id),
         });
     }
     _renderer.agentRoutes = rutas;
@@ -573,9 +579,9 @@ function _pushRoutesToRenderer(frame) {
 function _clearRoutesFromRenderer() {
     if (typeof _renderer === 'undefined' || !_renderer) return;
     _renderer.agentRoutes = [];
-    _renderer.routePath   = null;
-    _renderer.routeStops  = [];
-    _renderer.routeStep   = 0;
+    _renderer.routePath = null;
+    _renderer.routeStops = [];
+    _renderer.routeStep = 0;
 }
 
 
@@ -644,7 +650,7 @@ async function simStep() {
 function simRestart() {
     simPause();
     _resetPlayback();
-    _simulation       = null;   // libera la planificacion calculada
+    _simulation = null;   // libera la planificacion calculada
     _focusModeUserSet = false;
     _clearMetrics();
     _setFocusMode(false);
@@ -732,6 +738,30 @@ async function simCompareAll() {
 }
 
 
+/**
+ * Genera las waves con ambos modos de armado ("por_pedido" y "por_cercania")
+ * sobre el mismo escenario y renderiza dos tablas lado a lado para comparar.
+ */
+async function simCompareWaves() {
+    const sc = _getScenario();
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+
+    const btn = _dom('btn-compare-waves');
+    if (btn) btn.disabled = true;
+
+    try {
+        showToast('Generando waves con ambos modos...', 'info');
+        const datos = await apiCompareWaves(sc.toJSON());
+        _renderWaveComparison(datos);
+        showToast('Comparación de modos de armado de waves lista.', 'success');
+    } catch (err) {
+        showToast(err.error || 'Error al comparar modos de armado de waves.', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 // Metricas y comparacion
 // ---------------------------------------------------------------------------
@@ -739,10 +769,10 @@ async function simCompareAll() {
 function _renderMetrics(m) {
     const set = (id, val) => { const el = _dom(id); if (el) el.textContent = val; };
     set('metric-distance', m.distancia_total + ' celdas');
-    set('metric-nodes',    m.nodos_visitados);
-    set('metric-edges',    m.aristas_recorridas);
+    set('metric-nodes', m.nodos_visitados);
+    set('metric-edges', m.aristas_recorridas);
     set('metric-expanded', m.nodos_expandidos);
-    set('metric-time',     m.tiempo_ms.toFixed(2) + ' ms');
+    set('metric-time', m.tiempo_ms.toFixed(2) + ' ms');
 }
 
 function _clearMetrics() {
@@ -769,7 +799,7 @@ function _addCollectedProducts(productIds, waveId) {
         if (list.querySelector(`[data-key="${key}"]`)) continue;
 
         const item = document.createElement('div');
-        item.className   = 'collected-item';
+        item.className = 'collected-item';
         item.dataset.key = key;
         item.textContent = `[${waveId}] ${pid}`;
         list.appendChild(item);
@@ -808,11 +838,11 @@ function _renderComparison(datos, options = {}) {
 
     const strategyLabels = {
         cercania: 'Cercanía',
-        orden:    'Orden de pedidos'
+        orden: 'Orden de pedidos'
     };
 
     const buscadorLabels = {
-        bfs:   'BFS',
+        bfs: 'BFS',
         astar: 'A*'
     };
 
@@ -853,6 +883,88 @@ function _renderComparison(datos, options = {}) {
 }
 
 
+/**
+ * Renderiza dos tablas (una por modo de armado de waves) para comparar.
+ * datos.comparacion = [ {estrategia, total_waves, total_unidades, total_peso_kg,
+ *   distancia_estimada_total, promedio_unidades_por_wave, waves: [...]}, ... ]
+ * datos.mismo_resultado indica si ambos modos produjeron exactamente lo mismo.
+ */
+function _renderWaveComparison(datos) {
+    const container = _dom('compare-waves-result');
+    if (!container || !datos || !Array.isArray(datos.comparacion)) return;
+
+    const ondaLabels = {
+        por_pedido: 'Por pedido (agrupar pedidos enteros)',
+        por_cercania: 'Por cercanía (juntar ítems cercanos)',
+    };
+
+    const mismoResultado = datos.mismo_resultado === true;
+
+    const tablas = datos.comparacion.map(entry => {
+        const totalWaves = entry.total_waves ?? 0;
+        const totalUnidades = entry.total_unidades ?? 0;
+        const totalPeso = (entry.total_peso_kg ?? 0).toFixed(3);
+        const distanciaTotal = (entry.distancia_estimada_total ?? 0).toFixed(2);
+        const promedio = (entry.promedio_unidades_por_wave ?? 0).toFixed(2);
+
+        const filasWave = (entry.waves || []).map(w => {
+            const pickerIds = (w.picker_ids || (w.picker_id ? [w.picker_id] : [])).join(', ') || '— en espera —';
+            return `
+            <tr>
+                <td class="compare-cell--name">${w.wave_id}</td>
+                <td class="text-right">${w.pedidos && w.pedidos.join(', ') || '—'}</td>
+                <td class="text-right">${w.unidades}</td>
+                <td class="text-right">${w.peso_kg} kg</td>
+                <td class="text-right">${w.distancia_estimada} celdas</td>
+                <td class="text-right">${pickerIds}</td>
+                <td class="text-right">${w.status}</td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div class="wave-compare-table">
+            <div class="wave-compare-table__header">
+                <strong>${ondaLabels[entry.estrategia] || entry.estrategia}</strong>
+                <span class="wave-compare-table__totals">
+                    ${totalWaves} wave(s) · ${totalUnidades} uds · ${totalPeso} kg · ${distanciaTotal} celdas est. · ${promedio} uds/wave
+                </span>
+            </div>
+            <table class="compare-table">
+                <thead>
+                    <tr>
+                        <th>Wave</th>
+                        <th>Pedidos</th>
+                        <th class="text-right">Unidades</th>
+                        <th class="text-right">Peso</th>
+                        <th class="text-right">Distancia est.</th>
+                        <th>Picker(s)</th>
+                        <th class="text-right">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>${filasWave}</tbody>
+            </table>
+        </div>`;
+    }).join('');
+
+    const aviso = mismoResultado
+        ? `<p class="wave-compare-hint wave-compare-hint--equal">
+             Ambas estrategias generaron exactamente las mismas waves para este escenario.
+             La diferencia por cercanía se nota más cuando hay productos de distintos pedidos
+             ubicados cerca entre sí en el mapa.
+           </p>`
+        : `<p class="wave-compare-hint">
+             Cada tabla muestra las waves generadas con ese modo de armado. Compará cantidad de waves,
+             unidades, peso y distancia estimada para decidir cuál conviene más.
+           </p>`;
+
+    container.innerHTML = `
+        ${mismoResultado ? `<div class="compare-badge compare-badge--equal">Mismo resultado en ambos modos</div>` : ''}
+        <div class="wave-compare-grid">${tablas}</div>
+        ${aviso}
+    `;
+}
+
+
 // ---------------------------------------------------------------------------
 // Reset completo de simulacion (lo llama ui.js al cambiar de escenario)
 // ---------------------------------------------------------------------------
@@ -865,9 +977,9 @@ function simGetOrderStatus(orderId) {
     if (!_waves || _waves.length === 0) return 'PENDIENTE';
     const wavesDelPedido = _waves.filter(w => w.pedidos && w.pedidos.includes(orderId));
     if (wavesDelPedido.length === 0) return 'PENDIENTE';
-    const todas       = wavesDelPedido.length;
+    const todas = wavesDelPedido.length;
     const completadas = wavesDelPedido.filter(w => w.status === 'COMPLETADA').length;
-    const enProceso   = wavesDelPedido.filter(w => w.status === 'EN_PROCESO').length;
+    const enProceso = wavesDelPedido.filter(w => w.status === 'EN_PROCESO').length;
     if (completadas === todas) return 'COMPLETADO';
     if (enProceso > 0 || (completadas > 0 && completadas < todas)) return 'EN_PROCESO';
     return 'EN_WAVE';
@@ -880,14 +992,14 @@ function simReset() {
     _restorePickerPositions();
     _initialPickerPositions.clear();
 
-    _waves                = [];
+    _waves = [];
     _initialWavesSnapshot = [];
-    _simulation           = null;
-    _simulationLocked     = false;
-    _frameIndex           = -1;
-    _routes               = {};
-    _selectedWaveId       = null;
-    _focusModeUserSet     = false;
+    _simulation = null;
+    _simulationLocked = false;
+    _frameIndex = -1;
+    _routes = {};
+    _selectedWaveId = null;
+    _focusModeUserSet = false;
 
     _renderWavesList();
 
@@ -963,17 +1075,17 @@ function simGetPickerRuntimeData(pickerId, scenarioPicker) {
 
     // Datos base (siempre disponibles desde el escenario)
     const base = {
-        id:           pickerId,
-        name:         scenarioPicker?.name  || pickerId,
-        color:        scenarioPicker?.color || '#4f9cf9',
-        capacidadKg:  scenarioPicker?.capacidadKg ?? 100,
-        x:            scenarioPicker?.x ?? 0,
-        y:            scenarioPicker?.y ?? 0,
+        id: pickerId,
+        name: scenarioPicker?.name || pickerId,
+        color: scenarioPicker?.color || '#4f9cf9',
+        capacidadKg: scenarioPicker?.capacidadKg ?? 100,
+        x: scenarioPicker?.x ?? 0,
+        y: scenarioPicker?.y ?? 0,
         // Datos de simulación con valores por defecto (modo edición)
-        estado:           'LIBRE',
-        wave:             null,
-        carga_kg:         0,
-        carga:            [],
+        estado: 'LIBRE',
+        wave: null,
+        carga_kg: 0,
+        carga: [],
         proximo_objetivo: { tipo: 'FIN', destino: null, descripcion: 'En espera / sin wave' },
         // Ruta activa
         ruta: _routes[pickerId] || null,
@@ -987,13 +1099,13 @@ function simGetPickerRuntimeData(pickerId, scenarioPicker) {
 
     return {
         ...base,
-        x:                fp.x,
-        y:                fp.y,
-        estado:           fp.estado  || 'LIBRE',
-        wave:             fp.wave    || null,
-        carga_kg:         fp.carga_kg ?? 0,
+        x: fp.x,
+        y: fp.y,
+        estado: fp.estado || 'LIBRE',
+        wave: fp.wave || null,
+        carga_kg: fp.carga_kg ?? 0,
         // Enriquecidos (si el backend ya los provee en el frame)
-        carga:            fp.carga            || [],
+        carga: fp.carga || [],
         proximo_objetivo: fp.proximo_objetivo || base.proximo_objetivo,
     };
 }
@@ -1006,13 +1118,13 @@ function _setEditingLock(locked) {
 
     // Herramientas de edicion del canvas (excepto seleccionar)
     ['tool-rack', 'tool-move-rack', 'tool-product',
-     'tool-erase', 'tool-door', 'tool-dispatch', 'tool-aisle'].forEach(id => {
-        const btn = _dom(id);
-        if (!btn) return;
-        btn.disabled = locked;
-        if (locked) { btn._origTitle = btn.title; btn.title = MSG; }
-        else if (btn._origTitle !== undefined) { btn.title = btn._origTitle; }
-    });
+        'tool-erase', 'tool-door', 'tool-dispatch', 'tool-aisle'].forEach(id => {
+            const btn = _dom(id);
+            if (!btn) return;
+            btn.disabled = locked;
+            if (locked) { btn._origTitle = btn.title; btn.title = MSG; }
+            else if (btn._origTitle !== undefined) { btn.title = btn._origTitle; }
+        });
 
     // Selectores asociados a herramientas de edicion
     ['door-tipo-select', 'aisle-sentido-select'].forEach(id => {
@@ -1095,11 +1207,11 @@ function simStepBack() {
     if (!_simulation || _frameIndex <= 0) return;
 
     const target = _frameIndex - 1;
-    const sc     = _getScenario();
+    const sc = _getScenario();
 
     // Volver al estado inicial limpio
     _frameIndex = -1;
-    _routes     = {};
+    _routes = {};
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
@@ -1150,10 +1262,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnGenerateWave) btnGenerateWave.addEventListener('click', simGenerateWaves);
 
     const btnPlayPause = _dom('btn-play-pause');
-    const btnStep      = _dom('btn-step');
-    const btnStepBack  = _dom('btn-step-back');
-    const btnRestart   = _dom('btn-restart');
-    const btnCompare   = _dom('btn-compare');
+    const btnStep = _dom('btn-step');
+    const btnStepBack = _dom('btn-step-back');
+    const btnRestart = _dom('btn-restart');
+    const btnCompare = _dom('btn-compare');
 
     if (btnPlayPause) btnPlayPause.addEventListener('click', () => {
         if (_animTimer !== null) {
@@ -1162,12 +1274,14 @@ document.addEventListener('DOMContentLoaded', () => {
             simPlanAndPlay();
         }
     });
-    if (btnStep)    btnStep.addEventListener('click',    simStep);
+    if (btnStep) btnStep.addEventListener('click', simStep);
     if (btnStepBack) btnStepBack.addEventListener('click', simStepBack);
     if (btnRestart) btnRestart.addEventListener('click', simRestart);
     if (btnCompare) btnCompare.addEventListener('click', simCompare);
     const btnCompareAll = _dom('btn-compare-all');
     if (btnCompareAll) btnCompareAll.addEventListener('click', simCompareAll);
+    const btnCompareWaves = _dom('btn-compare-waves');
+    if (btnCompareWaves) btnCompareWaves.addEventListener('click', simCompareWaves);
 
     const btnFocusMode = _dom('btn-focus-mode');
     if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
@@ -1175,15 +1289,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
     const selStrategy = _dom('select-strategy');
     const selBuscador = _dom('select-buscador');
+    const selOnda = _dom('select-onda');
     const invalidar = () => { if (_simulation) simRestart(); };
     if (selStrategy) selStrategy.addEventListener('change', invalidar);
     if (selBuscador) selBuscador.addEventListener('change', invalidar);
+    if (selOnda) selOnda.addEventListener('change', invalidar);
 
     const rangeSpeed = _dom('range-speed');
     const speedLabel = _dom('speed-label');
     if (rangeSpeed && speedLabel) {
         rangeSpeed.addEventListener('input', (e) => {
             speedLabel.textContent = `${e.target.value}×`;
+            // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
+            if (_simulation) simRestart();
             // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
             if (_simulation) simRestart();
         });
