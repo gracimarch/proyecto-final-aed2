@@ -485,21 +485,10 @@ def api_simulacion():
         return jsonify({"error": str(e)}), 400
 
     try:
-        velocidad = int(velocidad)
-        if velocidad < 1 or velocidad > 10:
-            raise ValueError("La velocidad debe estar entre 1 y 10.")
-    except (ValueError, TypeError) as e:
-        return jsonify({"error": str(e)}), 400
-
-    try:
         warehouse = _build_warehouse(escenario)
         manager   = _build_wave_manager(escenario, warehouse)
         manager.generate_waves(estrategia_wave=estrategia_wave)
         manager.assign_pickers()
-        simulacion = Simulation(
-            warehouse, manager, estrategia, buscador,
-            speed_multiplier=velocidad,
-        )
         simulacion = Simulation(
             warehouse, manager, estrategia, buscador,
             speed_multiplier=velocidad,

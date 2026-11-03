@@ -883,88 +883,6 @@ function _renderComparison(datos, options = {}) {
 }
 
 
-/**
- * Renderiza dos tablas (una por modo de armado de waves) para comparar.
- * datos.comparacion = [ {estrategia, total_waves, total_unidades, total_peso_kg,
- *   distancia_estimada_total, promedio_unidades_por_wave, waves: [...]}, ... ]
- * datos.mismo_resultado indica si ambos modos produjeron exactamente lo mismo.
- */
-function _renderWaveComparison(datos) {
-    const container = _dom('compare-waves-result');
-    if (!container || !datos || !Array.isArray(datos.comparacion)) return;
-
-    const ondaLabels = {
-        por_pedido: 'Por pedido (agrupar pedidos enteros)',
-        por_cercania: 'Por cercanía (juntar ítems cercanos)',
-    };
-
-    const mismoResultado = datos.mismo_resultado === true;
-
-    const tablas = datos.comparacion.map(entry => {
-        const totalWaves = entry.total_waves ?? 0;
-        const totalUnidades = entry.total_unidades ?? 0;
-        const totalPeso = (entry.total_peso_kg ?? 0).toFixed(3);
-        const distanciaTotal = (entry.distancia_estimada_total ?? 0).toFixed(2);
-        const promedio = (entry.promedio_unidades_por_wave ?? 0).toFixed(2);
-
-        const filasWave = (entry.waves || []).map(w => {
-            const pickerIds = (w.picker_ids || (w.picker_id ? [w.picker_id] : [])).join(', ') || '— en espera —';
-            return `
-            <tr>
-                <td class="compare-cell--name">${w.wave_id}</td>
-                <td class="text-right">${w.pedidos && w.pedidos.join(', ') || '—'}</td>
-                <td class="text-right">${w.unidades}</td>
-                <td class="text-right">${w.peso_kg} kg</td>
-                <td class="text-right">${w.distancia_estimada} celdas</td>
-                <td class="text-right">${pickerIds}</td>
-                <td class="text-right">${w.status}</td>
-            </tr>`;
-        }).join('');
-
-        return `
-        <div class="wave-compare-table">
-            <div class="wave-compare-table__header">
-                <strong>${ondaLabels[entry.estrategia] || entry.estrategia}</strong>
-                <span class="wave-compare-table__totals">
-                    ${totalWaves} wave(s) · ${totalUnidades} uds · ${totalPeso} kg · ${distanciaTotal} celdas est. · ${promedio} uds/wave
-                </span>
-            </div>
-            <table class="compare-table">
-                <thead>
-                    <tr>
-                        <th>Wave</th>
-                        <th>Pedidos</th>
-                        <th class="text-right">Unidades</th>
-                        <th class="text-right">Peso</th>
-                        <th class="text-right">Distancia est.</th>
-                        <th>Picker(s)</th>
-                        <th class="text-right">Estado</th>
-                    </tr>
-                </thead>
-                <tbody>${filasWave}</tbody>
-            </table>
-        </div>`;
-    }).join('');
-
-    const aviso = mismoResultado
-        ? `<p class="wave-compare-hint wave-compare-hint--equal">
-             Ambas estrategias generaron exactamente las mismas waves para este escenario.
-             La diferencia por cercanía se nota más cuando hay productos de distintos pedidos
-             ubicados cerca entre sí en el mapa.
-           </p>`
-        : `<p class="wave-compare-hint">
-             Cada tabla muestra las waves generadas con ese modo de armado. Compará cantidad de waves,
-             unidades, peso y distancia estimada para decidir cuál conviene más.
-           </p>`;
-
-    container.innerHTML = `
-        ${mismoResultado ? `<div class="compare-badge compare-badge--equal">Mismo resultado en ambos modos</div>` : ''}
-        <div class="wave-compare-grid">${tablas}</div>
-        ${aviso}
-    `;
-}
-
-
 // ---------------------------------------------------------------------------
 // Reset completo de simulacion (lo llama ui.js al cambiar de escenario)
 // ---------------------------------------------------------------------------
@@ -1289,7 +1207,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
     const selStrategy = _dom('select-strategy');
     const selBuscador = _dom('select-buscador');
-    const selOnda = _dom('select-onda');
     const invalidar = () => { if (_simulation) simRestart(); };
     if (selStrategy) selStrategy.addEventListener('change', invalidar);
     if (selBuscador) selBuscador.addEventListener('change', invalidar);
@@ -1300,10 +1217,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rangeSpeed && speedLabel) {
         rangeSpeed.addEventListener('input', (e) => {
             speedLabel.textContent = `${e.target.value}×`;
-            // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
-            if (_simulation) simRestart();
-            // Cambiar la velocidad invalida la simulación calculada: hay que volver a pedirla.
-            if (_simulation) simRestart();
         });
     }
 });
