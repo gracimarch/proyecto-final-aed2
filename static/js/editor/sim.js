@@ -882,6 +882,84 @@ function _renderComparison(datos, options = {}) {
         </table>`;
 }
 
+/**
+ * Renderiza la comparacion de modos de armado de waves (por_pedido vs
+ * por_cercania) como dos tablas lado a lado en #compare-waves-result.
+ *
+ * @param {Object} datos Respuesta de /api/waves/compare:
+ *   { comparacion: [{estrategia, total_waves, total_unidades,
+ *     total_peso_kg, distancia_estimada_total, promedio_unidades_por_wave,
+ *     waves: [{wave_id, pedidos, unidades, peso_kg, distancia_estimada, picker_ids}]}],
+ *     mismo_resultado }
+ */
+function _renderWaveComparison(datos) {
+    const container = _dom('compare-waves-result');
+    if (!container || !datos) return;
+
+    const comparacion = datos.comparacion;
+    if (!Array.isArray(comparacion) || comparacion.length === 0) {
+        container.innerHTML = '<p class="empty-msg">No hay datos para comparar el armado de waves.</p>';
+        return;
+    }
+
+    const mismoResultado = datos.mismo_resultado === true;
+
+    const igual = mismoResultado
+        ? '<span class="compare-badge--equal">Ambos modos generan el mismo armado de waves.</span>'
+        : '';
+
+    const tablas = comparacion.map(c => {
+        const titulo = c.estrategia === 'por_cercania' ? 'Por cercanía' : 'Por pedido';
+        const filas = (c.waves || []).map(w => `
+            <tr>
+                <td class="compare-cell--name"><strong>${w.wave_id}</strong></td>
+                <td class="text-right">${(w.pedidos || []).join(', ') || '\u2014'}</td>
+                <td class="text-right">${w.unidades}</td>
+                <td class="text-right">${Number(w.peso_kg || 0).toFixed(2)} kg</td>
+                <td class="text-right">${w.distancia_estimada !== undefined ? w.distancia_estimada : '\u2014'}</td>
+                <td class="text-right">${(w.picker_ids || []).join(', ') || '\u2014'}</td>
+            </tr>
+        `).join('');
+
+        const totales = [
+            `${c.total_waves} wave${c.total_waves !== 1 ? 's' : ''}`,
+            `${c.total_unidades} ud`,
+            `${Number(c.total_peso_kg || 0).toFixed(2)} kg`,
+        ];
+        if (c.distancia_estimada_total !== undefined) {
+            totales.push(`${c.distancia_estimada_total} celdas est.`);
+        }
+
+        return `
+        <div class="wave-compare-table">
+            <div class="wave-compare-table__header">
+                <span class="wave-compare-table__titulo">${titulo}</span>
+                <span class="wave-compare-table__totals">${totales.join('  \u00b7  ')}</span>
+            </div>
+            <div class="wave-compare-table__body">
+                <table class="compare-table">
+                    <thead>
+                        <tr>
+                            <th>Wave</th>
+                            <th class="text-right">Pedidos</th>
+                            <th class="text-right">Unidades</th>
+                            <th class="text-right">Peso</th>
+                            <th class="text-right">Dist. est.</th>
+                            <th class="text-right">Picker(s)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${filas}</tbody>
+                </table>
+            </div>
+        </div>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        ${igual}
+        <div class="wave-compare-grid">${tablas}</div>
+    `;
+}
 
 // ---------------------------------------------------------------------------
 // Reset completo de simulacion (lo llama ui.js al cambiar de escenario)
@@ -1204,9 +1282,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnFocusMode = _dom('btn-focus-mode');
     if (btnFocusMode) btnFocusMode.addEventListener('click', simToggleFocusMode);
 
-    // Si cambia la estrategia o el buscador, la simulacion guardada ya no sirve.
+    // Si cambia la estrategia, el buscador o el modo de armado de waves,
+    // la simulacion guardada ya no sirve.
     const selStrategy = _dom('select-strategy');
     const selBuscador = _dom('select-buscador');
+    const selOnda = _dom('select-onda');
     const invalidar = () => { if (_simulation) simRestart(); };
     if (selStrategy) selStrategy.addEventListener('change', invalidar);
     if (selBuscador) selBuscador.addEventListener('change', invalidar);
