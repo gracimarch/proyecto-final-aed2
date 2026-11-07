@@ -284,6 +284,44 @@ class Picker:
                      and su_destino == self.posicion_actual)
         return misma_celda or se_cruzan
 
+    def celda_anterior(self) -> tuple[int, int] | None:
+        """
+        Celda de dónde venimos (anterior en el historial), si existe.
+        Sirve para ceder el paso retrocediendo cuando dos pickers quedan
+        cara a cara en un pasillo sin salida lateral.
+        """
+        if len(self.historial) < 2:
+            return None
+        return self.historial[-2]
+
+    def puede_step_back(self, graph: Graph) -> bool:
+        """
+        True si existe una arista válida del grafo hacia la celda anterior.
+        Respeta los sentidos de circulación: en un pasillo de un solo
+        sentido puede que no se pueda volver por el mismo camino.
+        """
+        anterior = self.celda_anterior()
+        if anterior is None:
+            return False
+        return graph.has_edge(self.posicion_actual, anterior)
+
+    def step_back(self, graph: Graph) -> tuple[int, int]:
+        """
+        Retrocede una celda hacia donde ya estuvo (ceder el paso).
+        Valida la arista en el grafo. No toca el plan: quien llama debe
+        recalcular la ruta después si es necesario.
+        """
+        if not self.puede_step_back(graph):
+            raise ValueError(
+                f"El picker '{self.picker_id}' no puede step_back: "
+                f"no hay celda anterior o el sentido del pasillo no lo permite."
+            )
+        anterior = self.celda_anterior()
+        self.posicion_actual = anterior
+        self.historial.append(anterior)
+        self.pasos = self.pasos + 1
+        return anterior
+
     # ------------------------------------------------------------------
     # Recoger y descargar (consigna §3.6 y §3.4)
     # ------------------------------------------------------------------
