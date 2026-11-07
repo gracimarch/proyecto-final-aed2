@@ -1,4 +1,4 @@
-﻿/* ================================================================
+﻿﻿/* ================================================================
    WAREHOUSE EDITOR
    Maneja la interacción del usuario con el canvas:
    colocar/remover racks, productos y pickers.
@@ -60,6 +60,7 @@ class WarehouseEditor {
         this._tooltip        = null;   // <div id="rack-cell-tooltip">
         this._tooltipCellKey = null;   // "cx,cy" última celda renderizada (para evitar re-renders)
         this._pinnedPickerId = null;  // picker anclado (click): bloquea hover del resto
+        this._pinnedRackCell = null;  // celda de rack anclada (click): "cx,cy"
         this._initTooltip();
     }
 
@@ -328,21 +329,35 @@ class WarehouseEditor {
         this._isDragging     = false;
         this.renderer.cursorRect = null;
 
-        // — Clic limpio en picker: anclar/desanclar tooltip —
+        // — Clic limpio en picker o rack: anclar/desanclar tooltip —
         // Solo si no hubo arrastre ni paneo, y el botón fue el izquierdo.
         if (!this._isDragging) {
             const clickCell   = this._cellAt(e);
             const clickPicker = this.scenario ? this.scenario.getPickerAt(clickCell.x, clickCell.y) : null;
+            const clickCellKey = `${clickCell.x},${clickCell.y}`;
             if (clickPicker) {
                 // Si ya estaba anclado en este mismo picker, desanclar (toggle)
                 if (this._pinnedPickerId === clickPicker.id) {
                     this._hideTooltip();
                 } else {
+                    this._pinnedRackCell = null;
                     this._pinPickerTooltip(clickPicker, e);
                 }
-            } else if (this._pinnedPickerId !== null) {
-                // Click en celda vacía/rack → desanclar
-                this._hideTooltip();
+            } else {
+                // Verificar si hay una celda de rack con productos
+                const clickRack = this.scenario ? this.scenario.getRackAt(clickCell.x, clickCell.y) : null;
+                const cellProds = clickRack ? clickRack.products.filter(p => p.x === clickCell.x && p.y === clickCell.y) : [];
+                if (clickRack && cellProds.length > 0) {
+                    if (this._pinnedRackCell === clickCellKey) {
+                        // Toggle: mismo rack, desanclar
+                        this._hideTooltip();
+                    } else {
+                        this._pinRackTooltip(clickRack, clickCell.x, clickCell.y, cellProds, e);
+                    }
+                } else if (this._pinnedPickerId !== null || this._pinnedRackCell !== null) {
+                    // Click en celda vacía → desanclar
+                    this._hideTooltip();
+                }
             }
         }
         // Los commits de arriba ya invalidaron la capa si cambiaron geometría.
@@ -361,7 +376,7 @@ class WarehouseEditor {
         this._movingRack         = null;
         this._movingElement      = null;
         this._isDragging         = false;
-        if (this._pinnedPickerId === null) {
+        if (this._pinnedPickerId === null && this._pinnedRackCell === null) {
             this._hideTooltip();
         }
         this.requestRender();
@@ -644,16 +659,16 @@ class WarehouseEditor {
         // Aislar scroll del canvas: cuando el tooltip está fijado y el usuario
         // scrollea sobre él, no debe dispararse el zoom/pan del canvas.
         this._tooltip.addEventListener('wheel', e => {
-            if (this._pinnedPickerId !== null) e.stopPropagation();
+            if (this._pinnedPickerId !== null || this._pinnedRackCell !== null) e.stopPropagation();
         }, { passive: true });
         // Aislar clicks dentro del tooltip fijado (evitar desanclar al interactuar/seleccionar)
         this._tooltip.addEventListener('mousedown', e => {
-            if (this._pinnedPickerId !== null) e.stopPropagation();
+            if (this._pinnedPickerId !== null || this._pinnedRackCell !== null) e.stopPropagation();
         });
 
         // Cerrar tooltip fijado con Escape
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape' && this._pinnedPickerId !== null) {
+            if (e.key === 'Escape' && (this._pinnedPickerId !== null || this._pinnedRackCell !== null)) {
                 this._hideTooltip();
             }
         });
@@ -679,6 +694,9 @@ class WarehouseEditor {
             }
             return;
         }
+
+        // Si hay una celda de rack anclada, no reemplazar el tooltip
+        if (this._pinnedRackCell !== null) return;
 
         // — 1. Picker en la celda → tooltip de picker —
         const picker = this.scenario.getPickerAt(cx, cy);
@@ -755,6 +773,31 @@ class WarehouseEditor {
         }
     }
 
+
+    /**
+     * Ancla el tooltip de una celda de rack (click limpio).
+     * Congela la posición actual y activa el modo interactivo (scroll, botón cerrar).
+     */
+    _pinRackTooltip(rack, cx, cy, cellProds, e) {
+        this._pinnedRackCell = `${cx},${cy}`;
+        this._pinnedPickerId = null;
+        this._tooltipCellKey = `rack:${cx},${cy}`;
+        this._tooltip.innerHTML = this._buildTooltipHTML(rack, cx, cy, cellProds);
+        this._positionTooltip(e);
+        this._tooltip.classList.add('visible');
+        this._tooltip.classList.add('is-pinned');
+        // Eliminar color de picker anterior para que el borde use el azul por defecto
+        this._tooltip.style.removeProperty('--pkt-pin-color');
+
+        // Botón cerrar dentro del tooltip
+        const closeBtn = this._tooltip.querySelector('.pkt-header__close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._hideTooltip();
+            }, { once: true });
+        }
+    }
     /**
      * Refresca los datos del picker anclado sin mover la posición ni perder
      * el scroll actual del área de carga.
@@ -802,6 +845,7 @@ class WarehouseEditor {
                     <div class="rct-header__pos">Celda&nbsp;(X:${cx}&thinsp;Y:${cy})</div>
                 </div>
                 <span class="rct-header__badge">${itemLabel}</span>
+                <button class="pkt-header__close" title="Cerrar" aria-label="Cerrar"><span class="icon icon--16" aria-hidden="true">close</span></button>
             </div>`;
 
         // ── Lista de productos ─────────────────────────────────────
@@ -987,13 +1031,14 @@ class WarehouseEditor {
         tt.style.visibility = '';
     }
 
-    /** Oculta el tooltip, desancla el picker y limpia el estado cacheado. */
+    /** Oculta el tooltip, desancla el picker/rack y limpia el estado cacheado. */
     _hideTooltip() {
         if (!this._tooltip) return;
         this._tooltip.classList.remove('visible');
         this._tooltip.classList.remove('is-pinned');
         this._tooltipCellKey  = null;
         this._pinnedPickerId  = null;
+        this._pinnedRackCell  = null;
     }
 
     /** Escapa caracteres HTML para evitar XSS en nombres/SKUs. */

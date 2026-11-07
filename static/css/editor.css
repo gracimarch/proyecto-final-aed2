@@ -167,9 +167,17 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    max-height: 160px;
+    max-height: clamp(80px, 22vh, 220px);
     overflow-y: auto;
+    overflow-x: hidden;
     padding-right: 2px;
+    /* scroll suave en Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-2) transparent;
+}
+
+.sel-products:focus {
+    outline: none;
 }
 
 .sel-products::-webkit-scrollbar       { width: 4px; }
@@ -189,6 +197,7 @@
     font-size: var(--font-size-xs);
     transition: border-color 0.15s, background 0.15s;
     cursor: default;
+    flex-shrink: 0;
 }
 
 .prod-chip:hover {
@@ -574,23 +583,8 @@
 }
 
 /* ================================================================
-/* Controles inline +/−/count en el header */
-.pickers-controls {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: var(--space-sm);
-}
-
-.pickers-count {
-    font-size: .9rem;
-    font-weight: 700;
-    color: var(--color-text);
-    font-family: var(--font-mono);
-    min-width: 1.6ch;
-    text-align: center;
-    line-height: 1;
-}
+   PANEL DE PICKERS — tabla compacta editable
+=============================================================== */
 
 /* Botones xs (más pequeños que sm) */
 .btn--xs {
@@ -600,134 +594,143 @@
     border-radius: var(--radius-sm);
 }
 
-/* Fila de capacidad */
-.pickers-capacity-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding-bottom: var(--space-sm);
-    border-bottom: 1px solid var(--color-border);
-    margin-bottom: 6px;
-}
-
-.pickers-capacity-row .form-label {
-    flex: 1;
-    margin: 0;
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    white-space: nowrap;
-}
-
-.pickers-capacity-row .form-input--num {
-    width: 64px;
-    flex-shrink: 0;
-    text-align: right;
-    padding: 3px 6px;
-    font-size: .8rem;
-}
-
-/* Toggle de la lista */
-.pickers-list-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    background: none;
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 4px 6px;
-    font-size: var(--font-size-xs);
-    font-family: var(--font-mono);
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    margin-bottom: 4px;
-}
-.pickers-list-toggle:hover {
-    background: var(--color-surface-2);
-    color: var(--color-text);
-}
-
-.pickers-chevron {
-    transition: transform 0.2s;
-}
-.pickers-chevron.open {
-    transform: rotate(180deg);
-}
-
-/* Lista de pickers (chips) */
-.pickers-list {
+/* Contenedor con scroll interno: las filas nunca se comprimen */
+.pickers-table {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    overflow: hidden;
-    max-height: 200px;
+    gap: 2px;
+    max-height: clamp(120px, 26vh, 240px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
     transition: max-height 0.25s ease, opacity 0.2s ease;
-    opacity: 1;
 }
 
-
-.pickers-list--collapsed {
+.pickers-table--collapsed {
     max-height: 0 !important;
     opacity: 0;
+    padding: 0;
+    overflow: hidden;
     pointer-events: none;
 }
 
-/* Scroll container interno — el externo maneja el colapso */
-.pickers-list-scroll {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 180px;
-    overflow-y: auto;
-    padding-right: 2px;
+/* Botón de colapso junto al contador del header */
+.pickers-toggle__chevron {
+    transition: transform 0.2s;
 }
 
-/* Scrollbar sutil */
-.pickers-list-scroll::-webkit-scrollbar       { width: 4px; }
-.pickers-list-scroll::-webkit-scrollbar-track { background: transparent; }
-.pickers-list-scroll::-webkit-scrollbar-thumb {
+.pickers-toggle__chevron.open {
+    transform: rotate(180deg);
+}
+
+.pickers-table > * { flex-shrink: 0; }
+
+.pickers-table::-webkit-scrollbar       { width: 4px; }
+.pickers-table::-webkit-scrollbar-track { background: transparent; }
+.pickers-table::-webkit-scrollbar-thumb {
     background: var(--color-border-2);
     border-radius: 2px;
 }
-.pickers-list-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+.pickers-table::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
-/* Chips individuales de cada picker */
-.picker-chip {
-    display: flex;
+.pickers-table .empty-msg { padding: 4px 2px; }
+
+/* Fila: punto de color | nombre+posición | capacidad */
+.picker-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
     align-items: center;
-    gap: var(--space-sm);
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
+    column-gap: 8px;
+    padding: 4px 5px;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    padding: 4px var(--space-sm);
-    font-size: var(--font-size-xs);
-    transition: border-color 0.15s;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
 }
 
-.picker-chip:hover { border-color: var(--color-border-2); }
+.picker-row:hover { background: var(--color-surface-2); }
 
-.picker-chip__dot {
+.picker-row--selected {
+    background: rgba(79, 156, 249, 0.10);
+    border-color: rgba(79, 156, 249, 0.45);
+}
+
+.picker-row__dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
 }
 
-.picker-chip__name {
-    font-weight: 600;
-    color: var(--color-text);
-    flex: 1;
+/* Nombre y posición apilados para aprovechar el ancho del sidebar */
+.picker-row__id {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    line-height: 1.15;
+}
+
+.picker-row__name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--color-text);
 }
 
-.picker-chip__meta {
-    color: var(--color-text-dim);
+.picker-row__pos {
     font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--color-text-dim);
     white-space: nowrap;
+}
+
+/* Capacidad mostrada como texto (se edita desde el panel de Selección) */
+.picker-row__cap {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.picker-row__unit {
+    font-size: 0.6rem;
+    color: var(--color-text-dim);
+}
+
+/* Fila inferior para agregar un picker */
+.pickers-add-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--color-border);
+}
+
+.pickers-add-row .form-input--num {
+    width: 56px;
+    height: 26px;
+    box-sizing: border-box;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.pickers-add-row__unit {
+    font-size: 0.65rem;
+    color: var(--color-text-dim);
+}
+
+.pickers-add-row .btn {
+    height: 26px;
+    margin-left: auto;
+    padding: 0 8px;
+    gap: 3px;
+    font-size: 0.7rem;
 }
 
 /* ================================================================
@@ -1864,4 +1867,71 @@ select.sel-value option {
 
 [data-theme="light"] .pkt-cargo::-webkit-scrollbar-thumb {
     background: var(--color-border);
+}
+
+ /* ================================================================
+    MODAL: DETALLE DE WAVE (consultar)
+================================================================== */
+.wave-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.wave-detail__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-sm) var(--space-md);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.wave-detail__row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.wave-detail__label {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.wave-detail__value {
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    font-family: var(--font-mono, monospace);
+}
+.wave-detail__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-xs);
+    margin-top: var(--space-xs);
+}
+.wave-detail__table th,
+.wave-detail__table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+}
+.wave-detail__table th {
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.02);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.wave-detail__table td {
+    color: var(--color-text);
+}
+.wave-detail__table tr:last-child td {
+    border-bottom: none;
+}
+.wave-detail__empty {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-dim);
+    text-align: center;
+    padding: var(--space-md) 0;
+    font-style: italic;
 }

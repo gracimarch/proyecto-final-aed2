@@ -158,6 +158,8 @@ body {
 .panel__header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    row-gap: var(--space-xs);
     gap: var(--space-sm);
     margin-bottom: var(--space-sm);
 }
@@ -187,6 +189,11 @@ body {
     max-height: 240px;
     overflow-y: auto;
     padding-right: var(--space-xs);
+}
+
+/* Las tarjetas nunca se comprimen: si no entran, aparece el scroll interno. */
+.panel__body--scroll > * {
+    flex-shrink: 0;
 }
 
 .panel__body--scroll::-webkit-scrollbar { width: 3px; }
@@ -726,6 +733,38 @@ button:disabled {
    SIMULACION — waves, tabla de comparacion y recogidos
 ================================================================ */
 
+/* ── Acciones del panel Waves: tamaño uniforme ─────────────────── */
+.wave-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
+.wave-actions .btn {
+    height: 28px;
+    padding: 0 4px;
+    gap: 3px;
+    font-size: 0.625rem;
+}
+
+.wave-actions .btn .icon {
+    font-size: 13px;
+}
+
+/* En pantallas anchas hay lugar para el tamaño original */
+@media (min-width: 1024px) {
+    .wave-actions .btn {
+        padding: 0 8px;
+        font-size: var(--font-size-xs);
+    }
+
+    .wave-actions .btn .icon {
+        font-size: 15px;
+    }
+}
+
 /* ── Tarjeta de wave en el sidebar izquierdo ─── */
 .wave-item {
     border: 1px solid var(--color-border);
@@ -763,6 +802,64 @@ button:disabled {
     justify-content: space-between;
     color: var(--color-text-muted);
     line-height: 1.5;
+}
+
+/* ── Pedido: cabecera en dos líneas ─────────── */
+.order-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+/* Separación entre los botones de editar y borrar */
+.order-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+/* Chips de prioridad y estado, en su propia línea */
+.order-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 2px 0 5px;
+}
+
+/* Ítem de pedido: cantidad | nombre | id/SKU en una sola línea */
+.order-line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: baseline;
+    column-gap: 6px;
+    width: 100%;
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+}
+
+.order-line__qty {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+
+.order-line__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text);
+}
+
+.order-line__sku {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    color: var(--color-text-dim);
+    white-space: nowrap;
 }
 
 /* ── Tabla de comparacion de estrategias ─────── */
@@ -918,15 +1015,113 @@ button:disabled {
     letter-spacing: 0.06em;
 }
 
-/* ── Chip de producto recogido ───────────────── */
-.collected-item {
+/* ── Productos recogidos — tarjetas agrupadas por wave ─────────── */
+.panel__count {
+    font-family: var(--font-mono);
     font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    padding: 3px 0;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--color-primary);
+    background: rgba(79, 156, 249, 0.12);
+    border: 1px solid rgba(79, 156, 249, 0.30);
+    border-radius: 999px;
+    padding: 1px 7px;
+}
+
+/* Scroll interno propio de la lista de recogidos: más alto que el resto,
+   con barra visible y sin comprimir las tarjetas. */
+#collected-list {
+    max-height: clamp(160px, 32vh, 340px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+#collected-list::-webkit-scrollbar { width: 6px; }
+#collected-list::-webkit-scrollbar-track { background: transparent; }
+#collected-list::-webkit-scrollbar-thumb {
+    background: var(--color-border-2);
+    border-radius: 3px;
+}
+#collected-list::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-dim);
+}
+
+.collected-wave {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+    overflow: hidden;
+    animation: collected-card-in 0.22s cubic-bezier(.16, 1, .3, 1);
+}
+
+.collected-wave__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: 5px var(--space-sm);
+    background: rgba(79, 156, 249, 0.10);
     border-bottom: 1px solid var(--color-border);
 }
+
+.collected-wave__title {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--color-primary);
+}
+
+.collected-wave__count {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.collected-wave__list {
+    display: flex;
+    flex-direction: column;
+    padding: 3px var(--space-sm) 5px;
+}
+
+.collected-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-text);
+    border-bottom: 1px solid var(--color-border);
+    animation: collected-item-in 0.2s ease-out;
+}
+
 .collected-item:last-child {
     border-bottom: none;
+}
+
+.collected-item__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.collected-item__id {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-dim);
+}
+
+@keyframes collected-card-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes collected-item-in {
+    from { opacity: 0; transform: translateX(-4px); }
+    to   { opacity: 1; transform: translateX(0); }
 }
 
 /* ================================================================
@@ -938,30 +1133,69 @@ button:disabled {
 }
 
 /* Estado normal: igual que btn--ghost */
-.btn--toggle {
-    border: 1px solid var(--color-border-2);
-    color: var(--color-text-muted);
-    background: transparent;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+.focus-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
     width: 100%;
-}
-
-.btn--toggle:hover:not(:disabled) {
+    padding: 6px;
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-sm);
     background: var(--color-surface-2);
-    color: var(--color-text);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono);
+    color: var(--color-text-muted);
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.focus-switch-row:hover {
     border-color: var(--color-text-muted);
+    color: var(--color-text);
 }
 
-/* Estado activo (aria-pressed="true" / .active) */
-.btn--toggle.active,
-.btn--toggle[aria-pressed="true"] {
-    background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
+.focus-switch-row.active {
     border-color: rgba(251, 191, 36, 0.55);
+    color: #fbbf24;
 }
 
-.btn--toggle.active:hover:not(:disabled),
-.btn--toggle[aria-pressed="true"]:hover:not(:disabled) {
-    background: rgba(251, 191, 36, 0.20);
-    border-color: rgba(251, 191, 36, 0.80);
+.focus-switch-row .switch__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Track del switch (más pequeño) */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 16px;
+    background: var(--color-border-2);
+    border-radius: 8px;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.focus-switch-row.active .switch {
+    background: rgba(251, 191, 36, 0.55);
+}
+
+/* Thumb del switch (más pequeño) */
+.switch__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    background: var(--color-surface);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.focus-switch-row.active .switch__thumb {
+    transform: translateX(16px);
+    background: #fbbf24;
 }

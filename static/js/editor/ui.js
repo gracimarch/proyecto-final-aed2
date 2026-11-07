@@ -1,4 +1,4 @@
-/* ================================================================
+﻿/* ================================================================
    EDITOR UI
    Conecta el WarehouseEditor con los elementos del DOM:
    - Modal "Nuevo Escenario"
@@ -65,8 +65,6 @@ const DOM = {
 
     // Picker controls
     btnPickerAdd:    () => document.getElementById('btn-picker-add'),
-    btnPickerRemove: () => document.getElementById('btn-picker-remove'),
-    pickersCount:    () => document.getElementById('pickers-count'),
     pickersList:     () => document.getElementById('pickers-list'),
     inputPickerCap:  () => document.getElementById('input-picker-capacity'),
 
@@ -191,44 +189,39 @@ function initEditorUI() {
     });
 
     // Picker controls
-    DOM.btnPickerAdd().addEventListener('click', () => {
-        const sc = _activeScenario();
-        if (!sc) return;
-        const cap = parseFloat(DOM.inputPickerCap().value) || 100;
-        const picker = sc.addPicker(cap);
-        if (picker) {
-            _updateSidebarInfo();
-            _updatePickersList();
-            showToast(`${picker.name} agregado`, 'info');
-        } else {
-            showToast('No se pudo agregar el picker.', 'warning');
-        }
-    });
+    const btnPickerAdd = DOM.btnPickerAdd();
+    if (btnPickerAdd) {
+        btnPickerAdd.addEventListener('click', () => {
+            const sc = _activeScenario();
+            if (!sc) return;
+            if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) return;
+            const cap = parseFloat(DOM.inputPickerCap()?.value) || 100;
+            const picker = sc.addPicker(cap);
+            if (picker) {
+                _updateSidebarInfo();
+                _setPickersListExpanded(true);
+                showToast(`${picker.name} agregado`, 'info');
+            } else {
+                showToast('No se pudo agregar el picker.', 'warning');
+            }
+        });
+    }
 
-    DOM.btnPickerRemove().addEventListener('click', () => {
-        const sc = _activeScenario();
-        if (!sc || sc.pickers.length === 0) return;
-        const last = sc.pickers[sc.pickers.length - 1];
-        sc.removePicker(last.id);
-        if (_renderer.selectedElement?.element?.id === last.id) {
-            _renderer.selectedElement = null;
-            _hideSelection();
-        }
-        _updateSidebarInfo();
-        _updatePickersList();
-        showToast(`${last.name} eliminado`, 'warning');
-    });
+    // Botón para colapsar / expandir la lista de pickers
+    const pickersToggle = document.getElementById('btn-pickers-list-toggle');
+    if (pickersToggle) {
+        pickersToggle.addEventListener('click', () => {
+            const expanded = pickersToggle.getAttribute('aria-expanded') !== 'false';
+            _setPickersListExpanded(!expanded);
+        });
+    }
 
-    // Toggle colapsable de la lista de pickers
-    const _pickerListToggle = document.getElementById('btn-pickers-list-toggle');
-    if (_pickerListToggle) {
-        _pickerListToggle.addEventListener('click', () => {
-            const list    = document.getElementById('pickers-list');
-            const chevron = _pickerListToggle.querySelector('.pickers-chevron');
-            const isOpen  = _pickerListToggle.getAttribute('aria-expanded') === 'true';
-            _pickerListToggle.setAttribute('aria-expanded', String(!isOpen));
-            list?.classList.toggle('pickers-list--collapsed', isOpen);
-            chevron?.classList.toggle('open', !isOpen);
+    // Tabla de pickers: clic en una fila = seleccionar el picker en el canvas
+    const pickersList = DOM.pickersList();
+    if (pickersList) {
+        pickersList.addEventListener('click', e => {
+            const row = e.target.closest('.picker-row');
+            if (row?.dataset.pickerId) _selectPickerFromPanel(row.dataset.pickerId);
         });
     }
 
@@ -963,6 +956,10 @@ function renderOrdersList() {
 
     const allProducts = sc ? sc.getAllProducts() : [];
 
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+
     const cards = orders.map(order => {
         // Estado del pedido (via sim.js si la simulación está activa)
         const _orderStatusStyle = {
@@ -976,16 +973,16 @@ function renderOrdersList() {
             : 'PENDIENTE';
         const stStyle = _orderStatusStyle[orderStatus] || _orderStatusStyle['PENDIENTE'];
 
-        // Items: nombre + [código SKU] · ×cantidad
+        // Items en una sola línea: cantidad | nombre | id/SKU
         const itemsText = order.items.map(it => {
             const p = allProducts.find(pr => pr.id === it.productoId);
             const nombre = p ? p.name : it.productoId;
             const codigo = p ? (p.sku || it.productoId) : it.productoId;
-            return `<span style="display:block;font-size:.72rem;color:var(--color-text-muted,#94a3b8)">`
-                 + `${nombre} `
-                 + `<span style="font-family:var(--font-mono,monospace);color:#94a3b8;opacity:.75">[${codigo}]</span>`
-                 + ` · ×${it.cantidad}`
-                 + `</span>`;
+            return `<div class="order-line">`
+                 + `<span class="order-line__qty">×${it.cantidad}</span>`
+                 + `<span class="order-line__name" title="${esc(nombre)}">${esc(nombre)}</span>`
+                 + `<span class="order-line__sku" title="${esc(codigo)}">${esc(codigo)}</span>`
+                 + `</div>`;
         }).join('');
 
         const priorityColors = { 1: '#22c55e', 2: '#4fc97f', 3: '#fbbf24', 4: '#f97316', 5: '#ef4444' };
@@ -993,22 +990,25 @@ function renderOrdersList() {
 
         return `
         <div class="wave-item" style="cursor:default">
-            <div class="wave-item__header">
-                <span class="wave-item__id" style="font-size:.78rem">${order.id}</span>
-                <span style="display:inline-block;width:.35rem"></span>
+            <div class="order-head">
+                <span class="wave-item__id" style="font-size:.78rem">${esc(order.id)}</span>
+                <div class="order-actions">
+                    <button class="btn btn--icon btn--xs" data-edit-order="${esc(order.id)}" title="Editar pedido">
+                        <span class="icon icon--sm" aria-hidden="true">edit</span>
+                    </button>
+                    <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${esc(order.id)}" title="Eliminar pedido">
+                        <span class="icon icon--sm" aria-hidden="true">delete</span>
+                    </button>
+                </div>
+            </div>
+            <div class="order-badges">
                 <span class="wave-item__badge" style="color:${pc};border-color:${pc}">P${order.prioridad}</span>
                 <span class="wave-item__badge"
-                      style="color:${stStyle.color};border-color:${stStyle.color};opacity:.9;font-size:.62rem;margin-left:.2rem">
-                    ${stStyle.label}
+                      style="color:${stStyle.color};border-color:${stStyle.color};opacity:.9;font-size:.62rem">
+                    ${esc(stStyle.label)}
                 </span>
-                <button class="btn btn--icon btn--xs" data-edit-order="${order.id}" title="Editar pedido" style="margin-left:auto">
-                    <span class="icon icon--sm" aria-hidden="true">edit</span>
-                </button>
-                <button class="btn btn--icon btn--xs btn--danger" data-delete-order="${order.id}" title="Eliminar pedido">
-                    <span class="icon icon--sm" aria-hidden="true">delete</span>
-                </button>
             </div>
-            <div class="wave-item__meta" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <div class="wave-item__meta" style="flex-direction:column;align-items:flex-start;gap:2px">
                 ${itemsText || '<span style="font-size:.72rem;color:var(--color-text-muted,#94a3b8)">Sin items</span>'}
             </div>
         </div>`;
@@ -1234,7 +1234,7 @@ function _showSelectionRack(rack, highlightCell = null) {
         <div class="sel-row"><span class="sel-label">Posición</span><span class="sel-value">(${rack.x}, ${rack.y})</span></div>
         <div class="sel-row"><span class="sel-label">Tamaño</span><span class="sel-value">${rack.width}×${rack.height} celdas</span></div>
         <div class="sel-row"><span class="sel-label">Productos</span><span class="sel-value">${rack.products.length}</span></div>
-        <div class="sel-products">${chips}${emptyMsg}</div>
+        <div class="sel-products" tabindex="0">${chips}${emptyMsg}</div>
         <div class="sel-actions">
             <button class="btn btn--sm btn--ghost" id="sel-add-product-btn">
                 <span class="icon icon--sm" aria-hidden="true">add</span> Producto
@@ -1560,31 +1560,83 @@ function _updateSidebarInfo() {
     DOM.whProducts().textContent = st.products;
 
     const locked = typeof simIsEditingLocked === 'function' && simIsEditingLocked();
-    DOM.btnPickerAdd().disabled    = locked;
-    DOM.btnPickerRemove().disabled = locked || sc.pickers.length === 0;
-    DOM.pickersCount()?.textContent != null && (DOM.pickersCount().textContent = sc.pickers.length);
+    const addBtn = DOM.btnPickerAdd();
+    if (addBtn) addBtn.disabled = locked;
     _updatePickersList();
 }
 
 /**
- * Renderiza la lista compacta de pickers dentro del panel de pickers.
+ * Escapa un valor para insertarlo con seguridad en HTML o en un atributo.
+ */
+function _escPickerHtml(value) {
+    return String(value).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+}
+
+/**
+ * Colapsa o expande la lista de pickers desde el header del panel.
+ */
+function _setPickersListExpanded(expanded) {
+    const toggle = document.getElementById('btn-pickers-list-toggle');
+    const list = DOM.pickersList();
+    if (!toggle || !list) return;
+
+    toggle.setAttribute('aria-expanded', String(expanded));
+    list.classList.toggle('pickers-table--collapsed', !expanded);
+    toggle.querySelector('.pickers-toggle__chevron')?.classList.toggle('open', expanded);
+    toggle.title = expanded ? 'Ocultar lista de pickers' : 'Mostrar lista de pickers';
+}
+
+/**
+ * Renderiza la lista de pickers del panel. Cada fila muestra color,
+ * nombre, posición y capacidad, y permite seleccionar el picker en el
+ * canvas para editarlo desde el panel de Selección.
  */
 function _updatePickersList() {
     const sc = _activeScenario();
     if (!sc) return;
     const list = DOM.pickersList();
+    if (!list) return;
+
+    const selected = _renderer?.selectedElement;
+    const selectedId = selected?.type === 'picker' ? selected.element?.id : null;
+
     if (sc.pickers.length === 0) {
-        list.innerHTML = '<div class="pickers-list-scroll"><p class="empty-msg">Sin pickers asignados.</p></div>';
+        list.innerHTML = '<p class="empty-msg">Sin pickers asignados.</p>';
         return;
     }
-    const chips = sc.pickers.map(pk => `
-        <div class="picker-chip">
-            <span class="picker-chip__dot" style="background:${pk.color}"></span>
-            <span class="picker-chip__name">${pk.name}</span>
-            <span class="picker-chip__meta">(${pk.x},${pk.y})·${pk.capacidadKg}kg</span>
-        </div>
-    `).join('');
-    list.innerHTML = `<div class="pickers-list-scroll">${chips}</div>`;
+
+    list.innerHTML = sc.pickers.map(pk => {
+        const isSel = pk.id === selectedId;
+        const idEsc = _escPickerHtml(pk.id);
+        const nameEsc = _escPickerHtml(pk.name);
+        return `
+        <div class="picker-row${isSel ? ' picker-row--selected' : ''}"
+             data-picker-id="${idEsc}"
+             title="${nameEsc} · clic para seleccionar">
+            <span class="picker-row__dot" style="background:${pk.color}"></span>
+            <span class="picker-row__id">
+                <span class="picker-row__name">${nameEsc}</span>
+                <span class="picker-row__pos">(${pk.x},${pk.y})</span>
+            </span>
+            <span class="picker-row__cap">${Number(pk.capacidadKg)}<span class="picker-row__unit"> kg</span></span>
+        </div>`;
+    }).join('');
+}
+
+/**
+ * Selecciona un picker desde el panel: lo marca en el canvas y abre el
+ * panel de selección, donde ya se puede ajustar la capacidad o eliminarlo.
+ */
+function _selectPickerFromPanel(pickerId) {
+    const sc = _activeScenario();
+    if (!sc) return;
+    const picker = sc.pickers.find(p => p.id === pickerId);
+    if (!picker) return;
+    if (_renderer) _renderer.selectedElement = { type: 'picker', element: picker };
+    _showSelectionPicker(picker);
+    _updatePickersList();
 }
 
 function _updateCanvasStatus() {
@@ -1594,9 +1646,9 @@ function _updateCanvasStatus() {
         return;
     }
     DOM.canvasStatus().textContent = `${sc.name}  ·  ${sc.width}×${sc.height}`;
-    DOM.btnPickerAdd().disabled    = false;
-    DOM.btnPickerRemove().disabled = sc.pickers.length === 0;
-    DOM.pickersCount()?.textContent != null && (DOM.pickersCount().textContent = sc.pickers.length);
+    const locked = typeof simIsEditingLocked === 'function' && simIsEditingLocked();
+    const addBtn = DOM.btnPickerAdd();
+    if (addBtn) addBtn.disabled = locked;
     _updatePickersList();
 }
 
