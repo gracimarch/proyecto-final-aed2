@@ -1,14 +1,17 @@
 ﻿<!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Warehouse Simulator</title>
-    <meta name="description" content="Simulador interactivo de warehouse con wave picking y visualización de algoritmos de recorrido.">
+    <meta name="description"
+        content="Simulador interactivo de warehouse con wave picking y visualización de algoritmos de recorrido.">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+        rel="stylesheet">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -16,6 +19,7 @@
 
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
+
 <body>
 
     <!-- ═══════════════════════════════════════════════════
@@ -23,11 +27,13 @@
     ════════════════════════════════════════════════════ -->
     <header class="navbar">
         <div class="navbar__brand">
-            <span class="navbar__icon" aria-hidden="true"><span class="icon icon--lg icon--filled">warehouse</span></span>
+            <span class="navbar__icon" aria-hidden="true"><span
+                    class="icon icon--lg icon--filled">warehouse</span></span>
             <span class="navbar__title">Warehouse Simulator</span>
         </div>
         <nav class="navbar__actions">
-            <button class="btn btn--icon btn--ghost" id="btn-toggle-theme" title="Cambiar a tema claro" aria-label="Cambiar tema">
+            <button class="btn btn--icon btn--ghost" id="btn-toggle-theme" title="Cambiar a tema claro"
+                aria-label="Cambiar tema">
                 <span class="icon icon--18 icon--filled" aria-hidden="true">light_mode</span>
             </button>
             <button class="btn btn--ghost" id="btn-load-scenario">
@@ -81,12 +87,12 @@
                 <div class="panel__header">
                     <h2 class="panel__title">Pickers</h2>
                     <div class="pickers-controls">
-                        <button class="btn btn--icon btn--xs btn--ghost" id="btn-picker-remove"
-                                title="Quitar un picker" aria-label="Quitar picker" disabled>
+                        <button class="btn btn--icon btn--xs btn--ghost" id="btn-picker-remove" title="Quitar un picker"
+                            aria-label="Quitar picker" disabled>
                             <span class="icon icon--14 icon--filled" aria-hidden="true">remove</span>
                         </button>
-                        <button class="btn btn--icon btn--xs btn--primary" id="btn-picker-add"
-                                title="Agregar un picker" aria-label="Agregar picker" disabled>
+                        <button class="btn btn--icon btn--xs btn--primary" id="btn-picker-add" title="Agregar un picker"
+                            aria-label="Agregar picker" disabled>
                             <span class="icon icon--14 icon--filled" aria-hidden="true">add</span>
                         </button>
                     </div>
@@ -95,12 +101,12 @@
                 <div class="panel__body">
                     <div class="pickers-capacity-row">
                         <label class="form-label" for="input-picker-capacity">Cap. nueva (kg)</label>
-                        <input class="form-input form-input--num" type="number"
-                               id="input-picker-capacity" min="1" max="9999" value="100">
+                        <input class="form-input form-input--num" type="number" id="input-picker-capacity" min="1"
+                            max="9999" value="100">
                     </div>
                     <!-- Lista colapsable -->
-                    <button class="pickers-list-toggle" id="btn-pickers-list-toggle"
-                            aria-expanded="false" aria-controls="pickers-list">
+                    <button class="pickers-list-toggle" id="btn-pickers-list-toggle" aria-expanded="false"
+                        aria-controls="pickers-list">
                         <span>Lista</span>
                         <span class="icon icon--14 icon--filled pickers-chevron" aria-hidden="true">expand_more</span>
                     </button>
@@ -142,6 +148,8 @@
 
         </aside>
 
+        <div class="resize-handle resize-handle--left" data-handle="left"></div>
+
         <!-- ─── CANVAS CENTRAL ─────────────────────────── -->
         <section class="canvas-area">
             <div class="canvas-toolbar">
@@ -149,11 +157,13 @@
                 <!-- Herramientas de edición -->
                 <div class="canvas-toolbar__left">
                     <div class="tool-group" id="editor-tools" role="toolbar" aria-label="Herramientas de edición">
-                        <button class="btn btn--icon tool-btn active" data-tool="select" id="tool-select" title="Seleccionar (S)" aria-label="Seleccionar">
+                        <button class="btn btn--icon tool-btn active" data-tool="select" id="tool-select"
+                            title="Seleccionar (S)" aria-label="Seleccionar">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">arrow_selector_tool</span>
                         </button>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="door" id="tool-door" title="Puerta en borde (D)" aria-label="Colocar puerta">
+                        <button class="btn btn--icon tool-btn" data-tool="door" id="tool-door"
+                            title="Puerta en borde (D)" aria-label="Colocar puerta">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">garage_door</span>
                         </button>
                         <select class="tool-select" id="door-tipo-select" title="Tipo de puerta">
@@ -162,21 +172,26 @@
                             <option value="OUTBOUND">OUT</option>
                         </select>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch" title="Zona de despacho (Z)" aria-label="Colocar zona de despacho">
+                        <button class="btn btn--icon tool-btn" data-tool="dispatch" id="tool-dispatch"
+                            title="Zona de despacho (Z)" aria-label="Colocar zona de despacho">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">home_storage</span>
                         </button>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="rack" id="tool-rack" title="Colocar rack (R)" aria-label="Colocar rack">
+                        <button class="btn btn--icon tool-btn" data-tool="rack" id="tool-rack" title="Colocar rack (R)"
+                            aria-label="Colocar rack">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">shelves</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="move-rack" id="tool-move-rack" title="Mover elemento (M)" aria-label="Mover elemento">
+                        <button class="btn btn--icon tool-btn" data-tool="move-rack" id="tool-move-rack"
+                            title="Mover elemento (M)" aria-label="Mover elemento">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">open_with</span>
                         </button>
-                        <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product" title="Agregar producto a rack (P)" aria-label="Agregar producto">
+                        <button class="btn btn--icon tool-btn" data-tool="product" id="tool-product"
+                            title="Agregar producto a rack (P)" aria-label="Agregar producto">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">package_2</span>
                         </button>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="aisle" id="tool-aisle" title="Pasillo con dirección (A)" aria-label="Definir pasillo">
+                        <button class="btn btn--icon tool-btn" data-tool="aisle" id="tool-aisle"
+                            title="Pasillo con dirección (A)" aria-label="Definir pasillo">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">route</span>
                         </button>
                         <select class="tool-select" id="aisle-sentido-select" title="Sentido del pasillo">
@@ -187,7 +202,8 @@
                             <option value="O">&#x2190; O</option>
                         </select>
                         <div class="toolbar-sep"></div>
-                        <button class="btn btn--icon tool-btn" data-tool="erase" id="tool-erase" title="Borrar (E)" aria-label="Borrar">
+                        <button class="btn btn--icon tool-btn" data-tool="erase" id="tool-erase" title="Borrar (E)"
+                            aria-label="Borrar">
                             <span class="icon icon--18 icon--filled" aria-hidden="true">ink_eraser</span>
                         </button>
                     </div>
@@ -197,13 +213,16 @@
                 </div>
 
                 <div class="canvas-toolbar__right">
-                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-in"    title="Zoom in"    aria-label="Zoom in">
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-in" title="Zoom in"
+                        aria-label="Zoom in">
                         <span class="icon icon--18 icon--filled" aria-hidden="true">zoom_in</span>
                     </button>
-                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-out"   title="Zoom out"   aria-label="Zoom out">
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-out" title="Zoom out"
+                        aria-label="Zoom out">
                         <span class="icon icon--18 icon--filled" aria-hidden="true">zoom_out</span>
                     </button>
-                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-reset" title="Reset zoom"  aria-label="Restablecer zoom">
+                    <button class="btn btn--sm btn--ghost btn--icon" id="btn-zoom-reset" title="Reset zoom"
+                        aria-label="Restablecer zoom">
                         <span class="icon icon--18 icon--filled" aria-hidden="true">fit_screen</span>
                     </button>
                 </div>
@@ -214,7 +233,8 @@
                 <!-- Tooltip flotante de celda de rack (gestionado por WarehouseEditor) -->
                 <div id="rack-cell-tooltip" class="rack-cell-tooltip" aria-hidden="true"></div>
                 <div class="canvas-placeholder" id="canvas-placeholder">
-                    <span class="canvas-placeholder__icon" aria-hidden="true"><span class="icon icon--xl icon--filled">warehouse</span></span>
+                    <span class="canvas-placeholder__icon" aria-hidden="true"><span
+                            class="icon icon--xl icon--filled">warehouse</span></span>
                     <p>Creá o cargá un escenario para comenzar</p>
                 </div>
             </div>
@@ -235,6 +255,8 @@
                 <span>Clic der.: vista</span>
             </div>
         </section>
+
+        <div class="resize-handle resize-handle--right" data-handle="right"></div>
 
         <!-- ─── PANEL DERECHO ──────────────────────── -->
         <aside class="sidebar sidebar--right">
@@ -276,15 +298,27 @@
                         </select>
                     </div>
 
+                    <!-- Selector de modo de armado de waves (consigna del profesor: elegir entre opciones) -->
+                    <div class="field-group">
+                        <label class="field-label" for="select-onda">Modo de armado de waves</label>
+                        <select class="select" id="select-onda">
+                            <option value="por_pedido">Por pedido (agrupar pedidos enteros)</option>
+                            <option value="por_cercania">Por cercanía (juntar ítems cercanos de distintos pedidos)
+                            </option>
+                        </select>
+                    </div>
+
                     <!-- Controles de reproducción -->
                     <div class="sim-controls">
                         <button class="btn btn--icon" id="btn-restart" title="Reiniciar" aria-label="Reiniciar">
                             <span class="icon icon--20 icon--filled" aria-hidden="true">restart_alt</span>
                         </button>
-                        <button class="btn btn--icon btn--primary" id="btn-play-pause" title="Iniciar" aria-label="Iniciar simulación">
+                        <button class="btn btn--icon btn--primary" id="btn-play-pause" title="Iniciar"
+                            aria-label="Iniciar simulación">
                             <span class="icon icon--20 icon--filled" aria-hidden="true">play_arrow</span>
                         </button>
-                        <button class="btn btn--icon" id="btn-step-back" title="Paso atrás" aria-label="Retroceder un paso" disabled>
+                        <button class="btn btn--icon" id="btn-step-back" title="Paso atrás"
+                            aria-label="Retroceder un paso" disabled>
                             <span class="icon icon--20 icon--filled" aria-hidden="true">skip_previous</span>
                         </button>
                         <button class="btn btn--icon" id="btn-step" title="Paso a paso" aria-label="Avanzar un paso">
@@ -294,9 +328,9 @@
 
                     <!-- Modo de enfoque del recorrido -->
                     <div class="focus-mode-row">
-                        <button class="btn btn--sm btn--ghost btn--toggle" id="btn-focus-mode"
-                                aria-pressed="false" title="Resaltar el recorrido del picker atenuando los pasillos"
-                                aria-label="Resaltar recorrido">
+                        <button class="btn btn--sm btn--ghost btn--toggle" id="btn-focus-mode" aria-pressed="false"
+                            title="Resaltar el recorrido del picker atenuando los pasillos"
+                            aria-label="Resaltar recorrido">
                             <span class="icon icon--14 icon--filled" aria-hidden="true">route</span>
                             Resaltar recorrido
                         </button>
@@ -307,8 +341,7 @@
                         <label class="field-label" for="range-speed">
                             Velocidad: <span id="speed-label">1×</span>
                         </label>
-                        <input type="range" class="range" id="range-speed"
-                               min="1" max="10" step="1" value="1">
+                        <input type="range" class="range" id="range-speed" min="1" max="10" step="1" value="1">
                     </div>
 
                 </div>
@@ -347,11 +380,28 @@
                         <span>Comparar estrategias</span>
                     </div>
                     <div class="compare-actions">
-                        <button class="btn btn--sm btn--ghost" id="btn-compare" title="Comparar todas las combinaciones para la wave seleccionada">Por wave</button>
-                        <button class="btn btn--sm btn--primary" id="btn-compare-all" title="Ejecutar todas las waves en simultáneo para las 4 combinaciones">Todas las combinaciones</button>
+                        <button class="btn btn--sm btn--ghost" id="btn-compare"
+                            title="Comparar todas las combinaciones para la wave seleccionada">Por wave</button>
+                        <button class="btn btn--sm btn--primary" id="btn-compare-all"
+                            title="Ejecutar todas las waves en simultáneo para las 4 combinaciones">Todas las
+                            combinaciones</button>
                     </div>
                     <div id="compare-result" class="compare-result">
                         <p class="empty-msg">Seleccioná una opción para comparar.</p>
+                    </div>
+
+                    <!-- Comparación de modos de armado de waves (dos tablas, una por estrategia) -->
+                    <div class="compare-header">
+                        <span>Comparar modos de armado de waves</span>
+                    </div>
+                    <div class="compare-actions">
+                        <button class="btn btn--sm btn--primary" id="btn-compare-waves"
+                            title="Generar waves con ambos modos y comparar las dos tablas">Comparar armado de
+                            waves</button>
+                    </div>
+                    <div id="compare-waves-result" class="compare-result">
+                        <p class="empty-msg">Hacé clic en "Comparar armado de waves" para ver las dos tablas lado a
+                            lado.</p>
                     </div>
                 </div>
             </section>
@@ -370,13 +420,16 @@
     <!-- ═══════════════════════════════════════════════════
          MODAL: NUEVO ESCENARIO (WIZARD)
     ════════════════════════════════════════════════════ -->
-    <div class="modal modal--wizard" id="modal-new-scenario" role="dialog" aria-modal="true" aria-labelledby="modal-new-title">
+    <div class="modal modal--wizard" id="modal-new-scenario" role="dialog" aria-modal="true"
+        aria-labelledby="modal-new-title">
         <div class="modal__overlay"></div>
         <div class="modal__content modal__content--wizard">
             <div class="modal__header">
-                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">warehouse</span></span>
+                <span class="modal__icon" aria-hidden="true"><span
+                        class="icon icon--20 icon--filled">warehouse</span></span>
                 <h2 class="modal__title" id="modal-new-title">Nuevo Escenario</h2>
-                <span class="wizard-step-badge"><span id="wizard-step-num">1/5</span> &mdash; <span id="wizard-step-title">Dimensiones</span></span>
+                <span class="wizard-step-badge"><span id="wizard-step-num">1/5</span> &mdash; <span
+                        id="wizard-step-title">Dimensiones</span></span>
             </div>
 
             <div class="wizard-indicators">
@@ -396,46 +449,67 @@
                 <div class="wizard-step active" data-step="0">
                     <div class="form-group">
                         <label class="form-label" for="input-wh-name">Nombre del escenario</label>
-                        <input class="form-input" type="text" id="input-wh-name" placeholder="Escenario 1" value="Escenario 1" maxlength="40">
+                        <input class="form-input" type="text" id="input-wh-name" placeholder="Escenario 1"
+                            value="Escenario 1" maxlength="40">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label" for="input-wh-width">Ancho (columnas) &mdash; <span id="label-wh-width">20</span></label>
-                            <input class="form-range" type="range" id="input-wh-width" min="8" max="50" step="1" value="20">
+                            <label class="form-label" for="input-wh-width">Ancho (columnas) &mdash; <span
+                                    id="label-wh-width">20</span></label>
+                            <input class="form-range" type="range" id="input-wh-width" min="8" max="50" step="1"
+                                value="20">
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="input-wh-height">Alto (filas) &mdash; <span id="label-wh-height">15</span></label>
-                            <input class="form-range" type="range" id="input-wh-height" min="6" max="35" step="1" value="15">
+                            <label class="form-label" for="input-wh-height">Alto (filas) &mdash; <span
+                                    id="label-wh-height">15</span></label>
+                            <input class="form-range" type="range" id="input-wh-height" min="6" max="35" step="1"
+                                value="15">
                         </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Vista previa</label>
-                        <div class="wh-preview"><div class="wh-preview__grid" id="wh-preview-grid"></div></div>
+                        <div class="wh-preview">
+                            <div class="wh-preview__grid" id="wh-preview-grid"></div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- PASO 2: Puertas -->
                 <div class="wizard-step" data-step="1">
-                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Puerta</strong> <span class="icon icon--14 icon--filled">garage_door</span> y haz click en el <strong>borde</strong> del warehouse. Necesitas al menos 1.</p>
-                    <p class="wizard-hint">Tipos: <strong style="color:#22c55e">IN</strong> = entrada &nbsp;|&nbsp; <strong style="color:#f97316">OUT</strong> = salida &nbsp;|&nbsp; <strong style="color:#a78bfa">IO</strong> = ambas.</p>
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa
+                        la herramienta <strong>Puerta</strong> <span
+                            class="icon icon--14 icon--filled">garage_door</span> y haz click en el
+                        <strong>borde</strong> del warehouse. Necesitas al menos 1.</p>
+                    <p class="wizard-hint">Tipos: <strong style="color:#22c55e">IN</strong> = entrada &nbsp;|&nbsp;
+                        <strong style="color:#f97316">OUT</strong> = salida &nbsp;|&nbsp; <strong
+                            style="color:#a78bfa">IO</strong> = ambas.</p>
                 </div>
 
                 <!-- PASO 3: Zonas de Despacho -->
                 <div class="wizard-step" data-step="2">
-                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Zona de Despacho</strong> <span class="icon icon--14 icon--filled">package_2</span> y arrastra en el canvas. Necesitas al menos 1.</p>
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa
+                        la herramienta <strong>Zona de Despacho</strong> <span
+                            class="icon icon--14 icon--filled">package_2</span> y arrastra en el canvas. Necesitas al
+                        menos 1.</p>
                     <p class="wizard-hint">Luego selecciona la zona creada para asociarla a una puerta.</p>
                 </div>
 
                 <!-- PASO 4: Racks -->
                 <div class="wizard-step" data-step="3">
-                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa la herramienta <strong>Rack</strong> <span class="icon icon--14 icon--filled">shelves</span> y haz click o arrastra. Necesitas al menos 1.</p>
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Usa
+                        la herramienta <strong>Rack</strong> <span class="icon icon--14 icon--filled">shelves</span> y
+                        haz click o arrastra. Necesitas al menos 1.</p>
                     <p class="wizard-hint">Restriccion: al menos una dimension del rack debe ser &le; 2 celdas.</p>
                 </div>
 
                 <!-- PASO 5: Pasillos -->
                 <div class="wizard-step" data-step="4">
-                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span> Opcionalmente, usa <strong>Pasillo</strong> <span class="icon icon--14 icon--filled">route</span> y arrastra para asignar direccion de circulacion.</p>
-                    <p class="wizard-hint">Si no asignas, las celdas transitables tendran sentido <strong>AMBOS</strong> (libre en 4 direcciones).</p>
+                    <p class="wizard-hint"><span class="icon icon--16 icon--filled" aria-hidden="true">info</span>
+                        Opcionalmente, usa <strong>Pasillo</strong> <span
+                            class="icon icon--14 icon--filled">route</span> y arrastra para asignar direccion de
+                        circulacion.</p>
+                    <p class="wizard-hint">Si no asignas, las celdas transitables tendran sentido <strong>AMBOS</strong>
+                        (libre en 4 direcciones).</p>
                 </div>
 
                 <div class="wizard-valid-msg" id="wizard-valid-msg" style="display:none"></div>
@@ -466,35 +540,41 @@
         <div class="modal__overlay"></div>
         <div class="modal__content modal__content--sm">
             <div class="modal__header">
-                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">home_storage</span></span>
+                <span class="modal__icon" aria-hidden="true"><span
+                        class="icon icon--20 icon--filled">home_storage</span></span>
                 <h2 class="modal__title" id="modal-prod-title">Agregar producto</h2>
             </div>
 
             <div class="modal__body">
                 <div class="form-row">
-                    <span id="label-prod-cell" class="modal__subtitle" style="font-size:.72rem;color:var(--color-accent,#4f9cf9);font-family:'JetBrains Mono',monospace;">Celda: (—, —)</span>
-                    <span id="label-prod-id" class="modal__subtitle" style="font-size:.72rem;color:var(--color-text-muted,#94a3b8);font-family:'JetBrains Mono',monospace;text-align:right;display:block;width:100%;">ID: PRD—</span>
+                    <span id="label-prod-cell" class="modal__subtitle"
+                        style="font-size:.72rem;color:var(--color-accent,#4f9cf9);font-family:'JetBrains Mono',monospace;">Celda:
+                        (—, —)</span>
+                    <span id="label-prod-id" class="modal__subtitle"
+                        style="font-size:.72rem;color:var(--color-text-muted,#94a3b8);font-family:'JetBrains Mono',monospace;text-align:right;display:block;width:100%;">ID:
+                        PRD—</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="input-prod-name">Nombre del producto <span class="form-required">*</span></label>
-                    <input class="form-input" type="text" id="input-prod-name"
-                           placeholder="ej: Auriculares BT" maxlength="60" autocomplete="off">
+                    <label class="form-label" for="input-prod-name">Nombre del producto <span
+                            class="form-required">*</span></label>
+                    <input class="form-input" type="text" id="input-prod-name" placeholder="ej: Auriculares BT"
+                        maxlength="60" autocomplete="off">
                 </div>
                 <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr;">
                     <div class="form-group">
                         <label class="form-label" for="input-prod-qty">Cantidad</label>
-                        <input class="form-input form-input--num" type="number" id="input-prod-qty"
-                               min="1" max="9999" value="1">
+                        <input class="form-input form-input--num" type="number" id="input-prod-qty" min="1" max="9999"
+                            value="1">
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="input-prod-weight">Peso (kg)</label>
-                        <input class="form-input form-input--num" type="number" id="input-prod-weight"
-                               min="0.01" step="0.1" value="1.0">
+                        <input class="form-input form-input--num" type="number" id="input-prod-weight" min="0.01"
+                            step="0.1" value="1.0">
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="input-prod-z">Nivel Z</label>
-                        <input class="form-input form-input--num" type="number" id="input-prod-z"
-                               min="1" step="1" value="1">
+                        <input class="form-input form-input--num" type="number" id="input-prod-z" min="1" step="1"
+                            value="1">
                     </div>
                 </div>
             </div>
@@ -515,7 +595,8 @@
         <div class="modal__overlay"></div>
         <div class="modal__content modal__content--sm">
             <div class="modal__header">
-                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">receipt_long</span></span>
+                <span class="modal__icon" aria-hidden="true"><span
+                        class="icon icon--20 icon--filled">receipt_long</span></span>
                 <h2 class="modal__title" id="modal-order-title">Nuevo Pedido</h2>
             </div>
 
@@ -525,8 +606,8 @@
                 <div class="order-priority-row">
                     <label class="form-label" for="input-order-priority">Prioridad</label>
                     <div class="order-priority-controls">
-                        <input class="form-input form-input--num" type="number" id="input-order-priority"
-                               min="1" max="5" value="3">
+                        <input class="form-input form-input--num" type="number" id="input-order-priority" min="1"
+                            max="5" value="3">
                         <span class="priority-chip priority-chip--1">1 = Baja</span>
                         <span class="priority-chip priority-chip--5">5 = Alta</span>
                     </div>
@@ -543,15 +624,17 @@
                     <!-- Fila 2: controles a la misma altura -->
                     <div class="order-add-controls">
                         <select class="select order-select" id="select-order-product"></select>
-                        <input class="form-input order-qty-input" type="number" id="input-order-item-qty"
-                               min="1" max="999" value="1">
-                        <button class="btn btn--primary order-add-btn" id="btn-order-add-item" title="Agregar al pedido">
+                        <input class="form-input order-qty-input" type="number" id="input-order-item-qty" min="1"
+                            max="999" value="1">
+                        <button class="btn btn--primary order-add-btn" id="btn-order-add-item"
+                            title="Agregar al pedido">
                             <span class="icon icon--sm" aria-hidden="true">add</span>
                         </button>
                     </div>
                     <!-- Badge de stock (debajo del select) -->
                     <span class="order-stock-badge" id="order-stock-badge" style="display:none"></span>
-                    <p id="order-no-products-msg" class="empty-msg" style="display:none;margin-top:4px">Sin productos disponibles en el escenario.</p>
+                    <p id="order-no-products-msg" class="empty-msg" style="display:none;margin-top:4px">Sin productos
+                        disponibles en el escenario.</p>
                 </div>
 
                 <!-- Lista de items del pedido -->
@@ -590,4 +673,5 @@
     <script src="{{ url_for('static', filename='js/editor/sim.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>

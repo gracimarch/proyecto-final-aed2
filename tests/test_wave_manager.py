@@ -172,6 +172,111 @@ class TestWaveManager(unittest.TestCase):
         self.assertIn("PED_CERCA", pedidos_w1)
         self.assertNotIn("PED_LEJOS", pedidos_w1)
 
+    def test_estrategia_por_cercania_agrupa_items_de_distintos_pedidos(self):
+        # Dos productos en la MISMA celda del rack (distinto nivel z) comparten
+        # la celda de recogida, así la distancia entre ellos es 0. Un tercer
+        # pedido está en un rack separado y lejos.
+        wh = Warehouse("WH_CERCA", 12, 10)
+        wh.add_door(Door("D1", (5, 0), "OUTBOUND"))
+        wh.add_dispatch_zone(DispatchZone("Z1", "D1", 4, 1, 3, 2, 500.0))
+        r_cerca = Rack("R_CERCA", 1, 4, 2, 4)
+        r_lejos = Rack("R_LEJOS", 9, 4, 2, 4)
+        wh.add_rack(r_cerca)
+        wh.add_rack(r_lejos)
+        wh.add_aisle(Aisle("P_AMBOS", 0, 3, 12, 1, "AMBOS"))
+
+        # Misma celda (1, 5), distinto z: comparten celda de recogida (0, 5).
+        p_cerca_1 = Product("PC1", "Cerca 1", "R_CERCA", [1, 5, 1], 10, 1.0)
+        p_cerca_2 = Product("PC2", "Cerca 2", "R_CERCA", [1, 5, 2], 10, 1.0)
+        p_lejos = Product("PL1", "Lejos 1", "R_LEJOS", [9, 5, 1], 10, 1.0)
+
+        wh.add_product(p_cerca_1)
+        wh.add_product(p_cerca_2)
+        wh.add_product(p_lejos)
+
+        graph = generate_graph(wh)
+
+        # Tres pedidos, mismo nivel de prioridad.
+        o_a = self._mk_order("PED_A", 3, p_cerca_1, 1)
+        o_b = self._mk_order("PED_B", 3, p_cerca_2, 1)
+        o_c = self._mk_order("PED_C", 3, p_lejos, 1)
+
+        wm = WaveManager(warehouse=wh, graph=graph, max_pedidos=2, max_productos=10)
+        wm.add_orders([o_a, o_b, o_c])
+
+        waves = wm.generate_waves(pickers=[self.pk_grande], estrategia_wave="por_cercania")
+
+        # PED_A y PED_B comparten celda de recogida (distancia 0): van juntos en w1.
+        ids_w1 = [o.order_id for o in waves[0].orders]
+        self.assertIn("PED_A", ids_w1)
+        self.assertIn("PED_B", ids_w1)
+        self.assertNotIn("PED_C", ids_w1)
+
+        # El lejano va en otra wave.
+        ids_otras = []
+        for w in waves[1:]:
+            ids_otras += [o.order_id for o in w.orders]
+        self.assertIn("PED_C", ids_otras)
+
+    def test_estrategia_por_cercania_puede_dividir_un_pedido(self):
+        # Un pedido con dos ítems en racks distantes; max_productos muy bajo
+        # para forzar que cada ítem vaya en una wave distinta si es necesario.
+        wh = Warehouse("WH_DIV", 12, 10)
+        wh.add_door(Door("D1", (5, 0), "OUTBOUND"))
+        wh.add_dispatch_zone(DispatchZone("Z1", "D1", 4, 1, 3, 2, 500.0))
+        r_cerca = Rack("R_CERCA", 1, 4, 2, 4)
+        r_lejos = Rack("R_LEJOS", 9, 4, 2, 4)
+        wh.add_rack(r_cerca)
+        wh.add_rack(r_lejos)
+        wh.add_aisle(Aisle("P_AMBOS", 0, 3, 12, 1, "AMBOS"))
+
+        p_cerca = Product("PC", "Cerca", "R_CERCA", [2, 5, 1], 10, 1.0)
+        p_lejos = Product("PL", "Lejos", "R_LEJOS", [9, 5, 1], 10, 1.0)
+
+        wh.add_product(p_cerca)
+        wh.add_product(p_lejos)
+
+        graph = generate_graph(wh)
+
+        # Un solo pedido con dos ítems, prioridad alta.
+        order = self._mk_order_multi("PED_SPLIT", 5, [(p_cerca, 1), (p_lejos, 1)])
+
+        wm = WaveManager(warehouse=wh, graph=graph, max_pedidos=1, max_productos=10)
+        wm.add_order(order)
+
+        waves = wm.generate_waves(pickers=[self.pk_grande], estrategia_wave="por_cercania")
+
+        # Como max_pedidos=1, cada wave solo puede tener un pedido distinto.
+        # El ítem cerca va en la primera wave; el lejos queda pendiente para otra
+        # wave (o no cabe por el límite de un pedido por wave, así que espera).
+        self.assertGreaterEqual(len(waves), 1)
+        # Todos los ítems deben quedar asignados en alguna wave.
+        total_asignados = sum(
+            1 for w in waves for e in w.entries if e.order.order_id == "PED_SPLIT"
+            for _ in e.items
+        )
+        self.assertEqual(total_asignados, 2)
+
+    def test_distancia_considera_z_solo_subida(self):
+        wm = WaveManager(max_pedidos=5, max_productos=20)
+        # Mockeamos _pickup_cells para probar solo la lógica de z en _distance.
+        wm._pickup_cells = lambda item: {(0, 0)}
+
+        item_z3 = OrderItem(Product("PZ", "Z", "R1", [1, 1, 3], 10, 1.0), 1)
+        # Sin grafo: devuelve 0 sin sumar z.
+        self.assertEqual(wm._distance([item_z3], None, incluir_z=True), 0)
+
+        # Con grafo: distancia de pasillo 5 + (z - 1) = 5 + 2 = 7.
+        dist = {(0, 0): 5}
+        self.assertEqual(wm._distance([item_z3], dist, incluir_z=True), 7)
+
+        # Sin contar z: solo la distancia de pasillo.
+        self.assertEqual(wm._distance([item_z3], dist, incluir_z=False), 5)
+
+        # Un producto en z=1 no suma nada de subida.
+        item_z1 = OrderItem(Product("P1", "Uno", "R1", [1, 1, 1], 10, 1.0), 1)
+        self.assertEqual(wm._distance([item_z1], dist, incluir_z=True), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

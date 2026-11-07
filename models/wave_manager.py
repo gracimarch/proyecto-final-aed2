@@ -295,18 +295,28 @@ class WaveManager:
         self,
         items: list[OrderItem],
         dist: dict[tuple[int, int], int] | None,
+        incluir_z: bool = True,
     ) -> float:
         """
         Distancia de la wave a un pedido: la menor distancia a alguna celda
         de recogida de sus ítems. 0 si no hay grafo; infinito si no llega.
+
+        Si incluir_z es True, se suma el costo de subida del producto
+        (z - 1, solo subida, no se cuenta la bajada) a la distancia de
+        pasillo, así un producto en un nivel más alto se considera más
+        "lejos" que uno en el piso aunque la celda de pasillo sea la misma.
         """
         if dist is None:
             return 0
         menor = INFINITO
         for item in items:
             for celda in self._pickup_cells(item):
-                if celda in dist and dist[celda] < menor:
-                    menor = dist[celda]
+                if celda in dist:
+                    d = dist[celda]
+                    if incluir_z:
+                        d = d + max(0, item.product.z - 1)
+                    if d < menor:
+                        menor = d
         return menor
 
     # ------------------------------------------------------------------
@@ -317,6 +327,7 @@ class WaveManager:
         self,
         pickers: list[Picker] | None = None,
         prefix: str = "WAVE",
+        estrategia_wave: str = "por_pedido",
     ) -> list[Wave]:
         """
         Arma waves con los ítems pendientes (etapa 1) y después asigna
@@ -325,6 +336,10 @@ class WaveManager:
         Args:
             pickers: Pickers extra a considerar (por defecto, los del warehouse).
             prefix : Prefijo de los ids de las waves ("WAVE01", "WAVE02"...).
+            estrategia_wave: "por_pedido" (el algoritmo original, agrupa
+                pedidos enteros y divide solo como último recurso) o
+                "por_cercania" (agrupa ítems de distintos pedidos si están
+                cerca, respetando prioridad y permitiendo dividir pedidos).
 
         Returns:
             Las waves nuevas, en orden de creación. Las que no consiguieron
@@ -336,6 +351,12 @@ class WaveManager:
         self.unprocessable_orders = []
         if self.warehouse is not None and self.orders:
             self._validate_stock_consistency()
+
+        if estrategia_wave not in ("por_pedido", "por_cercania"):
+            raise ValueError(
+                f"Estrategia de wave desconocida '{estrategia_wave}'. "
+                "Opciones: 'por_pedido', 'por_cercania'."
+            )
 
         todos_los_pickers = self._register_pickers(pickers)
         max_peso = self._max_capacity(todos_los_pickers)
@@ -358,18 +379,42 @@ class WaveManager:
             if len(posibles) > 0:
                 viable[order.order_id] = posibles
 
-        # 2. Pedidos a repartir, del más prioritario al menos prioritario.
+        # 2. Pedidos con ítems viables, del más prioritario al menos prioritario.
         pending = []
         for order in self.get_pending_orders():
             if order.order_id in viable:
                 pending.append(order)
         pending = sorted(pending, key=_order_key)
 
+        if estrategia_wave == "por_cercania":
+            new_waves = self._generate_waves_por_cercania(viable, pending, max_peso, prefix)
+        else:
+            new_waves = self._generate_waves_por_pedido(viable, pending, max_peso, prefix)
+
+        for wave in new_waves:
+            self.waves.append(wave)
+            self.queue.append(wave)
+        self.queue = sorted(self.queue, key=self._queue_key)
+        self.assign_pickers()
+        return new_waves
+
+    def _generate_waves_por_pedido(
+        self,
+        viable: dict[str, list[OrderItem]],
+        pending: list[Order],
+        max_peso: float,
+        prefix: str,
+    ) -> list[Wave]:
+        """
+        Algoritmo original: arma la wave con un pedido semilla y agrega pedidos
+        completos mientras entren; divide un pedido solo si ni siquiera vacío
+        entra en una wave nueva.
+        """
         new_waves = []
         while len(pending) > 0:
             numero = len(self.waves) + len(new_waves) + 1
             wave = Wave(
-                wave_id=prefix + str(numero).zfill(2),   # zfill(2): 1 -> "01"
+                wave_id=prefix + str(numero).zfill(2),
                 max_pedidos=self.max_pedidos,
                 max_productos=self.max_productos,
             )
@@ -395,11 +440,69 @@ class WaveManager:
             pending = quedan
             new_waves.append(wave)
 
-        for wave in new_waves:
-            self.waves.append(wave)
-            self.queue.append(wave)
-        self.queue = sorted(self.queue, key=self._queue_key)
-        self.assign_pickers()
+        return new_waves
+
+    def _generate_waves_por_cercania(
+        self,
+        viable: dict[str, list[OrderItem]],
+        pending: list[Order],
+        max_peso: float,
+        prefix: str,
+    ) -> list[Wave]:
+        """
+        Nuevo algoritmo: arma la wave ítem por ítem, eligiendo siempre el
+        ítem más cercano a la wave (distancia de pasillo + subida z) entre los
+        de mayor prioridad disponible. Esto agrupa naturalmente ítems de
+        distintos pedidos que estén cerca, sin esperar a que un pedido entre
+        completo. Los pedidos pueden dividirse entre varias waves.
+
+        Cada wave respeta max_pedidos (cantidad de pedidos distintos),
+        max_productos (unidades) y max_peso.
+        """
+        # Lista plana de ítems pendientes: (pedido, ítem)
+        pending_items: list[tuple[Order, OrderItem]] = []
+        for order in pending:
+            for item in viable[order.order_id]:
+                pending_items.append((order, item))
+
+        new_waves = []
+        while len(pending_items) > 0:
+            numero = len(self.waves) + len(new_waves) + 1
+            wave = Wave(
+                wave_id=prefix + str(numero).zfill(2),
+                max_pedidos=self.max_pedidos,
+                max_productos=self.max_productos,
+            )
+
+            # Semilla: ítem del pedido de mayor prioridad. Desempate por id
+            # del pedido y luego id del producto, para ser determinista.
+            semilla = min(
+                pending_items,
+                key=lambda oi: (-oi[0].prioridad, oi[0].order_id, oi[1].product.product_id),
+            )
+            wave.add_items(semilla[0], [semilla[1]], max_peso)
+            pending_items.remove(semilla)
+
+            # Agregar el mejor candidato (más cercano, prioridad manda) mientras entre alguno.
+            while True:
+                dist = self._distances_from_wave(wave)
+                mejor = None
+                mejor_clave = None
+                for order, item in pending_items:
+                    if not wave.can_add_items(order, [item], max_peso):
+                        continue
+                    d = self._distance([item], dist, incluir_z=True)
+                    clave = (-order.prioridad, d, order.order_id)
+                    if mejor is None or clave < mejor_clave:
+                        mejor = (order, item)
+                        mejor_clave = clave
+                if mejor is None:
+                    break
+                wave.add_items(mejor[0], [mejor[1]], max_peso)
+                pending_items.remove(mejor)
+
+            new_waves.append(wave)
+
         return new_waves
 
     def _best_candidate(

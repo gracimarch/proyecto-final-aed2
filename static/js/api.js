@@ -20,9 +20,9 @@ async function _post(url, body) {
     let response;
     try {
         response = await fetch(url, {
-            method:  'POST',
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(body),
+            body: JSON.stringify(body),
         });
     } catch (networkError) {
         // fetch rechaza la Promise si no hay conexion con el servidor.
@@ -47,13 +47,30 @@ async function _post(url, body) {
 /**
  * Le pide al servidor que genere las waves para el escenario dado.
  *
- * @param {Object} escenario  Resultado de Scenario.toJSON().
+ * @param {Object} escenario          Resultado de Scenario.toJSON().
+ * @param {string}  [estrategiaWave]  "por_pedido" (default) o "por_cercania".
  * @returns {Promise<Object[]>} Array de objetos wave con los campos:
  *     wave_id, status, picker_id, prioridad, pedidos, unidades, peso_kg.
+ * El servidor también devuelve data.estrategia_wave con el modo usado.
  */
-async function apiGenerateWaves(escenario) {
-    const data = await _post('/api/waves/generate', escenario);
+async function apiGenerateWaves(escenario, estrategiaWave = 'por_pedido') {
+    const data = await _post('/api/waves/generate', {
+        ...escenario,
+        estrategia_wave: estrategiaWave,
+    });
     return data.waves;
+}
+
+
+/**
+ * Genera las waves con ambas estrategias ("por_pedido" y "por_cercania")
+ * sobre el mismo escenario y devuelve los resultados comparados.
+ *
+ * @param {Object} escenario  Resultado de Scenario.toJSON().
+ * @returns {Promise<Object>} { comparacion: [ {estrategia, total_waves, total_unidades, total_peso_kg, waves: [...]}, ... ] }.
+ */
+async function apiCompareWaves(escenario) {
+    return await _post('/api/waves/compare', { escenario });
 }
 
 
@@ -76,9 +93,9 @@ async function apiGenerateWaves(escenario) {
 async function apiPlanRoute(escenario, waveId, estrategia, buscador) {
     return await _post('/api/routes/plan', {
         escenario,
-        wave_id:    waveId,
+        wave_id: waveId,
         estrategia: estrategia,
-        buscador:   buscador,
+        buscador: buscador,
     });
 }
 
@@ -133,11 +150,12 @@ async function apiCompareAllCombinations(escenario) {
  *     Cada frame: { tick, pickers: [{id, x, y, estado, wave, carga_kg, paso}],
  *                   zonas: {zona_id: kg}, eventos: [...] }.
  */
-async function apiSimulate(escenario, estrategia, buscador, velocidad = 1) {
+async function apiSimulate(escenario, estrategia, buscador, estrategiaWave = 'por_pedido', velocidad = 1) {
     return await _post('/api/simulacion', {
         escenario,
         estrategia: estrategia,
-        buscador:   buscador,
-        velocidad:  velocidad,
+        buscador: buscador,
+        estrategia_wave: estrategiaWave,
+        velocidad: velocidad,
     });
 }
