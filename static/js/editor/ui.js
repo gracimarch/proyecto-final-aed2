@@ -1647,6 +1647,23 @@ function _updateCanvasStatus() {
 }
 
 // ── Guardar / Cargar ──────────────────────────────────────────────
+//
+// Persistencia (§17): el escenario se guarda como un archivo .json que
+// queda en la computadora del usuario. Si hay waves o una simulación,
+// sim.js le agrega la sección "estado" (opciones elegidas y frame actual)
+// para poder retomarla al cargar el archivo.
+//
+// Al cargar, el archivo se valida dos veces:
+//   1. En el front (_checkScenarioShape): un control rápido de la forma
+//      del JSON, solo para avisar enseguida si el archivo no sirve.
+//   2. En el back (apiValidateScenario): el que decide. Arma el Warehouse
+//      con todas las validaciones del modelo. Si dice que no, no se carga.
+
+const ESTADO_OPCIONES = {
+    estrategia_wave: ['por_pedido', 'por_cercania', 'solo_cercania'],
+    estrategia: ['orden', 'cercania'],
+    buscador: ['bfs', 'astar'],
+};
 
 function saveScenario() {
     if (!_scenario) { showToast('No hay escenario para guardar.', 'warning'); return; }
@@ -1655,7 +1672,12 @@ function saveScenario() {
         showToast('Faltan: ' + missing.join(', ') + '.', 'warning');
         return;
     }
-    const json = JSON.stringify(_scenario.toJSON(), null, 2);
+    // sim.js agrega el estado de la simulación (si hay) y guarda los pickers
+    // en su posición inicial, no donde quedaron parados en el frame actual.
+    const data = (typeof simScenarioForSave === 'function')
+        ? simScenarioForSave(_scenario)
+        : _scenario.toJSON();
+    const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -1663,7 +1685,129 @@ function saveScenario() {
     a.download = `${_scenario.name.replace(/\s+/g, '_')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Escenario guardado.', 'success');
+
+    if (data.estado && data.estado.frame != null) {
+        showToast(`Escenario guardado con la simulación en el tick ${data.estado.tick}.`, 'success');
+    } else if (data.estado) {
+        showToast('Escenario guardado con las waves generadas.', 'success');
+    } else {
+        showToast('Escenario guardado.', 'success');
+    }
+}
+
+/**
+ * Control rápido (front) de la forma del archivo antes de mandarlo al back.
+ * No reemplaza la validación del back: solo evita viajes inútiles y da un
+ * mensaje claro si el archivo no es un escenario.
+ * Devuelve la lista de problemas encontrados (vacía si está bien).
+ */
+function _checkScenarioShape(data) {
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+        return ['el archivo no contiene un escenario'];
+    }
+    const errores = [];
+    const wh = data.warehouse;
+    if (!wh || typeof wh !== 'object' || Array.isArray(wh)) {
+        errores.push("falta la sección 'warehouse'");
+    } else {
+        const dim = wh.dimensiones || {};
+        const esPositivo = v => typeof v === 'number' && v > 0;
+        if (!esPositivo(dim.ancho_x) || !esPositivo(dim.largo_y)) {
+            errores.push('las dimensiones del warehouse no son válidas');
+        }
+        for (const clave of ['puertas', 'zonas_despacho', 'racks', 'pasillos']) {
+            if (wh[clave] !== undefined && !Array.isArray(wh[clave])) {
+                errores.push(`'warehouse.${clave}' tiene que ser una lista`);
+            }
+        }
+    }
+    for (const clave of ['pickers', 'productos', 'pedidos']) {
+        if (data[clave] !== undefined && !Array.isArray(data[clave])) {
+            errores.push(`'${clave}' tiene que ser una lista`);
+        }
+    }
+    const estado = data.estado;
+    if (estado !== undefined && estado !== null) {
+        if (typeof estado !== 'object' || Array.isArray(estado)) {
+            errores.push("la sección 'estado' no es válida");
+        } else {
+            for (const [clave, validas] of Object.entries(ESTADO_OPCIONES)) {
+                if (estado[clave] != null && !validas.includes(estado[clave])) {
+                    errores.push(`'estado.${clave}' tiene un valor desconocido`);
+                }
+            }
+            if (estado.frame != null && (!Number.isInteger(estado.frame) || estado.frame < 0)) {
+                errores.push("'estado.frame' tiene que ser un entero mayor o igual a 0");
+            }
+        }
+    }
+    return errores;
+}
+
+/** Muestra en el editor un escenario que el back ya validó. */
+function _showLoadedScenario(data) {
+    // Limpiar el estado de simulacion del escenario anterior
+    if (typeof simReset === 'function') simReset();
+    _scenario = Scenario.fromJSON(data);
+    _editor.setScenario(_scenario);
+    DOM.canvasPlaceholder().style.display = 'none';
+    DOM.canvas().style.display            = 'block';
+    _updateSidebarInfo();
+    _updateCanvasStatus();
+    _hideSelection();
+    renderOrdersList();
+}
+
+async function _loadScenarioFromText(texto) {
+    // 0. Que sea JSON
+    let data;
+    try {
+        data = JSON.parse(texto);
+    } catch (err) {
+        showToast('El archivo no es un JSON válido.', 'error');
+        return;
+    }
+
+    // 1. Validación rápida en el front
+    const problemas = _checkScenarioShape(data);
+    if (problemas.length > 0) {
+        showToast('No se puede cargar: ' + problemas.join('; ') + '.', 'error', 7000);
+        return;
+    }
+
+    // 2. Validación del back (la que decide)
+    let resultado;
+    try {
+        resultado = await apiValidateScenario(data);
+    } catch (err) {
+        showToast(err.error || 'No se pudo validar el escenario en el servidor.', 'error', 7000);
+        return;
+    }
+    if (!resultado.valido) {
+        showToast('El escenario no es válido: ' + resultado.errores.join(' '), 'error', 9000);
+        console.warn('Errores del escenario:', resultado.errores);
+        return;
+    }
+
+    // 3. Mostrarlo
+    try {
+        _showLoadedScenario(data);
+    } catch (err) {
+        showToast('Error al mostrar el escenario.', 'error');
+        console.error(err);
+        return;
+    }
+    if (resultado.avisos.length > 0) {
+        showToast(`Escenario "${_scenario.name}" cargado. Aviso: ` + resultado.avisos.join(' '), 'warning', 7000);
+        console.warn('Avisos del escenario:', resultado.avisos);
+    } else {
+        showToast(`Escenario "${_scenario.name}" cargado.`, 'success');
+    }
+
+    // 4. Si el archivo trae una simulación guardada, retomarla
+    if (data.estado && typeof simRestoreState === 'function') {
+        await simRestoreState(data.estado);
+    }
 }
 
 function loadScenario() {
@@ -1674,25 +1818,7 @@ function loadScenario() {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = ev => {
-            try {
-                const data = JSON.parse(ev.target.result);
-                // Limpiar el estado de simulacion del escenario anterior
-                if (typeof simReset === 'function') simReset();
-                _scenario = Scenario.fromJSON(data);
-                _editor.setScenario(_scenario);
-                DOM.canvasPlaceholder().style.display = 'none';
-                DOM.canvas().style.display            = 'block';
-                _updateSidebarInfo();
-                _updateCanvasStatus();
-                _hideSelection();
-                renderOrdersList();
-                showToast(`Escenario "${_scenario.name}" cargado.`, 'success');
-            } catch (err) {
-                showToast('Error al leer el archivo JSON.', 'error');
-                console.error(err);
-            }
-        };
+        reader.onload = ev => _loadScenarioFromText(ev.target.result);
         reader.readAsText(file);
     });
     input.click();
@@ -1901,12 +2027,12 @@ function _setActiveTool(tool) {
 
 let _toastTimeout = null;
 
-function showToast(msg, type = 'info') {
+function showToast(msg, type = 'info', duracionMs = 3000) {
     const t = DOM.toast();
     t.textContent  = msg;
     t.className    = `editor-toast editor-toast--${type} editor-toast--show`;
     clearTimeout(_toastTimeout);
-    _toastTimeout = setTimeout(() => t.classList.remove('editor-toast--show'), 3000);
+    _toastTimeout = setTimeout(() => t.classList.remove('editor-toast--show'), duracionMs);
 }
 
 // ── Arrancar cuando el DOM está listo ─────────────────────────────
