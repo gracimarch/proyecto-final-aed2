@@ -64,6 +64,22 @@ class Product:
     def z(self) -> int:
         return self.location[2]
 
+    def costo_altura(self) -> int:
+        """
+        Ticks extra que tarda el picker en recoger el producto por estar en
+        altura: 0 en el piso (z = 1), 1 en z = 2, 2 en z = 3, etc.
+
+        Es la única fórmula de altura del proyecto: la usan el wave_manager
+        (para medir qué tan "lejos" está un ítem), la simulación (cuánto
+        tiempo se queda quieto el picker al recoger) y el routing (tiempo
+        estimado del recorrido).
+
+        Es un costo de la PARADA, no del camino entre celdas. Por eso no se
+        guarda en la tabla de distancias del wave_manager: además, z puede
+        cambiar (ver drop_z), y la distancia de pasillo no.
+        """
+        return self.z - 1
+
     def drop_z(self) -> None:
         """
         Baja el producto un nivel (z - 1). Se usa cuando se retira el

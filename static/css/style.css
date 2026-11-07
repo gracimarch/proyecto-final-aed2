@@ -79,10 +79,40 @@ body {
    APP LAYOUT (grid de 3 columnas)
 ================================================================ */
 .app-layout {
+    position: relative;
     display: grid;
     grid-template-columns: var(--sidebar-w) 1fr var(--sidebar-r-w);
     height: calc(100vh - var(--navbar-h));
     overflow: hidden;
+}
+
+/* ── Divisores resizable de sidebars ── */
+.resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 25;
+    background: rgba(255, 255, 255, 0.06);
+    border-left: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+}
+.resize-handle:hover,
+.resize-handle.is-dragging {
+    background: rgba(96, 165, 250, 0.25);
+    border-color: var(--color-primary);
+}
+.resize-handle--left  { left: var(--sidebar-w); }
+.resize-handle--right { right: var(--sidebar-r-w); }
+.resize-handle.is-dragging {
+    cursor: col-resize;
+    user-select: none;
+}
+
+/* Ocultar divisores en pantallas chicas donde el layout deja de ser grid */
+@media (max-width: 1023px) {
+    .resize-handle { display: none; }
 }
 
 /* ================================================================
@@ -778,6 +808,114 @@ button:disabled {
     background: rgba(96, 165, 250, 0.15);
     color: var(--color-primary, #60a5fa);
     text-transform: uppercase;
+}
+
+/* ── Comparacion de modos de armado de waves (una sobre la otra) ── */
+.wave-compare-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    margin-top: 8px;
+}
+
+.wave-compare-table {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 6px);
+    overflow: hidden;
+    background: var(--color-surface, #0f172a);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.wave-compare-table__header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.wave-compare-table__titulo {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wave-compare-table__totals {
+    flex-shrink: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.wave-compare-table__body {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Scroll horizontal igual que la tabla de todas las combinaciones (.compare-result) */
+.wave-compare-table__body::-webkit-scrollbar {
+    height: 6px;
+}
+.wave-compare-table__body::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.2);
+}
+.wave-compare-table__body::-webkit-scrollbar-thumb {
+    background: var(--color-border, #444);
+    border-radius: 3px;
+}
+
+/* Forzamos ancho mínimo para que aparezca el scroll horizontal cuando haga falta */
+.wave-compare-table__body table.compare-table {
+    min-width: 600px;
+}
+.wave-compare-table {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 6px);
+    overflow: hidden;
+    background: var(--color-surface, #0f172a);
+}
+.wave-compare-table__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--font-size-sm);
+}
+.wave-compare-table__totals {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+.wave-compare-hint {
+    margin-top: 10px;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    text-align: center;
+}
+.wave-compare-hint--equal {
+    color: var(--color-warning, #f59e0b);
+    font-weight: 600;
+}
+.compare-badge--equal {
+    display: inline-block;
+    margin-bottom: 8px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    border-radius: var(--radius-sm, 3px);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--color-warning, #f59e0b);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 /* ── Chip de producto recogido ───────────────── */

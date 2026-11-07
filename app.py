@@ -121,7 +121,8 @@ def api_waves_generate():
     try:
         warehouse = _build_warehouse(data)
         manager   = _build_wave_manager(data, warehouse)
-        manager.generate_waves()
+        estrategia_wave = data.get("estrategia_wave", "por_pedido")
+        manager.generate_waves(estrategia_wave=estrategia_wave)
         manager.assign_pickers()
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
@@ -135,17 +136,139 @@ def api_waves_generate():
             pedidos_ids.append(entry.order.order_id)
 
         waves_dict.append({
-            "wave_id":    wave.wave_id,
-            "status":     wave.status.value,
-            "picker_ids": picker_ids,
-            "picker_id":  picker_ids[0] if picker_ids else None,  # compat
-            "prioridad":  wave.priority(),
-            "pedidos":    pedidos_ids,
-            "unidades":   wave.current_units(),
-            "peso_kg":    round(wave.total_weight(), 3),
+            "wave_id":         wave.wave_id,
+            "status":          wave.status.value,
+            "picker_ids":      picker_ids,
+            "picker_id":       picker_ids[0] if picker_ids else None,  # compat
+            "prioridad":       wave.priority(),
+            "pedidos":         pedidos_ids,
+            "unidades":        wave.current_units(),
+            "peso_kg":         round(wave.total_weight(), 3),
+            "estrategia_wave": estrategia_wave,
         })
 
-    return jsonify({"waves": waves_dict})
+    return jsonify({"waves": waves_dict, "estrategia_wave": estrategia_wave})
+
+
+# ---------------------------------------------------------------------------
+# POST /api/waves/compare
+# ---------------------------------------------------------------------------
+
+@app.route("/api/waves/compare", methods=["POST"])
+def api_waves_compare():
+    """
+    Genera las waves con las tres estrategias ("por_pedido", "por_cercania"
+    y "solo_cercania") sobre el mismo escenario y devuelve los resultados
+    comparados, para que el front pueda mostrar una tabla por estrategia.
+
+    Cuerpo esperado (application/json):
+    {
+        "escenario":  { ...Scenario.toJSON()... }
+    }
+
+    Respuesta exitosa (200):
+    {
+        "comparacion": [
+            {
+                "estrategia": "por_pedido",
+                "total_waves": 3,
+                "total_unidades": 12,
+                "total_peso_kg": 24.5,
+                "waves": [ {...}, {...}, {...} ]
+            },
+            {
+                "estrategia": "por_cercania",
+                "total_waves": 2,
+                "total_unidades": 12,
+                "total_peso_kg": 24.5,
+                "waves": [ {...}, {...} ]
+            },
+            { "estrategia": "solo_cercania", ... }
+        ],
+        "mismo_resultado": false
+    }
+
+    Respuesta de error (400):
+    { "error": "mensaje explicativo" }
+    """
+    body = request.get_json()
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+
+    escenario = body.get("escenario")
+    if escenario is None:
+        return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
+
+    comparacion = []
+    for estrategia in ("por_pedido", "por_cercania", "solo_cercania"):
+        try:
+            warehouse = _build_warehouse(escenario)
+            manager   = _build_wave_manager(escenario, warehouse)
+            manager.generate_waves(estrategia_wave=estrategia)
+            manager.assign_pickers()
+
+            waves_info = []
+            total_unidades = 0
+            total_peso = 0.0
+            distancia_estimada = 0
+            graph = generate_graph(warehouse)
+            for wave in manager.get_waves():
+                picker_ids = [p.picker_id for p in wave.pickers]
+                pedidos_ids = [entry.order.order_id for entry in wave.entries]
+                unidades = wave.current_units()
+                peso = wave.total_weight()
+                total_unidades = total_unidades + unidades
+                total_peso = total_peso + peso
+
+                # Distancia estimada del recorrido de esta wave (BFS, estrategia cercanía).
+                dist_wave = 0
+                try:
+                    ruta = plan_route(wave, warehouse, graph, "cercania", "bfs")
+                    dist_wave = ruta.distancia_total
+                except (ValueError, KeyError):
+                    dist_wave = 0
+                distancia_estimada = distancia_estimada + dist_wave
+
+                waves_info.append({
+                    "wave_id":            wave.wave_id,
+                    "status":             wave.status.value,
+                    "picker_ids":         picker_ids,
+                    "pedidos":            pedidos_ids,
+                    "unidades":           unidades,
+                    "peso_kg":            round(peso, 3),
+                    "distancia_estimada": dist_wave,
+                })
+
+            comparacion.append({
+                "estrategia":               estrategia,
+                "total_waves":              len(waves_info),
+                "total_unidades":           total_unidades,
+                "total_peso_kg":            round(total_peso, 3),
+                "distancia_estimada_total": round(distancia_estimada, 2),
+                "promedio_unidades_por_wave": round(total_unidades / len(waves_info), 2) if len(waves_info) > 0 else 0,
+                "waves": waves_info,
+            })
+        except (ValueError, KeyError) as e:
+            return jsonify({"error": f"Estrategia '{estrategia}': {str(e)}"}), 400
+
+    # Marcar si todos los modos dieron exactamente el mismo resultado, para
+    # que el front pueda mostrar un aviso en vez de tablas idénticas.
+    def _resumen(c):
+        return (
+            c["total_waves"], c["total_unidades"], c["total_peso_kg"],
+            c["distancia_estimada_total"],
+            [(w["wave_id"], w["pedidos"], w["unidades"]) for w in c["waves"]],
+        )
+
+    mismo_resultado = True
+    for c in comparacion[1:]:
+        if _resumen(c) != _resumen(comparacion[0]):
+            mismo_resultado = False
+
+    return jsonify({
+        "comparacion": comparacion,
+        "mismo_resultado": mismo_resultado,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +303,7 @@ def api_routes_plan():
     wave_id    = body.get("wave_id")
     estrategia = body.get("estrategia", "cercania")
     buscador   = body.get("buscador",   "bfs")
+    estrategia_wave = body.get("estrategia_wave", "por_pedido")
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
@@ -189,7 +313,7 @@ def api_routes_plan():
     try:
         warehouse = _build_warehouse(escenario)
         manager   = _build_wave_manager(escenario, warehouse)
-        manager.generate_waves()
+        manager.generate_waves(estrategia_wave=estrategia_wave)
         manager.assign_pickers()
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
@@ -351,16 +475,28 @@ def api_simulacion():
     escenario  = body.get("escenario")
     estrategia = body.get("estrategia", "cercania")
     buscador   = body.get("buscador",   "bfs")
+    velocidad  = body.get("velocidad", 1)   # multiplicador de ticks por frame (1..10)
+    estrategia_wave = body.get("estrategia_wave", "por_pedido")
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
 
     try:
+        velocidad = int(velocidad)
+        if velocidad < 1 or velocidad > 10:
+            raise ValueError("La velocidad debe estar entre 1 y 10.")
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
         warehouse = _build_warehouse(escenario)
         manager   = _build_wave_manager(escenario, warehouse)
-        manager.generate_waves()
+        manager.generate_waves(estrategia_wave=estrategia_wave)
         manager.assign_pickers()
-        simulacion = Simulation(warehouse, manager, estrategia, buscador)
+        simulacion = Simulation(
+            warehouse, manager, estrategia, buscador,
+            speed_multiplier=velocidad,
+        )
         simulacion.run()
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400

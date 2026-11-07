@@ -1,24 +1,106 @@
-# Sistema de Wave Picking — Warehouse Simulator
+# Warehouse Simulator
 
 Proyecto final desarrollado para la cátedra de **Algoritmos y Estructuras de Datos II** de la **Universidad Nacional de Cuyo (UNCUYO)**.
 
----
+## Descripción
 
-## 📌 Descripción
+Sistema de gestión y simulación de **Wave Picking** para la preparación eficiente de pedidos en un centro de distribución (*warehouse*).
 
-Este proyecto consiste en el desarrollo y simulación de un sistema de **Wave Picking** para la gestión y preparación eficiente de pedidos dentro de un centro de distribución (*warehouse*).
+Permite modelar la estructura física del almacén, organizar pedidos en waves y planificar recorridos para los operarios (*pickers*), utilizando diferentes algoritmos y estrategias de optimización.
 
-El sistema permite:
-- **Modelar la estructura física del almacén:** representación espacial discreta mediante grilla y grafos (racks, pasillos unidireccionales y bidireccionales, puertas y zonas de despacho).
-- **Agrupamiento inteligente de pedidos (Wave Picking):** conformación de *waves* considerando prioridades, ubicaciones, peso y capacidades de carga.
-- **Planificación de recorridos (Pathfinding):** cálculo y comparación de rutas óptimas para los operarios (*pickers*) respetando sentidos de circulación y evitando colisiones.
-- **Simulación y visualización interactiva:** interfaz gráfica para observar en tiempo real el desplazamiento de los pickers, la recolección de productos y el rendimiento de las distintas estrategias algorítmicas implementadas.
+## Funcionalidades
 
----
+- **Modelado del warehouse:** representación espacial mediante grillas y grafos, con racks, pasillos unidireccionales y bidireccionales, puertas y zonas de despacho.
+- **Generación de waves (Wave Picking):** agrupamiento de pedidos considerando prioridades, ubicaciones, peso y capacidades de carga.
+- **Planificación de recorridos (Pathfinding):** cálculo y comparación de rutas para los pickers mediante algoritmos BFS y A*, respetando los sentidos de circulación y evitando colisiones.
+- **Simulación interactiva:** visualización del desplazamiento de los pickers, la recolección de productos y el desarrollo de las waves en tiempo real.
+- **Comparación de estrategias:** análisis de diferentes alternativas de generación de waves y planificación de recorridos.
 
-## 🌐 Tecnologías
+## Tecnologías
 
-La aplicación está implementada utilizando **Python** y **Flask**, funcionando directamente sobre la web.
+- **Backend:** Python, Flask.
+- **Frontend:** HTML, CSS, JavaScript.
+- **Visualización:** Canvas API.
+- **Datos:** JSON.
 
-Podés acceder y probar la simulación en línea a través del siguiente enlace:  
-👉 **[proyecto-final-aed2.vercel.app](https://proyecto-final-aed2.vercel.app)**
+## Demo
+
+Podés acceder a la aplicación y probar la simulación en línea:
+
+[proyecto-final-aed2.vercel.app](https://proyecto-final-aed2.vercel.app/)
+
+## Instalación y ejecución local
+
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/gracimarch/proyecto-final-aed2.git
+cd proyecto-final-aed2
+```
+
+### 2. Crear y activar el entorno virtual
+
+```bash
+python -m venv venv
+```
+
+**Windows:**
+```bash
+venv\Scripts\activate
+```
+
+**Linux / macOS:**
+```bash
+source venv/bin/activate
+```
+
+### 3. Instalar dependencias
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Ejecutar la aplicación
+
+```bash
+python app.py
+```
+
+El servidor se iniciará en `http://127.0.0.1:5000/`. Abrí esa dirección en tu navegador para utilizar el simulador.
+
+## Estructura del proyecto
+
+```text
+proyecto-final-aed2/
+├── app.py                  # Servidor Flask y endpoints de la API
+├── requirements.txt        # Dependencias de Python
+├── README.md               # Documentación del proyecto
+├── CONSIGNAS.md            # Consignas del proyecto
+├── CREDITS.md              # Créditos y atribuciones
+├── templates/
+│   └── index.html          # Interfaz principal
+├── static/
+│   ├── css/                # Hojas de estilo
+│   ├── js/                 # Lógica del frontend y comunicación con la API
+│   │   └── editor/         # Editor del warehouse y simulación
+│   ├── images/             # Imágenes estáticas
+│   ├── fonts/              # Tipografías e iconografía
+│   └── sprites/            # Sprites de cajas y pickers
+├── models/                 # Modelos del dominio
+│   ├── product.py
+│   ├── warehouse.py
+│   ├── picker.py
+│   ├── order.py
+│   ├── wave.py
+│   ├── wave_manager.py
+│   └── simulation.py
+├── algorithms/             # Algoritmos de grafos y enrutamiento
+│   ├── graph.py
+│   ├── graph_builder.py
+│   ├── pathfinding.py
+│   └── routing.py
+└── scenarios/              # Escenarios de ejemplo en JSON
+    ├── escenario_basico.json
+    ├── escenario_grande.json
+    └── escenario_grande_v2.json
+```

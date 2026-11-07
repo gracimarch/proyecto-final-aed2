@@ -89,6 +89,10 @@
     --navbar-h:      52px;
     --sidebar-w:     240px;
     --sidebar-r-w:   260px;
+    --sidebar-w-min: 240px;
+    --sidebar-w-max: 450px;
+    --sidebar-r-w-min: 260px;
+    --sidebar-r-w-max: 480px;
     --radius:        6px;
     --radius-sm:     4px;
 }

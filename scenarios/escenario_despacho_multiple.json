@@ -1,0 +1,197 @@
+{
+  "warehouse": {
+    "dimensiones": {
+      "ancho_x": 16,
+      "largo_y": 14
+    },
+    "puertas": [
+      {
+        "id": "PUERTA_OUT_1",
+        "tipo": "OUTBOUND",
+        "ubicacion": {"x": 3, "y": 0}
+      },
+      {
+        "id": "PUERTA_OUT_2",
+        "tipo": "OUTBOUND",
+        "ubicacion": {"x": 11, "y": 0}
+      }
+    ],
+    "zonas_despacho": [
+      {
+        "id": "ZONA_A_RAPIDA",
+        "puerta_id": "PUERTA_OUT_1",
+        "ubicacion": {"x": 2, "y": 1},
+        "ancho": 4,
+        "alto": 2,
+        "peso_max_kg": 20.0
+      },
+      {
+        "id": "ZONA_B_PESADA",
+        "puerta_id": "PUERTA_OUT_2",
+        "ubicacion": {"x": 10, "y": 1},
+        "ancho": 4,
+        "alto": 2,
+        "peso_max_kg": 70.0
+      }
+    ],
+    "racks": [
+      {
+        "id": "R1",
+        "ubicacion": {"x": 2, "y": 5},
+        "ancho": 2,
+        "alto": 6
+      },
+      {
+        "id": "R2",
+        "ubicacion": {"x": 7, "y": 5},
+        "ancho": 2,
+        "alto": 6
+      },
+      {
+        "id": "R3",
+        "ubicacion": {"x": 12, "y": 5},
+        "ancho": 2,
+        "alto": 6
+      }
+    ],
+    "pasillos": [
+      {
+        "id": "PAS_V0",
+        "ubicacion": {"x": 0, "y": 5},
+        "ancho": 2,
+        "alto": 6,
+        "sentido": "N"
+      },
+      {
+        "id": "PAS_V1",
+        "ubicacion": {"x": 4, "y": 5},
+        "ancho": 3,
+        "alto": 6,
+        "sentido": "S"
+      },
+      {
+        "id": "PAS_V2",
+        "ubicacion": {"x": 9, "y": 5},
+        "ancho": 3,
+        "alto": 6,
+        "sentido": "N"
+      },
+      {
+        "id": "PAS_V3",
+        "ubicacion": {"x": 14, "y": 5},
+        "ancho": 2,
+        "alto": 6,
+        "sentido": "S"
+      },
+      {
+        "id": "PAS_H_INF",
+        "ubicacion": {"x": 0, "y": 3},
+        "ancho": 16,
+        "alto": 2,
+        "sentido": "AMBOS"
+      },
+      {
+        "id": "PAS_H_SUP",
+        "ubicacion": {"x": 0, "y": 11},
+        "ancho": 16,
+        "alto": 3,
+        "sentido": "AMBOS"
+      }
+    ]
+  },
+  "pickers": [
+    {
+      "id": "PK_AGIL",
+      "posicion_inicial": {"x": 1, "y": 3},
+      "capacidad_carga_kg": 25.0
+    },
+    {
+      "id": "PK_CARGA",
+      "posicion_inicial": {"x": 14, "y": 3},
+      "capacidad_carga_kg": 60.0
+    }
+  ],
+  "productos": [
+    {
+      "id": "P201",
+      "nombre": "Impresora 3D",
+      "rack_id": "R1",
+      "ubicacion": {"x": 2, "y": 6, "z": 1},
+      "cantidad_disponible": 10,
+      "peso_kg": 4.0
+    },
+    {
+      "id": "P202",
+      "nombre": "Batería UPS",
+      "rack_id": "R1",
+      "ubicacion": {"x": 3, "y": 8, "z": 1},
+      "cantidad_disponible": 15,
+      "peso_kg": 8.0
+    },
+    {
+      "id": "P203",
+      "nombre": "Monitor Curvo 34",
+      "rack_id": "R2",
+      "ubicacion": {"x": 7, "y": 6, "z": 1},
+      "cantidad_disponible": 8,
+      "peso_kg": 12.0
+    },
+    {
+      "id": "P204",
+      "nombre": "Gabinete Gamer",
+      "rack_id": "R2",
+      "ubicacion": {"x": 8, "y": 9, "z": 1},
+      "cantidad_disponible": 12,
+      "peso_kg": 6.0
+    },
+    {
+      "id": "P205",
+      "nombre": "Servidor Torre",
+      "rack_id": "R3",
+      "ubicacion": {"x": 12, "y": 7, "z": 1},
+      "cantidad_disponible": 5,
+      "peso_kg": 15.0
+    },
+    {
+      "id": "P206",
+      "nombre": "Switch Administrable",
+      "rack_id": "R3",
+      "ubicacion": {"x": 13, "y": 9, "z": 1},
+      "cantidad_disponible": 20,
+      "peso_kg": 5.0
+    }
+  ],
+  "pedidos": [
+    {
+      "id": "PED_PESADO_1",
+      "prioridad": 5,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P203", "cantidad": 2}
+      ]
+    },
+    {
+      "id": "PED_MIXTO",
+      "prioridad": 4,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P201", "cantidad": 2},
+        {"producto_id": "P204", "cantidad": 1}
+      ]
+    },
+    {
+      "id": "PED_PESADO_2",
+      "prioridad": 3,
+      "estado": "PENDIENTE",
+      "items": [
+        {"producto_id": "P202", "cantidad": 2},
+        {"producto_id": "P206", "cantidad": 2}
+      ]
+    }
+  ],
+  "configuracion": {
+    "wave_max_pedidos": 2,
+    "wave_max_productos": 8
+  }
+}
+

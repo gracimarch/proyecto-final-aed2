@@ -9,14 +9,24 @@ Etapa 1: armar waves (generate_waves). Algoritmo greedy y determinista:
        empatan, por id.
     2. Se abre una wave con el primero (la "semilla"). Si no entra completo,
        se divide por ítems; es el único caso en que un pedido se divide.
-    3. Se calcula, con un BFS que arranca desde todas las celdas de recogida
-       de la wave a la vez, la distancia de la wave a cada celda.
+    3. Se calcula la distancia de la wave a cada celda, usando la tabla de
+       distancias (ver más abajo).
     4. Entre los pedidos que entran completos, se agrega el mejor: el de
        mayor prioridad y, si empatan, el más cercano (y si también empatan,
        el de menor id). La prioridad manda; la distancia solo desempata.
     5. Se repiten 3 y 4 hasta que no entre ninguno, y se vuelve a 2.
     El peso máximo de una wave es la capacidad del picker más grande, así
     siempre hay algún picker que puede prepararla.
+
+    Lo de arriba es la estrategia "por_pedido". Hay tres (estrategia_wave):
+        "por_pedido"    : pedidos enteros; la prioridad manda y la distancia
+                          desempata.
+        "por_cercania"  : ítem por ítem; la semilla es el ítem más prioritario
+                          y se suma el ítem más cercano entre los de mayor
+                          prioridad.
+        "solo_cercania" : ítem por ítem SIN mirar la prioridad; la semilla es
+                          el ítem más cercano a las zonas de despacho y se suma
+                          siempre el ítem más cercano a la wave.
 
 Etapa 2: asignar pickers (assign_pickers y complete_wave).
     Las waves sin picker esperan en una cola ordenada por prioridad y, si
@@ -30,6 +40,23 @@ Etapa 2: asignar pickers (assign_pickers y complete_wave).
     picker extra si la wave tiene al menos un rack por picker (así cada
     operario tiene al menos una parada propia). El máximo de pickers por
     wave está limitado por WaveManager.MAX_PICKERS_POR_WAVE.
+
+Tabla de distancias (self._tabla_distancias):
+    El grafo nunca cambia, así que la distancia de un rack a cualquier celda
+    es siempre la misma. La primera vez que se necesita, se corre un BFS
+    desde las celdas de recogida de ese rack y se guarda la "fila"
+    {celda: distancia}; las siguientes veces solo se lee. Es memoización:
+    cada rack se calcula UNA vez por WaveManager, en vez de un BFS nuevo
+    cada vez que se agrega algo a una wave.
+
+    La distancia de la wave a una celda es la menor distancia desde alguno
+    de sus racks (es lo mismo que daba el BFS multi-origen de antes). Por
+    eso, al agregar un ítem, alcanza con quedarse, celda por celda, con el
+    mínimo entre lo que ya había y la fila del rack nuevo. Las waves que se
+    arman son exactamente las mismas que con el BFS en cada paso.
+
+    La altura z NO va en la tabla: es un costo de la parada, no del camino,
+    y se suma aparte con Product.costo_altura().
 
 Ordenar con tuplas:
     Las funciones _order_key, _picker_key y _queue_key devuelven tuplas como (-prioridad, order_id).
@@ -45,7 +72,7 @@ from models.wave import Wave, WaveStatus
 from algorithms.graph import Graph, bfs_distances
 from algorithms.graph_builder import generate_graph
 from algorithms.pathfinding import pickup_cells
-from algorithms.routing import validate_reachability
+from algorithms.routing import validate_reachability, dispatch_access_cells
 
 
 INFINITO = float("inf")
@@ -135,6 +162,15 @@ class WaveManager:
         # Guardamos las celdas de recogida de cada producto para no
         # recalcularlas en cada wave: {product_id: set de celdas}.
         self._pickup_cache = {}
+
+        # Tabla de distancias: {celda del rack (x, y): {celda: distancia}}.
+        # Se llena de a una fila, la primera vez que se pide cada rack.
+        self._tabla_distancias = {}
+        # Distancia desde las zonas de despacho a cada celda (para la semilla
+        # de "solo_cercania"). Se calcula la primera vez que se pide.
+        self._dist_zonas = None
+        # Cuántos BFS se corrieron para llenar la tabla (para los experimentos).
+        self.bfs_corridos = 0
 
         # Validar consistencia de stock: la suma de unidades pedidas por
         # producto no puede superar el stock disponible en los racks.
@@ -276,37 +312,106 @@ class WaveManager:
             self._pickup_cache[pid] = set(celdas)
         return self._pickup_cache[pid]
 
+    def _fila(self, item: OrderItem) -> dict[tuple[int, int], int]:
+        """
+        Fila de la tabla de distancias para el rack del ítem: la distancia
+        desde sus celdas de recogida hasta cada celda de pasillo.
+
+        La primera vez se calcula con un BFS y se guarda; después solo se lee.
+        Dos productos en la misma celda del rack comparten la fila.
+
+        Complejidad: O(V + E) la primera vez por rack, O(1) las siguientes.
+        """
+        rack = (item.product.x, item.product.y)
+        if rack not in self._tabla_distancias:
+            self._tabla_distancias[rack] = bfs_distances(self.graph, self._pickup_cells(item))
+            self.bfs_corridos = self.bfs_corridos + 1
+        return self._tabla_distancias[rack]
+
+    def _acercar(
+        self,
+        dist: dict[tuple[int, int], int],
+        nuevos: list[OrderItem],
+        racks_sumados: set[tuple[int, int]],
+    ) -> None:
+        """
+        Actualiza dist (distancia de la wave a cada celda) después de agregar
+        los ítems nuevos: en cada celda queda el mínimo entre lo que ya había
+        y la fila del rack de cada ítem nuevo. Un rack que ya estaba en la
+        wave no cambia nada, así que se saltea (racks_sumados).
+
+        Complejidad: O(V) por rack nuevo, sin correr BFS si la fila ya estaba.
+        """
+        for item in nuevos:
+            rack = (item.product.x, item.product.y)
+            if rack in racks_sumados:
+                continue
+            racks_sumados.add(rack)
+            fila = self._fila(item)
+            for celda in fila:
+                if celda not in dist or fila[celda] < dist[celda]:
+                    dist[celda] = fila[celda]
+
     def _distances_from_wave(self, wave: Wave) -> dict[tuple[int, int], int] | None:
         """
-        BFS multi-origen desde todas las celdas de recogida de la wave.
-        Devuelve {celda: distancia}, o None si no hay grafo.
+        Distancia de la wave a cada celda: la menor distancia desde alguno de
+        sus racks, armada con las filas de la tabla. Devuelve {celda: distancia},
+        o None si no hay grafo.
 
-        Complejidad: O(V + E).
+        Da lo mismo que un BFS multi-origen desde todas las celdas de recogida
+        de la wave, pero sin volver a calcular los racks que ya están en la tabla.
         """
         if self.graph is None or self.warehouse is None:
             return None
-        origenes = set()
-        for item in wave.get_items():
-            for celda in self._pickup_cells(item):
-                origenes.add(celda)
-        return bfs_distances(self.graph, origenes)
+        dist = {}
+        self._acercar(dist, wave.get_items(), set())
+        return dist
+
+    def _distances_from_zones(self) -> dict[tuple[int, int], int] | None:
+        """
+        Distancia desde las zonas de despacho (la más cercana) hasta cada
+        celda: un BFS multi-origen desde las celdas de acceso de todas las
+        zonas. Se calcula una sola vez y se guarda. None si no hay grafo.
+
+        Complejidad: O(V + E) la primera vez, O(1) las siguientes.
+        """
+        if self.graph is None or self.warehouse is None:
+            return None
+        if self._dist_zonas is None:
+            origenes = set()
+            for zona in self.warehouse.dispatch_zones:
+                for celda in dispatch_access_cells(zona, self.warehouse, self.graph):
+                    origenes.add(celda)
+            self._dist_zonas = bfs_distances(self.graph, origenes)
+            self.bfs_corridos = self.bfs_corridos + 1
+        return self._dist_zonas
 
     def _distance(
         self,
         items: list[OrderItem],
         dist: dict[tuple[int, int], int] | None,
+        incluir_z: bool = True,
     ) -> float:
         """
         Distancia de la wave a un pedido: la menor distancia a alguna celda
         de recogida de sus ítems. 0 si no hay grafo; infinito si no llega.
+
+        Si incluir_z es True, se suma Product.costo_altura() (z - 1: solo
+        subida, no se cuenta la bajada) a la distancia de pasillo, así un
+        producto en un nivel más alto se considera más "lejos" que uno en el
+        piso aunque la celda de pasillo sea la misma.
         """
         if dist is None:
             return 0
         menor = INFINITO
         for item in items:
             for celda in self._pickup_cells(item):
-                if celda in dist and dist[celda] < menor:
-                    menor = dist[celda]
+                if celda in dist:
+                    d = dist[celda]
+                    if incluir_z:
+                        d = d + item.product.costo_altura()
+                    if d < menor:
+                        menor = d
         return menor
 
     # ------------------------------------------------------------------
@@ -317,6 +422,7 @@ class WaveManager:
         self,
         pickers: list[Picker] | None = None,
         prefix: str = "WAVE",
+        estrategia_wave: str = "por_pedido",
     ) -> list[Wave]:
         """
         Arma waves con los ítems pendientes (etapa 1) y después asigna
@@ -325,17 +431,35 @@ class WaveManager:
         Args:
             pickers: Pickers extra a considerar (por defecto, los del warehouse).
             prefix : Prefijo de los ids de las waves ("WAVE01", "WAVE02"...).
+            estrategia_wave: "por_pedido" (el algoritmo original, agrupa
+                pedidos enteros y divide solo como último recurso),
+                "por_cercania" (agrupa ítems de distintos pedidos si están
+                cerca, respetando prioridad y permitiendo dividir pedidos) o
+                "solo_cercania" (igual que "por_cercania" pero sin mirar la
+                prioridad: solo cuenta la distancia).
 
         Returns:
             Las waves nuevas, en orden de creación. Las que no consiguieron
             picker quedan en la cola (get_queued_waves).
 
-        Complejidad: con P pedidos pendientes, agregar cada pedido cuesta un
-        BFS O(V + E) más recorrer los candidatos O(P): en total O(P · (V + E + P)).
+        Complejidad: con L racks distintos en los pedidos y N candidatos
+        (pedidos en "por_pedido", ítems en "por_cercania"):
+            - llenar la tabla: como mucho L BFS en toda la vida del manager,
+              O(L · (V + E));
+            - cada agregado: actualizar la distancia de la wave, O(V) si el
+              rack es nuevo en la wave, y recorrer los candidatos, O(N).
+        En total O(L · (V + E) + N · (V + N)). Antes era un BFS por cada
+        agregado: O(N · (V + E + N)).
         """
         self.unprocessable_orders = []
         if self.warehouse is not None and self.orders:
             self._validate_stock_consistency()
+
+        if estrategia_wave not in ("por_pedido", "por_cercania", "solo_cercania"):
+            raise ValueError(
+                f"Estrategia de wave desconocida '{estrategia_wave}'. "
+                "Opciones: 'por_pedido', 'por_cercania', 'solo_cercania'."
+            )
 
         todos_los_pickers = self._register_pickers(pickers)
         max_peso = self._max_capacity(todos_los_pickers)
@@ -358,18 +482,46 @@ class WaveManager:
             if len(posibles) > 0:
                 viable[order.order_id] = posibles
 
-        # 2. Pedidos a repartir, del más prioritario al menos prioritario.
+        # 2. Pedidos con ítems viables, del más prioritario al menos prioritario.
         pending = []
         for order in self.get_pending_orders():
             if order.order_id in viable:
                 pending.append(order)
         pending = sorted(pending, key=_order_key)
 
+        if estrategia_wave == "por_cercania":
+            new_waves = self._generate_waves_por_cercania(viable, pending, max_peso, prefix)
+        elif estrategia_wave == "solo_cercania":
+            new_waves = self._generate_waves_por_cercania(
+                viable, pending, max_peso, prefix, usar_prioridad=False
+            )
+        else:
+            new_waves = self._generate_waves_por_pedido(viable, pending, max_peso, prefix)
+
+        for wave in new_waves:
+            self.waves.append(wave)
+            self.queue.append(wave)
+        self.queue = sorted(self.queue, key=self._queue_key)
+        self.assign_pickers()
+        return new_waves
+
+    def _generate_waves_por_pedido(
+        self,
+        viable: dict[str, list[OrderItem]],
+        pending: list[Order],
+        max_peso: float,
+        prefix: str,
+    ) -> list[Wave]:
+        """
+        Algoritmo original: arma la wave con un pedido semilla y agrega pedidos
+        completos mientras entren; divide un pedido solo si ni siquiera vacío
+        entra en una wave nueva.
+        """
         new_waves = []
         while len(pending) > 0:
             numero = len(self.waves) + len(new_waves) + 1
             wave = Wave(
-                wave_id=prefix + str(numero).zfill(2),   # zfill(2): 1 -> "01"
+                wave_id=prefix + str(numero).zfill(2),
                 max_pedidos=self.max_pedidos,
                 max_productos=self.max_productos,
             )
@@ -378,14 +530,22 @@ class WaveManager:
             seed = pending[0]
             self._add_seed(wave, seed, viable, max_peso)
 
-            # 4. Agregar el mejor candidato mientras entre alguno.
+            # 4. Agregar el mejor candidato mientras entre alguno. La distancia
+            #    de la wave se arma una vez y se actualiza con cada pedido nuevo.
+            dist = self._distances_from_wave(wave)
+            racks_sumados = set()
+            if dist is not None:
+                for item in wave.get_items():
+                    racks_sumados.add((item.product.x, item.product.y))
             while True:
-                dist = self._distances_from_wave(wave)
                 best = self._best_candidate(wave, pending, seed, viable, dist, max_peso)
                 if best is None:
                     break
-                wave.add_items(best, viable[best.order_id], max_peso)
+                agregados = viable[best.order_id]
+                wave.add_items(best, agregados, max_peso)
                 viable[best.order_id] = []
+                if dist is not None:
+                    self._acercar(dist, agregados, racks_sumados)
 
             # 5. Quedan solo los pedidos con ítems sin wave.
             quedan = []
@@ -395,11 +555,91 @@ class WaveManager:
             pending = quedan
             new_waves.append(wave)
 
-        for wave in new_waves:
-            self.waves.append(wave)
-            self.queue.append(wave)
-        self.queue = sorted(self.queue, key=self._queue_key)
-        self.assign_pickers()
+        return new_waves
+
+    def _generate_waves_por_cercania(
+        self,
+        viable: dict[str, list[OrderItem]],
+        pending: list[Order],
+        max_peso: float,
+        prefix: str,
+        usar_prioridad: bool = True,
+    ) -> list[Wave]:
+        """
+        Nuevo algoritmo: arma la wave ítem por ítem, eligiendo siempre el
+        ítem más cercano a la wave (distancia de pasillo + subida z) entre los
+        de mayor prioridad disponible. Esto agrupa naturalmente ítems de
+        distintos pedidos que estén cerca, sin esperar a que un pedido entre
+        completo. Los pedidos pueden dividirse entre varias waves.
+
+        Si usar_prioridad es False ("solo_cercania"), la prioridad no se mira:
+        la semilla es el ítem más cercano a las zonas de despacho y después
+        se suma siempre el ítem más cercano a la wave.
+
+        Cada wave respeta max_pedidos (cantidad de pedidos distintos),
+        max_productos (unidades) y max_peso.
+        """
+        # Lista plana de ítems pendientes: (pedido, ítem)
+        pending_items: list[tuple[Order, OrderItem]] = []
+        for order in pending:
+            for item in viable[order.order_id]:
+                pending_items.append((order, item))
+
+        new_waves = []
+        while len(pending_items) > 0:
+            numero = len(self.waves) + len(new_waves) + 1
+            wave = Wave(
+                wave_id=prefix + str(numero).zfill(2),
+                max_pedidos=self.max_pedidos,
+                max_productos=self.max_productos,
+            )
+
+            if usar_prioridad:
+                # Semilla: ítem del pedido de mayor prioridad. Desempate por id
+                # del pedido y luego id del producto, para ser determinista.
+                semilla = min(
+                    pending_items,
+                    key=lambda oi: (-oi[0].prioridad, oi[0].order_id, oi[1].product.product_id),
+                )
+            else:
+                # Semilla: el ítem más cercano a las zonas de despacho
+                # (distancia de pasillo + subida z), sin mirar la prioridad.
+                dist_zonas = self._distances_from_zones()
+                semilla = min(
+                    pending_items,
+                    key=lambda oi: (self._distance([oi[1]], dist_zonas), oi[0].order_id, oi[1].product.product_id),
+                )
+            wave.add_items(semilla[0], [semilla[1]], max_peso)
+            pending_items.remove(semilla)
+
+            # Distancia de la wave a cada celda: se arma con la fila de la
+            # semilla y se actualiza con cada ítem que se agrega.
+            dist = self._distances_from_wave(wave)
+            racks_sumados = {(semilla[1].product.x, semilla[1].product.y)}
+
+            # Agregar el mejor candidato (más cercano, prioridad manda) mientras entre alguno.
+            while True:
+                mejor = None
+                mejor_clave = None
+                for order, item in pending_items:
+                    if not wave.can_add_items(order, [item], max_peso):
+                        continue
+                    d = self._distance([item], dist, incluir_z=True)
+                    # Sin prioridad, todos cuentan como prioridad 0 y decide la distancia.
+                    prioridad = order.prioridad if usar_prioridad else 0
+                    clave = (-prioridad, d, order.order_id)
+                    if mejor is None or clave < mejor_clave:
+                        mejor = (order, item)
+                        mejor_clave = clave
+                if mejor is None:
+                    break
+                wave.add_items(mejor[0], [mejor[1]], max_peso)
+                pending_items.remove(mejor)
+                if dist is not None:
+                    self._acercar(dist, [mejor[1]], racks_sumados)
+
+            new_waves.append(wave)
+
         return new_waves
 
     def _best_candidate(
