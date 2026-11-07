@@ -17,9 +17,31 @@ const DOM = {
     canvasStatus:      () => document.getElementById('canvas-status'),
 
     // Navbar buttons
-    btnNew:    () => document.getElementById('btn-new-scenario'),
-    btnSave:   () => document.getElementById('btn-save-scenario'),
-    btnLoad:   () => document.getElementById('btn-load-scenario'),
+    btnNew:      () => document.getElementById('btn-new-scenario'),
+    btnSave:     () => document.getElementById('btn-save-scenario'),
+    btnLoad:     () => document.getElementById('btn-load-scenario'),
+    btnGenerate: () => document.getElementById('btn-generate-scenario'),
+
+    // Modal generar escenario automático
+    modalGenerate:        () => document.getElementById('modal-generate-scenario'),
+    inputGenName:         () => document.getElementById('input-gen-name'),
+    inputGenRacks:        () => document.getElementById('input-gen-racks'),
+    inputGenAisles:       () => document.getElementById('input-gen-aisles'),
+    inputGenProducts:     () => document.getElementById('input-gen-products'),
+    selectGenDistribution:() => document.getElementById('select-gen-distribution'),
+    selectGenOrientation: () => document.getElementById('select-gen-orientation'),
+    inputGenWidth:        () => document.getElementById('input-gen-width'),
+    inputGenHeight:       () => document.getElementById('input-gen-height'),
+    inputGenOrders:       () => document.getElementById('input-gen-orders'),
+    inputGenMaxProducts:  () => document.getElementById('input-gen-max-products'),
+    inputGenWaveOrders:   () => document.getElementById('input-gen-wave-orders'),
+    inputGenWaveProducts: () => document.getElementById('input-gen-wave-products'),
+    inputGenDoors:        () => document.getElementById('input-gen-doors'),
+    inputGenPickers:      () => document.getElementById('input-gen-pickers'),
+    inputGenSeed:         () => document.getElementById('input-gen-seed'),
+    generateError:        () => document.getElementById('generate-error'),
+    btnConfirmGenerate:   () => document.getElementById('btn-confirm-generate'),
+    btnCancelGenerate:    () => document.getElementById('btn-cancel-generate'),
 
     // Zoom
     btnZoomIn:    () => document.getElementById('btn-zoom-in'),
@@ -100,6 +122,17 @@ const DOM = {
     ordersList:         () => document.getElementById('orders-list'),
 };
 
+/**
+ * True si el click fue directamente sobre el fondo oscuro del modal (no
+ * sobre su contenido). Evita que al arrastrar texto desde un input y soltar
+ * fuera del contenido se dispare un click en el contenedor y cierre el modal.
+ */
+function _clickEnOverlay(e, modal) {
+    if (!modal) return false;
+    const overlay = modal.querySelector('.modal__overlay');
+    return !!overlay && e.target === overlay;
+}
+
 // ── Estado global de la UI ────────────────────────────────────────
 
 let _renderer = null;
@@ -145,7 +178,7 @@ function initEditorUI() {
     DOM.btnCancelWH().addEventListener('click', () => closeModalNew());
     DOM.btnCreateWH().addEventListener('click', () => createScenario());
     DOM.modalNew().addEventListener('click', e => {
-        if (e.target === DOM.modalNew()) closeModalNew();
+        if (_clickEnOverlay(e, DOM.modalNew())) closeModalNew();
     });
     // Wizard navigation
     const wizPrev = DOM.wizardPrevBtn();
@@ -181,7 +214,7 @@ function initEditorUI() {
     // Modal de producto
     DOM.btnCancelProd().addEventListener('click', () => closeModalProduct());
     DOM.modalProduct().addEventListener('click', e => {
-        if (e.target === DOM.modalProduct()) closeModalProduct();
+        if (_clickEnOverlay(e, DOM.modalProduct())) closeModalProduct();
     });
     DOM.btnAddProd().addEventListener('click', () => submitProduct());
 
@@ -237,11 +270,24 @@ function initEditorUI() {
     DOM.btnSave().addEventListener('click', saveScenario);
     DOM.btnLoad().addEventListener('click', loadScenario);
 
+    // Generar escenario automático
+    DOM.btnGenerate()?.addEventListener('click', () => openModalGenerate());
+    DOM.btnCancelGenerate()?.addEventListener('click', () => closeModalGenerate());
+    DOM.modalGenerate()?.addEventListener('click', e => {
+        if (_clickEnOverlay(e, DOM.modalGenerate())) closeModalGenerate();
+    });
+    DOM.btnConfirmGenerate()?.addEventListener('click', () => submitGenerateScenario());
+    DOM.inputGenName()?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitGenerateScenario();
+    });
+
     // Pedidos
     const btnAddOrder = document.getElementById('btn-add-order');
     if (btnAddOrder) btnAddOrder.addEventListener('click', () => openModalOrder());
     DOM.btnCancelOrder().addEventListener('click', () => closeModalOrder());
-    DOM.modalOrder().addEventListener('click', e => { if (e.target === DOM.modalOrder()) closeModalOrder(); });
+    DOM.modalOrder().addEventListener('click', e => {
+        if (_clickEnOverlay(e, DOM.modalOrder())) closeModalOrder();
+    });
     DOM.btnOrderAddItem().addEventListener('click', () => _orderAddItemFromUI());
     DOM.btnConfirmOrder().addEventListener('click', () => submitOrder());
 
@@ -1778,6 +1824,150 @@ function loadScenario() {
     input.click();
 }
 
+// ── Generar escenario automático ─────────────────────────────────
+
+function openModalGenerate() {
+    // Si el wizard de creación manual está abierto, se descarta para no
+    // mezclar dos escenarios en construcción.
+    if (DOM.modalNew()?.classList.contains('open') || _wizardScenario) {
+        _doCloseModalNew();
+    }
+    _setGenerateError('');
+    DOM.modalGenerate().classList.add('open');
+    DOM.inputGenName().focus();
+    DOM.inputGenName().select();
+}
+
+function closeModalGenerate() {
+    DOM.modalGenerate().classList.remove('open');
+    _setGenerateError('');
+}
+
+function _setGenerateError(message) {
+    const el = DOM.generateError();
+    if (!el) return;
+    if (!message) {
+        el.textContent = '';
+        el.style.display = 'none';
+        return;
+    }
+    el.textContent = message;
+    el.style.display = '';
+}
+
+function _enteroDeInput(el, nombre, minimo, maximo) {
+    const valor = parseInt(el.value, 10);
+    if (isNaN(valor)) {
+        throw new Error(`"${nombre}" debe ser un número entero.`);
+    }
+    if (valor < minimo || valor > maximo) {
+        throw new Error(`"${nombre}" debe estar entre ${minimo} y ${maximo}.`);
+    }
+    return valor;
+}
+
+function _enteroOpcionalDeInput(el, nombre, minimo, maximo) {
+    const texto = (el.value || '').trim();
+    if (texto === '') return null;
+    return _enteroDeInput(el, nombre, minimo, maximo);
+}
+
+function _leerParametrosGeneracion() {
+    const semillaTexto = DOM.inputGenSeed().value.trim();
+    return {
+        nombre: DOM.inputGenName().value.trim() || 'Escenario generado',
+        cantidad_racks: _enteroDeInput(DOM.inputGenRacks(), 'Cantidad de racks', 1, 200),
+        cantidad_pasillos: _enteroDeInput(DOM.inputGenAisles(), 'Cantidad de pasillos', 1, 60),
+        cantidad_productos: _enteroDeInput(DOM.inputGenProducts(), 'Cantidad de productos', 1, 1000),
+        distribucion_productos: DOM.selectGenDistribution().value,
+        orientacion_racks: DOM.selectGenOrientation().value,
+        ancho_x: _enteroOpcionalDeInput(DOM.inputGenWidth(), 'Ancho del warehouse', 1, 500),
+        largo_y: _enteroOpcionalDeInput(DOM.inputGenHeight(), 'Alto del warehouse', 1, 500),
+        cantidad_pedidos: _enteroDeInput(DOM.inputGenOrders(), 'Cantidad de pedidos', 1, 1000),
+        max_productos_por_pedido: _enteroDeInput(DOM.inputGenMaxProducts(), 'Máx. productos por pedido', 1, 50),
+        wave_max_pedidos: _enteroDeInput(DOM.inputGenWaveOrders(), 'Capacidad wave (pedidos)', 1, 100),
+        wave_max_productos: _enteroDeInput(DOM.inputGenWaveProducts(), 'Capacidad wave (unidades)', 1, 5000),
+        cantidad_puertas: _enteroDeInput(DOM.inputGenDoors(), 'Puertas', 1, 4),
+        cantidad_pickers: _enteroDeInput(DOM.inputGenPickers(), 'Pickers', 1, 20),
+        semilla: semillaTexto === '' ? null : _enteroDeInput(DOM.inputGenSeed(), 'Semilla', 0, 2147483647),
+    };
+}
+
+async function submitGenerateScenario() {
+    const btn = DOM.btnConfirmGenerate();
+    if (!btn || btn.disabled) return;
+
+    _setGenerateError('');
+    let parametros;
+    try {
+        parametros = _leerParametrosGeneracion();
+    } catch (err) {
+        _setGenerateError(err.message);
+        return;
+    }
+
+    const htmlOriginal = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Generando…';
+
+    try {
+        const resultado = await apiGenerateScenario(parametros);
+        _aplicarEscenarioGenerado(resultado);
+    } catch (err) {
+        _setGenerateError(err?.error || 'No se pudo generar el escenario.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = htmlOriginal;
+    }
+}
+
+function _aplicarEscenarioGenerado(resultado) {
+    if (!resultado || !resultado.scenario) {
+        _setGenerateError('El servidor no devolvió un escenario válido.');
+        return;
+    }
+
+    // Limpiar la simulación del escenario anterior antes de reemplazarlo.
+    if (typeof simReset === 'function') simReset();
+
+    _scenario = Scenario.fromJSON(resultado.scenario);
+    _wizardScenario = null;
+    _editor.setScenario(_scenario);
+
+    DOM.canvasPlaceholder().style.display = 'none';
+    DOM.canvas().style.display = 'block';
+
+    _updateSidebarInfo();
+    _updatePickersList();
+    _updateCanvasStatus();
+    _hideSelection();
+    renderOrdersList();
+    _setActiveTool('select');
+
+    closeModalGenerate();
+
+    const meta = resultado.meta || {};
+    const validacion = meta.validacion || {};
+    const partes = [
+        `${meta.racks ?? _scenario.racks.length} racks`,
+        `${meta.pasillos ?? 0} pasillos`,
+        `${meta.productos ?? _scenario.getAllProducts().length} productos`,
+        `${meta.pedidos ?? _scenario.orders.length} pedidos`,
+    ];
+    const orientacionLabel = {
+        vertical: 'racks verticales',
+        horizontal: 'racks horizontales',
+        aleatorio: 'racks mixtos',
+    }[meta.orientacion_racks];
+    if (orientacionLabel) {
+        partes.push(orientacionLabel);
+    }
+    const resumen = partes.join(' · ');
+    const validado = validacion.ok ? ' · validado ✓' : '';
+    const semilla = meta.semilla != null ? ` · semilla ${meta.semilla}` : '';
+    showToast(`Escenario "${_scenario.name}" generado: ${resumen}${validado}${semilla}`, 'success');
+}
+
 // ── Keyboard shortcuts ────────────────────────────────────────────
 
 function _onKeyDown(e) {
@@ -1800,6 +1990,7 @@ function _onKeyDown(e) {
 
     if (e.key === 'Escape') {
         closeModalNew();
+        closeModalGenerate();
         closeModalProduct();
         closeModalOrder();
         _hideSelection();
