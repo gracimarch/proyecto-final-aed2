@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -13,9 +13,9 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
         rel="stylesheet">
 
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}?v=4">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=4">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}?v=4">
 
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
@@ -90,31 +90,28 @@
             <section class="panel" id="pickers-panel">
                 <div class="panel__header">
                     <h2 class="panel__title">Pickers</h2>
-                    <div class="pickers-controls">
-                        <button class="btn btn--icon btn--xs btn--ghost" id="btn-picker-remove" title="Quitar un picker"
-                            aria-label="Quitar picker" disabled>
-                            <span class="icon icon--14 icon--filled" aria-hidden="true">remove</span>
-                        </button>
-                        <button class="btn btn--icon btn--xs btn--primary" id="btn-picker-add" title="Agregar un picker"
-                            aria-label="Agregar picker" disabled>
-                            <span class="icon icon--14 icon--filled" aria-hidden="true">add</span>
-                        </button>
-                    </div>
-                    <span class="info-value" id="wh-pickers" style="margin-left:auto;font-size:.75rem">—</span>
+                    <span class="panel__count" id="wh-pickers" title="Pickers en el escenario">—</span>
+                    <button class="btn btn--icon btn--xs btn--ghost pickers-toggle" id="btn-pickers-list-toggle"
+                        aria-expanded="true" aria-controls="pickers-list" title="Ocultar lista de pickers">
+                        <span class="icon icon--sm pickers-toggle__chevron open" aria-hidden="true">expand_more</span>
+                    </button>
                 </div>
                 <div class="panel__body">
-                    <div class="pickers-capacity-row">
-                        <label class="form-label" for="input-picker-capacity">Cap. nueva (kg)</label>
-                        <input class="form-input form-input--num" type="number" id="input-picker-capacity" min="1"
-                            max="9999" value="100">
+                    <!-- Tabla compacta y editable: una fila por picker -->
+                    <div id="pickers-list" class="pickers-table">
+                        <p class="empty-msg">Sin pickers asignados.</p>
                     </div>
-                    <!-- Lista colapsable -->
-                    <button class="pickers-list-toggle" id="btn-pickers-list-toggle" aria-expanded="false"
-                        aria-controls="pickers-list">
-                        <span>Lista</span>
-                        <span class="icon icon--14 icon--filled pickers-chevron" aria-hidden="true">expand_more</span>
-                    </button>
-                    <div id="pickers-list" class="pickers-list pickers-list--collapsed"></div>
+                    <div class="pickers-add-row">
+                        <input class="form-input form-input--num" type="number" id="input-picker-capacity" min="1"
+                            max="9999" value="100" title="Capacidad del nuevo picker (kg)"
+                            aria-label="Capacidad del nuevo picker (kg)">
+                        <span class="pickers-add-row__unit">kg</span>
+                        <button class="btn btn--primary btn--sm" id="btn-picker-add" title="Agregar un picker"
+                            aria-label="Agregar picker" disabled>
+                            <span class="icon icon--sm icon--filled" aria-hidden="true">add</span>
+                            Agregar
+                        </button>
+                    </div>
                 </div>
             </section>
 
@@ -141,9 +138,14 @@
             <section class="panel">
                 <div class="panel__header">
                     <h2 class="panel__title">Waves</h2>
-                    <button class="btn btn--sm btn--primary" id="btn-generate-wave">
-                        <span class="icon icon--sm icon--filled" aria-hidden="true">bolt</span> Generar
-                    </button>
+                    <div class="wave-actions">
+                        <button class="btn btn--sm btn--primary" id="btn-generate-wave">
+                            <span class="icon icon--sm icon--filled" aria-hidden="true">bolt</span> Generar
+                        </button>
+                        <button class="btn btn--sm btn--ghost" id="btn-consultar-wave" title="Ver detalle de la wave seleccionada" disabled>
+                            <span class="icon icon--sm icon--filled" aria-hidden="true">info</span> Consultar
+                        </button>
+                    </div>
                 </div>
                 <div class="panel__body panel__body--scroll" id="waves-list">
                     <p class="empty-msg">Sin waves generadas.</p>
@@ -270,15 +272,10 @@
                 <h2 class="panel__title">Simulación</h2>
                 <div class="panel__body">
 
-                    <!-- Estado de la flota: muestra todos los pickers activos.
-                         Hacé click en una wave del sidebar izquierdo para
-                         seleccionarla y poder usar "Comparar". -->
+                    <!-- Estado de los pickers: muestra el estado de cada picker en el frame actual. -->
                     <div class="field-group">
                         <label class="field-label">
-                            Estado de la flota
-                            <span style="font-size:.68rem;opacity:.55;font-weight:400;margin-left:.3rem">
-                                (click en wave ← para comparar)
-                            </span>
+                            Estado de pickers
                         </label>
                         <div id="fleet-status" class="fleet-status">
                             <p class="empty-msg">Sin pickers asignados.</p>
@@ -333,12 +330,13 @@
 
                     <!-- Modo de enfoque del recorrido -->
                     <div class="focus-mode-row">
-                        <button class="btn btn--sm btn--ghost btn--toggle" id="btn-focus-mode" aria-pressed="false"
-                            title="Resaltar el recorrido del picker atenuando los pasillos"
-                            aria-label="Resaltar recorrido">
-                            <span class="icon icon--14 icon--filled" aria-hidden="true">route</span>
-                            Resaltar recorrido
-                        </button>
+                        <label class="focus-switch-row" id="btn-focus-mode" role="switch" aria-checked="false"
+                            aria-label="Resaltar ruta">
+                            <span class="switch__text">Resaltar ruta</span>
+                            <span class="switch">
+                                <span class="switch__thumb"></span>
+                            </span>
+                        </label>
                     </div>
 
                     <!-- Velocidad -->
@@ -391,9 +389,7 @@
                             title="Ejecutar todas las waves en simultáneo para las 4 combinaciones">Todas las
                             combinaciones</button>
                     </div>
-                    <div id="compare-result" class="compare-result">
-                        <p class="empty-msg">Seleccioná una opción para comparar.</p>
-                    </div>
+                    <div id="compare-result" class="compare-result"></div>
 
                     <!-- Comparación de modos de armado de waves (una tabla por estrategia) -->
                     <div class="compare-header">
@@ -404,16 +400,16 @@
                             title="Generar waves con los tres modos y comparar las tablas">Comparar armado de
                             waves</button>
                     </div>
-                    <div id="compare-waves-result" class="compare-result">
-                        <p class="empty-msg">Hacé clic en "Comparar armado de waves" para ver una tabla por cada
-                            modo.</p>
-                    </div>
+                    <div id="compare-waves-result" class="compare-result"></div>
                 </div>
             </section>
 
             <!-- Productos recogidos -->
             <section class="panel">
-                <h2 class="panel__title">Productos recogidos</h2>
+                <div class="panel__header">
+                    <h2 class="panel__title">Productos recogidos</h2>
+                    <span class="panel__count" id="collected-total" title="Productos recogidos">0</span>
+                </div>
                 <div class="panel__body panel__body--scroll" id="collected-list">
                     <p class="empty-msg">Ninguno todavía.</p>
                 </div>
@@ -794,6 +790,22 @@
     <!-- ═══════════════════════════════════════════════════
          TOAST
     ════════════════════════════════════════════════════ -->
+    <!-- ═════════════════════════════════════════════════════
+         MODAL: DETALLE DE WAVE (consultar)
+    ═════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-wave-detail" role="dialog" aria-modal="true" aria-labelledby="modal-wave-title">
+        <div class="modal__overlay"></div>
+        <div class="modal__content modal__content--md">
+            <div class="modal__header">
+                <span class="modal__icon" aria-hidden="true"><span class="icon icon--20 icon--filled">local_shipping</span></span>
+                <h2 class="modal__title" id="modal-wave-title">Wave <span id="modal-wave-id">—</span></h2>
+            </div>
+            <div class="modal__body" id="modal-wave-body"></div>
+            <div class="modal__footer">
+                <button class="btn btn--ghost" id="btn-close-wave-detail">Cerrar</button>
+            </div>
+        </div>
+    </div>
     <div class="editor-toast" id="editor-toast" role="status" aria-live="polite"></div>
 
     <!-- ═══════════════════════════════════════════════════
