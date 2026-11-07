@@ -30,16 +30,28 @@ Etapa 1: armar waves (generate_waves). Algoritmo greedy y determinista:
 
 Etapa 2: asignar pickers (assign_pickers y complete_wave).
     Las waves sin picker esperan en una cola ordenada por prioridad y, si
-    empatan, por orden de creación. Cada wave recibe el picker libre de
-    MENOR capacidad que la pueda cargar (best fit), así los grandes quedan
-    para las waves pesadas. Cuando un picker termina su wave, queda libre
-    y toma la siguiente de la cola.
+    empatan, por orden de creación (la prioridad sigue mandando). Cada wave
+    recibe, entre los pickers libres que la pueden cargar, el MÁS CERCANO:
+    el que tiene menos pasos desde su posición actual hasta la parada más
+    cercana de la wave. Si empatan en distancia, gana el de menor capacidad
+    (best fit, así los grandes quedan para las waves pesadas) y después el
+    de menor id. Un picker que no puede llegar a la wave no se elige.
+    Cuando un picker termina su wave, queda libre en la celda donde
+    descargó y, desde ahí, compite por la siguiente de la cola.
 
     Si tras la asignación 1:1 sobran pickers libres, se asignan como
-    refuerzo a las waves con más paradas distintas. Solo se agrega un
-    picker extra si la wave tiene al menos un rack por picker (así cada
-    operario tiene al menos una parada propia). El máximo de pickers por
-    wave está limitado por WaveManager.MAX_PICKERS_POR_WAVE.
+    refuerzo a las waves con más paradas distintas: a cada wave se le manda
+    el picker sobrante más cercano. Solo se agrega un picker extra si la
+    wave tiene al menos un rack por picker (así cada operario tiene al
+    menos una parada propia). El máximo de pickers por wave está limitado
+    por WaveManager.MAX_PICKERS_POR_WAVE.
+
+    Distancia picker -> wave: con sentidos de circulación el grafo es
+    dirigido e ir del rack al picker no cuesta lo mismo que ir del picker
+    al rack, así que no se usa la tabla de los racks. Se corre un BFS desde
+    la celda del picker y se guarda en self._tabla_desde_pickers (misma
+    memoización: los pickers arrancan casi siempre en las mismas celdas,
+    la inicial o la de descarga, así que se repiten).
 
 Tabla de distancias (self._tabla_distancias):
     El grafo nunca cambia, así que la distancia de un rack a cualquier celda
@@ -86,6 +98,11 @@ def _order_key(order: Order) -> tuple[int, str]:
 def _picker_key(picker: Picker) -> tuple[float, str]:
     """Orden de los pickers libres: menor capacidad primero, después por id."""
     return (picker.capacidad_carga_kg, picker.picker_id)
+
+
+def _closer_picker_key(distancia: float, picker: Picker) -> tuple[float, float, str]:
+    """Para elegir picker: el más cercano; si empatan, el más chico; después por id."""
+    return (distancia, picker.capacidad_carga_kg, picker.picker_id)
 
 
 class WaveManager:
@@ -169,6 +186,11 @@ class WaveManager:
         # Distancia desde las zonas de despacho a cada celda (para la semilla
         # de "solo_cercania"). Se calcula la primera vez que se pide.
         self._dist_zonas = None
+        # Distancia desde la celda de un picker a cada celda: {celda: {celda: dist}}.
+        # Para elegir el picker más cercano a cada wave (etapa 2).
+        self._tabla_desde_pickers = {}
+        # BFS corridos para esa tabla (se cuentan aparte de los de armar waves).
+        self.bfs_pickers = 0
         # Cuántos BFS se corrieron para llenar la tabla (para los experimentos).
         self.bfs_corridos = 0
 
@@ -702,15 +724,63 @@ class WaveManager:
     # Etapa 2: asignar pickers
     # ------------------------------------------------------------------
 
+    def _fila_desde(self, celda: tuple[int, int]) -> dict[tuple[int, int], int]:
+        """
+        Distancia DESDE una celda (donde está un picker) hasta cada celda.
+        La primera vez se calcula con un BFS y se guarda; después solo se lee.
+
+        Complejidad: O(V + E) la primera vez por celda, O(1) las siguientes.
+        """
+        celda = tuple(celda)
+        if celda not in self._tabla_desde_pickers:
+            self._tabla_desde_pickers[celda] = bfs_distances(self.graph, {celda})
+            self.bfs_pickers = self.bfs_pickers + 1
+        return self._tabla_desde_pickers[celda]
+
+    def _picker_distance(self, picker: Picker, wave: Wave) -> float:
+        """
+        Pasos que tiene que caminar el picker desde donde está hasta la parada
+        más cercana de la wave. 0 si no hay grafo (todos empatan y decide el
+        best fit); infinito si no puede llegar. La altura no se suma: es la
+        misma para cualquier picker que vaya.
+        """
+        if self.graph is None or self.warehouse is None:
+            return 0
+        fila = self._fila_desde(picker.posicion_actual)
+        return self._distance(wave.get_items(), fila, incluir_z=False)
+
+    def _closest_picker(self, candidatos: list[Picker], wave: Wave) -> Picker | None:
+        """
+        El picker de candidatos más cercano a la wave (desempate: menor
+        capacidad, después menor id). None si ninguno puede llegar.
+        """
+        elegido = None
+        mejor_clave = None
+        for p in candidatos:
+            d = self._picker_distance(p, wave)
+            if d == INFINITO:
+                continue
+            clave = _closer_picker_key(d, p)
+            if mejor_clave is None or clave < mejor_clave:
+                elegido = p
+                mejor_clave = clave
+        return elegido
+
     def _queue_key(self, wave: Wave) -> tuple[int, int]:
         """Orden de la cola: mayor prioridad primero, después la más antigua."""
         return (-wave.priority(), self.waves.index(wave))
 
     def assign_pickers(self, pickers: list[Picker] | None = None) -> list[Wave]:
         """
-        Recorre la cola en orden y le da a cada wave el picker libre más chico
-        que la pueda cargar. Una wave que no encuentra picker sigue esperando,
-        y las siguientes pueden tomar pickers más chicos mientras tanto.
+        Recorre la cola en orden (mayor prioridad primero) y le da a cada wave
+        el picker libre más cercano entre los que la pueden cargar (si empatan,
+        el más chico). Una wave que no encuentra picker sigue esperando, y las
+        siguientes pueden tomar otros pickers mientras tanto.
+
+        Es greedy: cada wave elige en su turno lo mejor que queda, sin volver
+        atrás. Complejidad: O(W * P * c) con la tabla ya llena, donde W son
+        las waves en cola, P los pickers libres y c las celdas de recogida de
+        la wave; más un BFS O(V + E) por cada celda de picker nueva.
 
         Returns:
             Las waves que recibieron picker en esta llamada.
@@ -723,11 +793,11 @@ class WaveManager:
 
         assigned = []
         for wave in list(self.queue):    # copia: vamos a sacar elementos de self.queue
-            elegido = None
+            pueden_cargarla = []
             for p in libres:
                 if p.capacidad_carga_kg >= wave.total_weight():
-                    elegido = p
-                    break
+                    pueden_cargarla.append(p)
+            elegido = self._closest_picker(pueden_cargarla, wave)
             if elegido is None:
                 continue
             wave.assign_picker(elegido)
@@ -777,7 +847,9 @@ class WaveManager:
 
         Las waves se recorren en orden descendente de paradas y en rondas
         sucesivas, de modo que la distribución sea equitativa cuando hay
-        más pickers sobrantes que waves candidatas.
+        más pickers sobrantes que waves candidatas. A cada wave se le manda
+        el picker sobrante más cercano (mismo criterio que en assign_pickers;
+        acá no se mira la capacidad porque el refuerzo lleva solo una parte).
         """
         # Precalcular paradas para no repetir la operación en cada ronda
         waves_por_carga = []
@@ -785,21 +857,23 @@ class WaveManager:
             waves_por_carga.append((self._wave_stop_count(wave), wave))
         waves_por_carga.sort(key=lambda t: -t[0])
 
-        picker_idx = 0
+        sobrantes = list(libres)
         hubo_asignacion = True
-        while picker_idx < len(libres) and hubo_asignacion:
+        while sobrantes and hubo_asignacion:
             hubo_asignacion = False
             for n_stops, wave in waves_por_carga:
-                if picker_idx >= len(libres):
+                if not sobrantes:
                     break
                 if len(wave.pickers) >= self.MAX_PICKERS_POR_WAVE:
                     continue
                 # Cada picker debe tener al menos 1 parada tras agregar el extra
                 if n_stops < len(wave.pickers) + 1:
                     continue
-                extra = libres[picker_idx]
+                extra = self._closest_picker(sobrantes, wave)
+                if extra is None:
+                    continue
                 wave.assign_picker(extra)
-                picker_idx += 1
+                sobrantes.remove(extra)
                 hubo_asignacion = True
 
     # ------------------------------------------------------------------

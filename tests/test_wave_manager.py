@@ -368,5 +368,73 @@ class TestSoloCercania(unittest.TestCase):
             wm.generate_waves(estrategia_wave="otra")
 
 
+class TestPickerMasCercano(unittest.TestCase):
+    """Etapa 2: cada wave recibe el picker libre más cercano que la pueda cargar."""
+
+    def setUp(self):
+        import json
+        with open("scenarios/escenario_basico.json", "r", encoding="utf-8") as f:
+            self.data = json.load(f)
+        # Un solo pedido (PED_03: P004, P006 y P008, en racks distintos),
+        # así sale una sola wave.
+        self.data["pedidos"] = [self.data["pedidos"][2]]
+
+    def _manager(self, pickers):
+        """pickers: lista de (id, capacidad). Las posiciones de prueba se ponen después."""
+        self.data["pickers"] = []
+        for i, (pid, cap) in enumerate(pickers):
+            self.data["pickers"].append(
+                {"id": pid, "posicion_inicial": {"x": 1 + i, "y": 3}, "capacidad_carga_kg": cap}
+            )
+        wh = Warehouse.from_dict(self.data)
+        wm = WaveManager.from_dict(self.data, wh)
+        item = wm.get_pending_orders()[0].pending_items[0]
+        self.cerca = min(wm._pickup_cells(item))
+        fila = wm._fila_desde(self.cerca)
+        self.lejos = max(fila, key=lambda c: (fila[c], c))
+        return wm
+
+    def _poner(self, wm, posiciones):
+        for p in wm.pickers:
+            p.posicion_actual = posiciones[p.picker_id]
+
+    def test_gana_el_mas_cercano_aunque_sea_mas_grande(self):
+        # Con best fit ganaba PK_LEJOS (más chico); ahora gana el que está al lado.
+        wm = self._manager([("PK_CERCA", 150.0), ("PK_LEJOS", 100.0)])
+        self._poner(wm, {"PK_CERCA": self.cerca, "PK_LEJOS": self.lejos})
+        wave = wm.generate_waves()[0]
+        self.assertEqual(wave.picker.picker_id, "PK_CERCA")
+
+    def test_la_capacidad_sigue_siendo_un_filtro(self):
+        # El cercano no puede cargar la wave: se elige el otro aunque esté lejos.
+        wm = self._manager([("PK_CERCA", 0.5), ("PK_LEJOS", 100.0)])
+        self._poner(wm, {"PK_CERCA": self.cerca, "PK_LEJOS": self.lejos})
+        waves = wm.generate_waves()
+        self.assertEqual(waves[0].picker.picker_id, "PK_LEJOS")
+
+    def test_empate_de_distancia_gana_el_mas_chico(self):
+        wm = self._manager([("PK_GRANDE", 150.0), ("PK_CHICO", 100.0)])
+        self._poner(wm, {"PK_GRANDE": self.cerca, "PK_CHICO": self.cerca})
+        wave = wm.generate_waves()[0]
+        self.assertEqual(wave.picker.picker_id, "PK_CHICO")
+
+    def test_el_refuerzo_es_el_mas_cercano(self):
+        # Hay lugar para un solo refuerzo (tope de 2 pickers en esta wave).
+        # Con el orden por capacidad, el refuerzo era PK_Z (el más chico).
+        wm = self._manager([("PK_A", 100.0), ("PK_B", 100.0), ("PK_Z", 50.0)])
+        wm.MAX_PICKERS_POR_WAVE = 2
+        self._poner(wm, {"PK_A": self.cerca, "PK_B": self.cerca, "PK_Z": self.lejos})
+        wave = wm.generate_waves()[0]
+        ids = [p.picker_id for p in wave.pickers]
+        self.assertEqual(ids, ["PK_A", "PK_B"])
+
+    def test_un_bfs_por_celda_de_picker(self):
+        wm = self._manager([("PK_A", 100.0), ("PK_B", 100.0)])
+        self._poner(wm, {"PK_A": self.cerca, "PK_B": self.cerca})
+        antes = wm.bfs_pickers    # _manager ya calculó la fila de self.cerca
+        wm.generate_waves()
+        self.assertEqual(wm.bfs_pickers, antes)
+
+
 if __name__ == "__main__":
     unittest.main()
