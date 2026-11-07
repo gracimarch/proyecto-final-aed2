@@ -108,6 +108,16 @@ let _focusModeUserSet = false;
  */
 let _simulationLocked = false;
 
+/** Modo de armado con el que se generaron las waves actuales (para guardarlo). */
+let _wavesOnda = null;
+
+/**
+ * Opciones con las que se pidio la simulacion actual:
+ * { estrategia_wave, estrategia, buscador, velocidad }, o null.
+ * Se guardan en el archivo para poder retomar la simulacion (persistencia).
+ */
+let _simParams = null;
+
 
 // ---------------------------------------------------------------------------
 // Referencias a elementos DOM del panel derecho
@@ -217,11 +227,11 @@ function _requestCanvasRender() {
 
 async function simGenerateWaves() {
     const sc = _getScenario();
-    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return; }
+    if (!sc) { showToast('Cargá un escenario primero.', 'warning'); return false; }
 
     if (!sc.orders || sc.orders.length === 0) {
         showToast('El escenario no tiene pedidos para procesar.', 'warning');
-        return;
+        return false;
     }
 
     const btn = _dom('btn-generate-wave');
@@ -231,15 +241,19 @@ async function simGenerateWaves() {
     try {
         _waves = await apiGenerateWaves(sc.toJSON(), estrategiaWave);
         _initialWavesSnapshot = JSON.parse(JSON.stringify(_waves));
+        _wavesOnda = estrategiaWave;
         _simulation = null;     // las waves cambiaron: hay que volver a simular
+        _simParams = null;
         _frameIndex = -1;
         _renderWavesList();
         simUpdateConsultarBtn();
         _renderFleetStatus();
         if (typeof renderOrdersList === 'function') renderOrdersList();
         showToast(`${_waves.length} wave(s) generada(s).`, 'success');
+        return true;
     } catch (err) {
         showToast(err.error || 'Error al generar waves.', 'error');
+        return false;
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -477,18 +491,23 @@ async function _loadSimulation() {
     if (btn) btn.disabled = true;
     showToast('Calculando la simulación en el servidor...', 'info');
 
+    const params = {
+        estrategia_wave: _getOndaValue(),
+        estrategia: _getStrategyValue(),
+        buscador: _getBuscadorValue(),
+        velocidad: _getSpeedValue(),
+    };
     try {
         _restorePickerPositions();
         _saveInitialPickerPositions();
         _simulation = await apiSimulate(
             sc.toJSON(),
-            _getStrategyValue(),
-            _getBuscadorValue(),
-            _getOndaValue(),
-            // Se pide siempre 1 tick por frame: la velocidad se aplica en la
-            // reproduccion (asi el slider funciona tambien en caliente).
+            params.estrategia,
+            params.buscador,
+            params.estrategia_wave,
             1,
         );
+        _simParams = params;
     } catch (err) {
         showToast(err.error || 'Error al calcular la simulación.', 'error');
         return false;
@@ -771,6 +790,7 @@ function simRestart() {
     simPause();
     _resetPlayback();
     _simulation = null;   // libera la planificacion calculada
+    _simParams = null;
     _focusModeUserSet = false;
     _clearMetrics();
     _setFocusMode(false);
@@ -1195,7 +1215,9 @@ function simReset() {
 
     _waves = [];
     _initialWavesSnapshot = [];
+    _wavesOnda = null;
     _simulation = null;
+    _simParams = null;
     _simulationLocked = false;
     _frameIndex = -1;
     _routes = {};
@@ -1408,14 +1430,23 @@ function _updateStepButtons() {
 
 /**
  * Retrocede un frame re-aplicando todos los eventos desde el principio.
- * Para evitar saturar el DOM en cada paso intermedio, solo actualiza el
- * renderer y los paneles una vez, al llegar al frame destino.
  */
 function simStepBack() {
     simPause();
     if (!_simulation || _frameIndex <= 0) return;
+    _replayTo(_frameIndex - 1);
+}
 
-    const target = _frameIndex - 1;
+/**
+ * Deja la reproduccion en el frame `target` re-aplicando los frames
+ * 0..target desde el estado inicial (los eventos se acumulan, por eso no
+ * se puede saltar directo). Lo usan el paso atras y la carga de una
+ * simulacion guardada.
+ * Para evitar saturar el DOM en cada paso intermedio, solo actualiza el
+ * renderer y los paneles una vez, al llegar al frame destino.
+ */
+function _replayTo(target) {
+    if (!_simulation) return;
     const sc = _getScenario();
 
     // Volver al estado inicial limpio
@@ -1489,6 +1520,96 @@ function simStepBack() {
     _renderFleetStatus();
     if (typeof renderOrdersList === 'function') renderOrdersList();
     _updateStepButtons();
+    _requestCanvasRender();
+}
+
+
+// ---------------------------------------------------------------------------
+// Persistencia: guardar y retomar la simulacion
+// ---------------------------------------------------------------------------
+//
+// No se guardan las waves, las rutas ni los frames: el back los vuelve a
+// calcular. Como la generacion de waves, BFS/A* y la simulacion son
+// deterministas, con el mismo escenario y las mismas opciones salen
+// exactamente iguales. Por eso alcanza con guardar las opciones elegidas
+// y el numero de frame que se estaba mostrando.
+
+/**
+ * Devuelve el JSON para guardar en el archivo: el escenario y, si hay
+ * waves o una simulacion, la seccion "estado".
+ *
+ * Durante la simulacion los pickers del editor se mueven, asi que se
+ * guardan en su posicion inicial (si no, al retomar arrancarian desde
+ * donde quedaron y la simulacion seria otra).
+ */
+function simScenarioForSave(sc) {
+    const data = sc.toJSON();
+    if (_waves.length === 0) return data;     // no hay nada de simulacion
+
+    if (_simulation) {
+        for (const p of data.pickers) {
+            const pos = _initialPickerPositions.get(p.id);
+            if (pos) p.posicion_inicial = { x: pos.x, y: pos.y };
+        }
+    }
+
+    const frame = _currentFrame();
+    data.estado = {
+        estrategia_wave: _simParams ? _simParams.estrategia_wave : _wavesOnda,
+        estrategia: _simParams ? _simParams.estrategia : _getStrategyValue(),
+        buscador: _simParams ? _simParams.buscador : _getBuscadorValue(),
+        velocidad: _simParams ? _simParams.velocidad : _getSpeedValue(),
+        frame: frame ? _frameIndex : null,
+        tick: frame ? frame.tick : null,
+    };
+    return data;
+}
+
+/** Cambia el valor de un select sin disparar su evento 'change'. */
+function _setSelectValue(id, value) {
+    const el = _dom(id);
+    if (el && value != null) el.value = value;
+}
+
+/**
+ * Retoma lo guardado en la seccion "estado" de un archivo, despues de que
+ * ui.js cargo el escenario:
+ *   1. pone los selectores como estaban al guardar;
+ *   2. vuelve a generar las waves (salen iguales);
+ *   3. si habia una simulacion, la vuelve a pedir y salta al frame
+ *      guardado, en pausa. Con Play sigue desde ahi.
+ */
+async function simRestoreState(estado) {
+    if (!estado || !estado.estrategia_wave) return;
+
+    _setSelectValue('select-onda', estado.estrategia_wave);
+    if (estado.estrategia) {
+        _setSelectValue('select-strategy', estado.estrategia === 'orden' ? 'order' : 'nearest');
+    }
+    _setSelectValue('select-buscador', estado.buscador);
+    if (estado.velocidad) {
+        _setSelectValue('range-speed', String(estado.velocidad));
+        const label = _dom('speed-label');
+        if (label) label.textContent = `${estado.velocidad}×`;
+    }
+
+    const wavesOk = await simGenerateWaves();
+    if (!wavesOk || estado.frame == null) return;
+
+    const simOk = await _loadSimulation();
+    if (!simOk) return;
+
+    const destino = Math.min(estado.frame, _simulation.frames.length - 1);
+    _replayTo(destino);
+
+    if (_isLastFrame()) {
+        _onSimulationComplete();
+    } else {
+        showToast(
+            `Simulación retomada en el tick ${_currentFrame().tick}. Apretá Play para continuar.`,
+            'success'
+        );
+    }
 }
 
 

@@ -44,6 +44,10 @@
                 <span class="icon icon--16 icon--filled" aria-hidden="true">download</span>
                 <span class="btn-label">Guardar escenario</span>
             </button>
+            <button class="btn btn--ghost" id="btn-generate-scenario" title="Generar un escenario automáticamente">
+                <span class="icon icon--16 icon--filled" aria-hidden="true">auto_awesome</span>
+                <span class="btn-label">Generar escenario</span>
+            </button>
             <button class="btn btn--primary" id="btn-new-scenario">
                 <span class="icon icon--16" aria-hidden="true">add</span>
                 <span class="btn-label">Nuevo escenario</span>
@@ -526,6 +530,135 @@
                     </button>
                 </div>
                 <button id="btn-create-wh" style="display:none">Crear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════
+         MODAL: GENERAR ESCENARIO AUTOMÁTICO
+    ════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-generate-scenario" role="dialog" aria-modal="true"
+        aria-labelledby="modal-generate-title">
+        <div class="modal__overlay"></div>
+        <div class="modal__content modal__content--generate">
+            <div class="modal__header">
+                <span class="modal__icon" aria-hidden="true"><span
+                        class="icon icon--20 icon--filled">auto_awesome</span></span>
+                <h2 class="modal__title" id="modal-generate-title">Generar escenario automático</h2>
+            </div>
+
+            <div class="modal__body">
+                <div class="form-group">
+                    <label class="form-label" for="input-gen-name">Nombre del escenario</label>
+                    <input class="form-input" type="text" id="input-gen-name" value="Escenario generado"
+                        maxlength="60" autocomplete="off">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-racks">Cantidad de racks</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-racks" min="1"
+                            max="200" step="1" value="12">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-aisles">Cantidad de pasillos</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-aisles" min="1"
+                            max="60" step="1" value="6">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-products">Cantidad de productos</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-products" min="1"
+                            max="1000" step="1" value="40">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="select-gen-distribution">Localización de productos</label>
+                        <select class="select" id="select-gen-distribution">
+                            <option value="uniforme">Uniforme (todo el warehouse)</option>
+                            <option value="aleatoria">Aleatoria (con semilla)</option>
+                            <option value="concentrada">Concentrada (primeros racks)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="select-gen-orientation">Orientación de racks</label>
+                    <select class="select" id="select-gen-orientation">
+                        <option value="vertical">Todos verticales (2 de ancho)</option>
+                        <option value="horizontal">Todos horizontales (2 de alto)</option>
+                        <option value="aleatorio">Aleatorio (mezcla vertical/horizontal)</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-width">Ancho del warehouse (opcional)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-width" min="1"
+                            max="500" step="1" placeholder="Automático">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-height">Alto del warehouse (opcional)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-height" min="1"
+                            max="500" step="1" placeholder="Automático">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-orders">Cantidad de pedidos</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-orders" min="1"
+                            max="1000" step="1" value="15">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-max-products">Máx. productos por pedido</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-max-products" min="1"
+                            max="50" step="1" value="3">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-wave-orders">Capacidad wave (pedidos)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-wave-orders" min="1"
+                            max="100" step="1" value="4">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-wave-products">Capacidad wave (unidades)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-wave-products" min="1"
+                            max="5000" step="1" value="36">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-doors">Puertas (opcional)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-doors" min="1"
+                            max="4" step="1" value="1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="input-gen-pickers">Pickers (opcional)</label>
+                        <input class="form-input form-input--num" type="number" id="input-gen-pickers" min="1"
+                            max="20" step="1" value="2">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="input-gen-seed">Semilla (opcional, para reproducir)</label>
+                    <input class="form-input form-input--num" type="number" id="input-gen-seed" min="0"
+                        max="2147483647" step="1" placeholder="Automática">
+                </div>
+
+                <div class="generate-error" id="generate-error" style="display:none"></div>
+            </div>
+
+            <div class="modal__footer">
+                <button class="btn btn--ghost" id="btn-cancel-generate">Cancelar</button>
+                <button class="btn btn--primary" id="btn-confirm-generate">
+                    <span class="icon icon--16 icon--filled" aria-hidden="true">auto_awesome</span>
+                    Generar y cargar
+                </button>
             </div>
         </div>
     </div>

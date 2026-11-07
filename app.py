@@ -21,6 +21,10 @@ Rutas:
                                    con todos los pickers y devuelve un frame
                                    por tick. El frontend solo los dibuja.
 
+    POST /api/escenario/validar -> Recibe un escenario guardado (archivo .json)
+                                   y dice si se puede cargar. El frontend solo
+                                   lo muestra si el back lo acepta.
+
 Diseno stateless: el cliente envia el estado completo del escenario en cada
 pedido. El servidor no guarda nada entre llamadas; cada request es
 independiente.
@@ -30,9 +34,11 @@ from flask import Flask, render_template, request, jsonify
 
 from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
+from models.generator import generate_scenario
 from algorithms.graph_builder import generate_graph
 from algorithms.routing import plan_route, compare_strategies, compare_all_combinations
 from models.simulation import Simulation
+from models.persistence import validate_scenario
 
 
 app = Flask(__name__)
@@ -80,6 +86,86 @@ def _picker_start(wave):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/scenarios/generate
+# ---------------------------------------------------------------------------
+
+@app.route("/api/scenarios/generate", methods=["POST"])
+def api_scenarios_generate():
+    """
+    Genera un escenario completo (warehouse + productos + pedidos) de forma
+    procedural a partir de unos pocos parámetros.
+
+    Cuerpo esperado (application/json):
+    {
+        "nombre": "Mi escenario",
+        "cantidad_racks": 12,
+        "cantidad_pasillos": 6,        // cantidad de pasillos (entre racks)
+        "cantidad_productos": 40,
+        "distribucion_productos": "uniforme",   // uniforme | aleatoria | concentrada
+        "orientacion_racks": "vertical",        // vertical | horizontal | aleatorio
+        "ancho_x": 30,                          // opcional; si falta se calcula
+        "largo_y": 22,                          // opcional; si falta se calcula
+        "cantidad_pedidos": 15,
+        "max_productos_por_pedido": 3,
+        "wave_max_pedidos": 4,
+        "wave_max_productos": 36,               // opcional
+        "cantidad_puertas": 1,                  // opcional
+        "cantidad_pickers": 2,                  // opcional
+        "semilla": 12345                        // opcional
+    }
+
+    Respuesta exitosa (200):
+    {
+        "scenario": { ...formato Scenario.toJSON()... },
+        "meta": {
+            "semilla": 12345,
+            "dimensiones": {"ancho_x": 31, "largo_y": 15},
+            "dimensiones_fijas": false,
+            "racks": 12, "pasillos": 0, "pasillos_totales": 10,
+            "ancho_pasillo": 1,
+            "largo_rack": 4, "largo_rack_preferido": 4,
+            "grilla": {"columnas": 6, "filas": 2},
+            "orientacion_racks": "vertical",
+            "racks_verticales": 12, "racks_horizontales": 0,
+            "productos": 40, "pedidos": 15,
+            "validacion": {"ok": true, ...}
+        }
+    }
+
+    Respuesta de error (400):
+    { "error": "mensaje explicativo" }
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+    if not isinstance(body, dict):
+        return jsonify({"error": "El cuerpo de la peticion debe ser un objeto JSON."}), 400
+
+    try:
+        resultado = generate_scenario(
+            nombre=body.get("nombre", "Escenario generado"),
+            cantidad_racks=body.get("cantidad_racks", 12),
+            cantidad_pasillos=body.get("cantidad_pasillos", 6),
+            cantidad_productos=body.get("cantidad_productos", 40),
+            distribucion_productos=body.get("distribucion_productos", "uniforme"),
+            orientacion_racks=body.get("orientacion_racks", "vertical"),
+            ancho_x=body.get("ancho_x"),
+            largo_y=body.get("largo_y"),
+            cantidad_pedidos=body.get("cantidad_pedidos", 15),
+            max_productos_por_pedido=body.get("max_productos_por_pedido", 3),
+            wave_max_pedidos=body.get("wave_max_pedidos", 4),
+            wave_max_productos=body.get("wave_max_productos"),
+            cantidad_puertas=body.get("cantidad_puertas", 1),
+            cantidad_pickers=body.get("cantidad_pickers", 2),
+            semilla=body.get("semilla"),
+        )
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify(resultado)
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +588,39 @@ def api_simulacion():
         return jsonify({"error": str(e)}), 400
 
     return jsonify(simulacion.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# POST /api/escenario/validar
+# ---------------------------------------------------------------------------
+
+@app.route("/api/escenario/validar", methods=["POST"])
+def api_escenario_validar():
+    """
+    Valida un escenario guardado antes de cargarlo (§17 Persistencia).
+
+    El frontend lee el archivo .json que eligió el usuario y lo manda tal
+    cual. El back es el que decide: arma el Warehouse y el WaveManager con
+    las mismas validaciones que usan las demás rutas y revisa la sección
+    opcional "estado" (la simulación guardada).
+
+    Cuerpo esperado (application/json): el contenido del archivo guardado,
+    es decir Scenario.toJSON() más, opcionalmente, "estado".
+
+    Respuesta (200), aunque el escenario no sea válido:
+    {
+        "valido":  true | false,
+        "errores": ["motivo", ...],
+        "avisos":  ["cosas que no impiden cargarlo", ...]
+    }
+
+    Respuesta de error (400): el cuerpo no es JSON.
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+
+    return jsonify(validate_scenario(body))
 
 
 # ---------------------------------------------------------------------------

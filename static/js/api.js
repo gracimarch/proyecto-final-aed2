@@ -41,6 +41,27 @@ async function _post(url, body) {
 
 
 // ---------------------------------------------------------------------------
+// Generar escenario procedural
+// ---------------------------------------------------------------------------
+
+/**
+ * Le pide al servidor que genere un escenario completo (warehouse, productos
+ * y pedidos) a partir de los parámetros elegidos en el modal.
+ *
+ * @param {Object} parametros  {
+ *     nombre, cantidad_racks, cantidad_pasillos, cantidad_productos,
+ *     distribucion_productos, orientacion_racks, ancho_x, largo_y,
+ *     cantidad_pedidos, max_productos_por_pedido, wave_max_pedidos,
+ *     wave_max_productos, cantidad_puertas, cantidad_pickers, semilla
+ * }
+ * @returns {Promise<Object>} { scenario: {...}, meta: {...} }
+ */
+async function apiGenerateScenario(parametros) {
+    return await _post('/api/scenarios/generate', parametros);
+}
+
+
+// ---------------------------------------------------------------------------
 // Generar waves
 // ---------------------------------------------------------------------------
 
@@ -158,4 +179,21 @@ async function apiSimulate(escenario, estrategia, buscador, estrategiaWave = 'po
         estrategia_wave: estrategiaWave,
         velocidad: velocidad,
     });
+}
+
+
+// ---------------------------------------------------------------------------
+// Validar un escenario guardado (persistencia)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le pide al servidor que valide un escenario leído de un archivo .json
+ * antes de cargarlo en el editor. El back es el que decide.
+ *
+ * @param {Object} escenario  El contenido del archivo (Scenario.toJSON()
+ *                            y, opcionalmente, la sección "estado").
+ * @returns {Promise<Object>} { valido: bool, errores: [str], avisos: [str] }.
+ */
+async function apiValidateScenario(escenario) {
+    return await _post('/api/escenario/validar', escenario);
 }
