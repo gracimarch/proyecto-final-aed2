@@ -107,6 +107,101 @@ class TestSimulation(unittest.TestCase):
         self.assertEqual(p.esperas, 1)
 
 
+class TestChoquesEnTodosLosEscenarios(unittest.TestCase):
+    """
+    §3.6 en todos los escenarios: nunca dos pickers en la misma celda, nunca
+    un intercambio de celdas y nunca un paso que no sea una arista del grafo
+    (respeta los sentidos). Antes solo se probaba escenario_basico, donde no
+    aparecían los choques al recoger.
+    """
+
+    ESCENARIOS = [
+        "scenarios/escenario_basico.json",
+        "scenarios/escenario_cercania.json",
+        "scenarios/escenario_cuello_de_botella.json",
+        "scenarios/escenario_despacho_multiple.json",
+        "scenarios/escenario_niveles_z_y_sentidos.json",
+    ]
+
+    def _correr(self, data, estrategia_wave, recorrido):
+        wh = Warehouse.from_dict(data)
+        wm = WaveManager.from_dict(data, wh)
+        wm.generate_waves(estrategia_wave=estrategia_wave)
+        sim = Simulation(wh, wm, estrategia=recorrido, buscador="bfs")
+        frames = sim.run()
+        return sim, wm, frames
+
+    def _revisar(self, sim, frames, nombre):
+        anterior = None
+        for frame in frames:
+            pos = {p["id"]: (p["x"], p["y"]) for p in frame["pickers"]}
+            self.assertEqual(
+                len(set(pos.values())), len(pos),
+                f"{nombre}: dos pickers en la misma celda en el tick {frame['tick']}",
+            )
+            if anterior is not None:
+                for a in pos:
+                    if anterior[a] != pos[a]:
+                        self.assertTrue(
+                            sim.graph.has_edge(anterior[a], pos[a]),
+                            f"{nombre}: {a} saltó de {anterior[a]} a {pos[a]} en el tick {frame['tick']}",
+                        )
+                    for b in pos:
+                        if a < b:
+                            self.assertFalse(
+                                anterior[a] == pos[b] and anterior[b] == pos[a],
+                                f"{nombre}: {a} y {b} se cruzaron en el tick {frame['tick']}",
+                            )
+            anterior = pos
+
+    def test_sin_choques_ni_saltos(self):
+        for ruta in self.ESCENARIOS:
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for estrategia_wave in ("por_pedido", "por_cercania", "solo_cercania"):
+                for recorrido in ("cercania", "orden"):
+                    nombre = f"{ruta} {estrategia_wave} {recorrido}"
+                    with self.subTest(nombre):
+                        sim, wm, frames = self._correr(data, estrategia_wave, recorrido)
+                        self.assertIsNone(sim.error, nombre)
+                        self._revisar(sim, frames, nombre)
+
+    def _pickers(self, posiciones):
+        pickers = []
+        for i, (x, y, cap) in enumerate(posiciones):
+            pickers.append({"id": f"PK{i}", "posicion_inicial": {"x": x, "y": y},
+                            "capacidad_carga_kg": cap})
+        return pickers
+
+    def test_cuello_de_botella_frente_a_frente_no_se_traba(self):
+        # Tres pickers con tarea en un pasillo de una celda: dos van hacia el
+        # oeste y uno sale de una celda de un solo sentido hacia el este.
+        # Antes el while de choques giraba hasta el tope y nadie se movía.
+        with open("scenarios/escenario_cuello_de_botella.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["pickers"] = self._pickers([(13, 7, 80.0), (7, 9, 80.0), (0, 9, 300.0)])
+        sim, wm, frames = self._correr(data, "por_pedido", "cercania")
+        self.assertIsNone(sim.error)
+        for wave in wm.get_waves():
+            self.assertEqual(wave.status, WaveStatus.COMPLETADA)
+        self._revisar(sim, frames, "cuello_de_botella con 3 pickers")
+
+    def test_picker_que_espera_no_se_estaciona_atravesando_a_otro(self):
+        # Un picker que terminó su parte esperaba en la celda de descarga y su
+        # plan de estacionamiento pasaba a través del compañero que venía a
+        # descargar: iban y venían para siempre.
+        with open("scenarios/escenario_niveles_z_y_sentidos.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["pickers"] = self._pickers([
+            (2, 14, 300.0), (7, 7, 80.0), (12, 15, 150.0), (0, 12, 300.0), (1, 2, 80.0),
+        ])
+        sim, wm, frames = self._correr(data, "por_pedido", "cercania")
+        self.assertIsNone(sim.error)
+        for wave in wm.get_waves():
+            self.assertEqual(wave.status, WaveStatus.COMPLETADA)
+        self._revisar(sim, frames, "niveles_z con 5 pickers")
+
+
 if __name__ == "__main__":
     unittest.main()
 

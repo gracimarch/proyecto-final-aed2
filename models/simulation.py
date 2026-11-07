@@ -186,6 +186,33 @@ class Simulation:
                      and destino[b.picker_id] == a.posicion_actual)
         return misma_celda or se_cruzan
 
+    def _inamovible(self, picker: Picker) -> bool:
+        """
+        True si el picker no se puede mover en este tick porque está
+        recogiendo (pausa por altura). A un picker así no se le puede pedir
+        que se aparte ni que retroceda: no se movería y el otro entraría a
+        su celda (dos pickers en la misma celda, prohibido por §3.6).
+        """
+        task = self.tasks.get(picker.picker_id)
+        return task is not None and task.cooldown_recogida > 0
+
+    def _movimiento_posible(self, picker: Picker, celda: tuple[int, int]) -> bool:
+        """
+        True si el picker de verdad puede ir a celda en este tick: quedarse
+        siempre se puede; moverse, solo si no está recogiendo, si existe la
+        arista (respeta los sentidos) y, si tiene tarea, si tiene un plan.
+        La fase de movimiento de _move_pickers hace exactamente esto.
+        """
+        if celda == picker.posicion_actual:
+            return True
+        if self._inamovible(picker):
+            return False
+        if not self.graph.has_edge(picker.posicion_actual, celda):
+            return False
+        if not self._puede_apartarse(picker) and picker.next_cell is None:
+            return False
+        return True
+
     def _puede_apartarse(self, picker: Picker) -> bool:
         """
         True si el picker no tiene nada que hacer y puede correrse para dejar
@@ -227,8 +254,10 @@ class Simulation:
             if p.picker_id in self.tasks and not self._puede_apartarse(p)
         ]
         celdas_activas = set()
+        posiciones_activos = set()
         for p in activos:
             celdas_activas.update(p.plan)
+            posiciones_activos.add(p.posicion_actual)
         if not celdas_activas:
             self.parking_plans.clear()
             return
@@ -241,16 +270,24 @@ class Simulation:
                 self.parking_plans.pop(picker.picker_id, None)
                 continue
             # Si ya tiene un plan, lo conservamos (se va consumiendo al
-            # caminar). Solo lo recalculamos si quedó vacío.
+            # caminar). Se recalcula si quedó vacío o si dejó de servir: pasa
+            # por donde está ahora un picker con tarea o termina en una celda
+            # que ahora está en el recorrido de alguien.
             if picker.picker_id in self.parking_plans:
-                if self.parking_plans[picker.picker_id]:
+                plan = self.parking_plans[picker.picker_id]
+                sigue_sirviendo = (
+                    len(plan) > 0
+                    and plan[-1] not in celdas_activas
+                    and not any(c in posiciones_activos for c in plan)
+                )
+                if sigue_sirviendo:
                     continue
                 del self.parking_plans[picker.picker_id]
             # Si no está en el camino de nadie, no hace falta moverse.
             if picker.posicion_actual not in celdas_activas:
                 continue
             camino = self._parking_path(
-                picker, celdas_activas, ocupadas
+                picker, celdas_activas, ocupadas, posiciones_activos
             )
             if camino:
                 self.parking_plans[picker.picker_id] = camino
@@ -260,13 +297,16 @@ class Simulation:
         picker: Picker,
         celdas_activas: set[tuple[int, int]],
         ocupadas: set[tuple[int, int]],
+        posiciones_activos: set[tuple[int, int]] = frozenset(),
     ) -> list[tuple[int, int]]:
         """
         BFS desde la posición del picker hasta la celda segura más cercana.
 
         Se puede atravesar cualquier celda del grafo (aunque esté en el
-        recorrido de otro picker o momentáneamente ocupada: el resto de la
-        simulación coordina el paso). La celda final no puede estar en un
+        recorrido de otro picker o la ocupe un picker libre: el resto de la
+        simulación coordina el paso), salvo las que ocupa un picker con tarea:
+        pasar "a través" de él lo obliga a retroceder y los dos terminan
+        yendo y viniendo para siempre en un pasillo angosto. La celda final no puede estar en un
         recorrido activo ni ocupada, y se prefiere que no sea un callejón
         sin salida.
 
@@ -297,7 +337,9 @@ class Simulation:
             x, y = celda
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 cand = (x + dx, y + dy)
-                if cand in visitados or not self.graph.has_node(cand):
+                if cand in visitados or not self.graph.has_edge(celda, cand):
+                    continue
+                if cand in posiciones_activos:
                     continue
                 visitados.add(cand)
                 cola.append((cand, camino + [cand]))
@@ -309,6 +351,8 @@ class Simulation:
         Hace retroceder una celda al picker para que otro pueda salir del
         paso. Devuelve True si pudo ceder.
         """
+        if self._inamovible(picker):
+            return False
         anterior = picker.celda_anterior()
         if anterior is None:
             return False
@@ -368,7 +412,7 @@ class Simulation:
             x, y = libre.posicion_actual
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 cand = (x + dx, y + dy)
-                if not self.graph.has_node(cand):
+                if not self.graph.has_edge(libre.posicion_actual, cand):
                     continue
                 otro = self._picker_at_posicion(cand, excluir=libre)
                 if otro is None or self._puede_apartarse(otro):
@@ -403,12 +447,14 @@ class Simulation:
 
         Devuelve la celda encontrada o None si no hay ninguna disponible.
         """
+        if self._inamovible(picker_libre):
+            return None
         x, y = picker_libre.posicion_actual
         ocupadas = set(destino.values())
         ocupadas.add(posicion_otro)
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cand = (x + dx, y + dy)
-            if self.graph.has_node(cand) and cand not in ocupadas:
+            if self.graph.has_edge(picker_libre.posicion_actual, cand) and cand not in ocupadas:
                 return cand
         # Si no hay celda libre inmediatamente, intentar resolver en cadena:
         # un picker libre que ocupe una celda adyacente puede moverse a su vez
@@ -470,7 +516,7 @@ class Simulation:
         # Nivel 1: celdas adyacentes a picker_libre
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cand = (x + dx, y + dy)
-            if not self.graph.has_node(cand) or cand == posicion_otro:
+            if not self.graph.has_edge(picker_libre.posicion_actual, cand) or cand == posicion_otro:
                 continue
             ocupante = self._picker_en_celda(cand, destino)
             if ocupante is None:
@@ -489,7 +535,7 @@ class Simulation:
             ox, oy = ocupante.posicion_actual
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 cand = (ox + dx, oy + dy)
-                if not self.graph.has_node(cand) or cand == posicion_otro:
+                if not self.graph.has_edge(ocupante.posicion_actual, cand) or cand == posicion_otro:
                     continue
                 if cand == picker_libre.posicion_actual:
                     continue  # no volver atrás sobre el origen
@@ -539,6 +585,8 @@ class Simulation:
         tarea. Prueba en orden: celda adyacente libre, step_back (retroceder
         por historial) y cadena de pickers libres.
         """
+        if self._inamovible(picker_libre):
+            return None
         libre = self._celda_adyacente_libre(picker_libre, destino, posicion_otro)
         if libre is not None:
             return libre
@@ -561,19 +609,20 @@ class Simulation:
         if cadena is not None:
             return cadena
         # 4. Último recurso: mover a cualquier celda adyacente del grafo que
-        #    no esté ocupada como posición actual de otro picker. Los
-        #    destinos asignados se ignoran porque se resuelven en el mismo
-        #    tick por el bucle while hubo_cambio.
+        #    no esté ocupada por otro picker ni sea el destino de otro. (Si se
+        #    ignoraran los destinos, dos pickers se pisan el lugar una y otra
+        #    vez dentro del mismo tick y al final nadie se mueve.)
         x, y = picker_libre.posicion_actual
-        ocupadas_actuales = {
-            (p.posicion_actual[0], p.posicion_actual[1])
-            for p in self.warehouse.pickers
-            if p is not picker_libre
-        }
+        ocupadas_actuales = set()
+        for p in self.warehouse.pickers:
+            if p is not picker_libre:
+                ocupadas_actuales.add(p.posicion_actual)
+                if p.picker_id in destino:
+                    ocupadas_actuales.add(destino[p.picker_id])
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cand = (x + dx, y + dy)
             if (
-                self.graph.has_node(cand)
+                self.graph.has_edge(picker_libre.posicion_actual, cand)
                 and cand not in ocupadas_actuales
                 and cand != posicion_otro
             ):
@@ -593,6 +642,8 @@ class Simulation:
         Solo se usa cuando los métodos normales fallaron.
         Devuelve la celda a la que moverse, o None.
         """
+        if self._inamovible(picker):
+            return None
         # 1. Retroceder por historial (aunque haya arista o destino ocupado).
         anterior = picker.celda_anterior()
         if anterior is not None and self.graph.has_edge(
@@ -612,7 +663,7 @@ class Simulation:
         }
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cand = (x + dx, y + dy)
-            if self.graph.has_node(cand) and cand not in ocupadas_actuales:
+            if self.graph.has_edge(picker.posicion_actual, cand) and cand not in ocupadas_actuales:
                 return cand
         return None
 
@@ -625,6 +676,8 @@ class Simulation:
         como destino de otro picker ni ser la posición actual de otro picker,
         y debe existir la arista en el grafo.
         """
+        if self._inamovible(picker):
+            return False
         anterior = picker.celda_anterior()
         if anterior is None:
             return False
@@ -742,8 +795,10 @@ class Simulation:
                         #    celda anterior esté en destino.values() (se resuelve
                         #    en el siguiente pase del while) o intente desvío.
                         anterior = b.celda_anterior()
-                        if anterior is not None and self.graph.has_edge(
-                            b.posicion_actual, anterior
+                        if (
+                            anterior is not None
+                            and not self._inamovible(b)
+                            and self.graph.has_edge(b.posicion_actual, anterior)
                         ):
                             destino[b.picker_id] = anterior
                             self.cedieron_paso.add(b.picker_id)
@@ -761,8 +816,25 @@ class Simulation:
 
                     # Si alguno ya cedió el paso en este tick (step_back o
                     # apartarse), no se toca su destino para no deshacer la
-                    # resolución del cruce.
-                    if a.picker_id in self.cedieron_paso or b.picker_id in self.cedieron_paso:
+                    # resolución del cruce: espera el OTRO. Si el otro ya
+                    # estaba quieto, el que cedió vuelve a quedarse en su
+                    # lugar. (Antes acá no se cambiaba nada: el choque seguía,
+                    # el while giraba hasta el tope de iteraciones y en ese
+                    # tick no se movía nadie, para siempre.)
+                    a_cedio = a.picker_id in self.cedieron_paso
+                    b_cedio = b.picker_id in self.cedieron_paso
+                    if a_cedio or b_cedio:
+                        if a_cedio and b_cedio:
+                            otro, cedio = a, b
+                        elif a_cedio:
+                            otro, cedio = b, a
+                        else:
+                            otro, cedio = a, b
+                        if destino[otro.picker_id] != otro.posicion_actual:
+                            destino[otro.picker_id] = otro.posicion_actual
+                        else:
+                            destino[cedio.picker_id] = cedio.posicion_actual
+                            self.cedieron_paso.discard(cedio.picker_id)
                         hubo_cambio = True
                         continue
 
@@ -826,6 +898,33 @@ class Simulation:
                         destino[a.picker_id] = a.posicion_actual
                     hubo_cambio = True
 
+        # Red de seguridad (§3.6): la resolución de arriba puede pedirle a un
+        # picker un movimiento que en la fase de movimiento no se hace (está
+        # recogiendo, la arista no existe por el sentido del pasillo, o no
+        # tiene plan). Si pasa, el otro entraría a su celda igual. Por eso,
+        # antes de mover, se fija en su lugar a todo picker cuyo movimiento
+        # no es posible y se vuelven a revisar los choques con la regla
+        # simple: espera el que se iba a mover. Termina siempre, porque en
+        # cada vuelta un picker más queda quieto y dos quietos no chocan.
+        hubo_cambio = True
+        while hubo_cambio:
+            hubo_cambio = False
+            for picker in ordenados:
+                if not self._movimiento_posible(picker, destino[picker.picker_id]):
+                    destino[picker.picker_id] = picker.posicion_actual
+                    hubo_cambio = True
+            for i in range(len(ordenados)):
+                for j in range(i + 1, len(ordenados)):
+                    a = ordenados[i]
+                    b = ordenados[j]
+                    if not self._crash(a, b, destino):
+                        continue
+                    if destino[b.picker_id] != b.posicion_actual:
+                        destino[b.picker_id] = b.posicion_actual
+                    else:
+                        destino[a.picker_id] = a.posicion_actual
+                    hubo_cambio = True
+
         self.esperando = set()
         self.recogiendo = set()
         trabados = []
@@ -870,18 +969,20 @@ class Simulation:
 
             if destino[picker.picker_id] != picker.posicion_actual:
                 anterior = picker.celda_anterior()
-                if anterior is not None and destino[picker.picker_id] == anterior:
+                if destino[picker.picker_id] == picker.next_cell:
+                    # Avanza por su plan (aunque el plan vuelva a la celda
+                    # anterior: eso no es ceder el paso).
+                    picker.step(self.graph)
+                elif anterior is not None and destino[picker.picker_id] == anterior:
                     # Cediendo el paso: retroceder por historial (step_back)
                     picker.step_back(self.graph)
-                elif picker.picker_id in self.cedieron_paso:
+                else:
                     # Cediendo el paso: apartarse a celda adyacente libre
                     # (no es el próximo del plan, se mueve directamente y se
                     # recalculará la ruta al final del tick).
                     picker.posicion_actual = destino[picker.picker_id]
                     picker.historial.append(destino[picker.picker_id])
                     picker.pasos = picker.pasos + 1
-                else:
-                    picker.step(self.graph)
                 task.paso = task.paso + 1
                 task.esperas_seguidas = 0
             else:
@@ -1020,7 +1121,11 @@ class Simulation:
         if objetivo is None:
             return False
 
-        libre = graph_without(self.graph, bloqueadas)
+        # Sin celdas bloqueadas, la copia sería igual al grafo: no se copia.
+        if bloqueadas:
+            libre = graph_without(self.graph, bloqueadas)
+        else:
+            libre = self.graph
         stats = {"nodos_expandidos": 0}
         camino, distancia, llegada = bfs_to_any(
             libre, picker.posicion_actual, {picker.plan[objetivo]}, stats
