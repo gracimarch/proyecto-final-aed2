@@ -305,6 +305,7 @@
                             <option value="por_pedido">Por pedido (agrupar pedidos enteros)</option>
                             <option value="por_cercania">Por cercanía (juntar ítems cercanos de distintos pedidos)
                             </option>
+                            <option value="solo_cercania">Solo cercanía (ignora la prioridad de los pedidos)</option>
                         </select>
                     </div>
 
@@ -390,18 +391,18 @@
                         <p class="empty-msg">Seleccioná una opción para comparar.</p>
                     </div>
 
-                    <!-- Comparación de modos de armado de waves (dos tablas, una por estrategia) -->
+                    <!-- Comparación de modos de armado de waves (una tabla por estrategia) -->
                     <div class="compare-header">
                         <span>Comparar modos de armado de waves</span>
                     </div>
                     <div class="compare-actions">
                         <button class="btn btn--sm btn--primary" id="btn-compare-waves"
-                            title="Generar waves con ambos modos y comparar las dos tablas">Comparar armado de
+                            title="Generar waves con los tres modos y comparar las tablas">Comparar armado de
                             waves</button>
                     </div>
                     <div id="compare-waves-result" class="compare-result">
-                        <p class="empty-msg">Hacé clic en "Comparar armado de waves" para ver las dos tablas lado a
-                            lado.</p>
+                        <p class="empty-msg">Hacé clic en "Comparar armado de waves" para ver una tabla por cada
+                            modo.</p>
                     </div>
                 </div>
             </section>

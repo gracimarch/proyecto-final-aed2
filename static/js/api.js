@@ -48,7 +48,7 @@ async function _post(url, body) {
  * Le pide al servidor que genere las waves para el escenario dado.
  *
  * @param {Object} escenario          Resultado de Scenario.toJSON().
- * @param {string}  [estrategiaWave]  "por_pedido" (default) o "por_cercania".
+ * @param {string}  [estrategiaWave]  "por_pedido" (default), "por_cercania" o "solo_cercania".
  * @returns {Promise<Object[]>} Array de objetos wave con los campos:
  *     wave_id, status, picker_id, prioridad, pedidos, unidades, peso_kg.
  * El servidor también devuelve data.estrategia_wave con el modo usado.
@@ -63,8 +63,8 @@ async function apiGenerateWaves(escenario, estrategiaWave = 'por_pedido') {
 
 
 /**
- * Genera las waves con ambas estrategias ("por_pedido" y "por_cercania")
- * sobre el mismo escenario y devuelve los resultados comparados.
+ * Genera las waves con las tres estrategias ("por_pedido", "por_cercania"
+ * y "solo_cercania") sobre el mismo escenario y devuelve los resultados comparados.
  *
  * @param {Object} escenario  Resultado de Scenario.toJSON().
  * @returns {Promise<Object>} { comparacion: [ {estrategia, total_waves, total_unidades, total_peso_kg, waves: [...]}, ... ] }.

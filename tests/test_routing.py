@@ -93,6 +93,21 @@ class TestRouting(unittest.TestCase):
         except ValueError as e:
             self.fail(f"validate_reachability falló inesperadamente: {e}")
 
+    def test_tiempo_estimado_suma_la_altura(self):
+        res = plan_route(self.wave, self.wh, self.graph, "cercania", "bfs")
+        # En cada parada: 1 tick base + costo_altura del producto más alto.
+        esperado = 0
+        for _, product_ids in res.paradas:
+            mayor = 0
+            for p_id in product_ids:
+                altura = self.wh.products[p_id].costo_altura()
+                if altura > mayor:
+                    mayor = altura
+            esperado = esperado + 1 + mayor
+        m = res.metrics()
+        self.assertEqual(m["tiempo_recogida"], esperado)
+        self.assertEqual(m["tiempo_estimado"], m["distancia_total"] + esperado)
+
 
 if __name__ == "__main__":
     unittest.main()

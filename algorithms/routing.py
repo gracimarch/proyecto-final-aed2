@@ -28,6 +28,13 @@ Métricas de cada recorrido:
     nodos_expandidos   : nodos que sacó de la cola el algoritmo de búsqueda
                          sumando todos los tramos (costo del algoritmo).
     tiempo_ms          : tiempo de cálculo del recorrido.
+    tiempo_recogida    : ticks que el picker pasa quieto recogiendo: en cada
+                         parada, 1 tick base + Product.costo_altura() del
+                         producto más alto (los de la misma celda se recogen
+                         en la misma subida). Es la misma cuenta que hace la
+                         simulación.
+    tiempo_estimado    : distancia_total + tiempo_recogida (ticks totales
+                         del recorrido, sin contar esperas por otros pickers).
 """
 
 import time
@@ -65,6 +72,8 @@ class RouteResult:
         nodos_visitados    (int)
         nodos_expandidos   (int)
         tiempo_ms          (float)
+        tiempo_recogida    (int)   : Ticks quieto recogiendo (incluye la altura).
+        tiempo_estimado    (int)   : distancia_total + tiempo_recogida.
     """
 
     def __init__(
@@ -76,6 +85,7 @@ class RouteResult:
         descargas: list[tuple[tuple[int, int], str, list[str]]],
         nodos_expandidos: int,
         tiempo_ms: float,
+        tiempo_recogida: int = 0,
     ):
         self.estrategia = estrategia
         self.buscador = buscador
@@ -87,6 +97,8 @@ class RouteResult:
         self.nodos_visitados = len(set(path))   # set() elimina las celdas repetidas
         self.nodos_expandidos = nodos_expandidos
         self.tiempo_ms = tiempo_ms
+        self.tiempo_recogida = tiempo_recogida
+        self.tiempo_estimado = self.distancia_total + tiempo_recogida
 
     def metrics(self) -> dict:
         """Métricas del recorrido, listas para mostrar o comparar (§10)."""
@@ -98,6 +110,8 @@ class RouteResult:
             "nodos_visitados": self.nodos_visitados,
             "nodos_expandidos": self.nodos_expandidos,
             "tiempo_ms": round(self.tiempo_ms, 3),
+            "tiempo_recogida": self.tiempo_recogida,
+            "tiempo_estimado": self.tiempo_estimado,
         }
 
     def to_dict(self) -> dict:
@@ -514,6 +528,7 @@ def plan_route(
     path = [actual]
     paradas = []
     carga = []    # ítems recogidos, en el orden en que se recogen
+    tiempo_recogida = 0
     pendientes = (
         _wave_stops_from_items(items_to_route, warehouse, graph)
         if items is not None
@@ -548,9 +563,15 @@ def plan_route(
         paradas.append((llegada, recogidos))
 
         # Los ítems de esos productos pasan a la carga, en el orden de la wave.
+        mayor_altura = 0
         for item in items_to_route:
-            if item.product.product_id in recogidos and not _contains(carga, item):
-                carga.append(item)
+            if item.product.product_id in recogidos:
+                if item.product.costo_altura() > mayor_altura:
+                    mayor_altura = item.product.costo_altura()
+                if not _contains(carga, item):
+                    carga.append(item)
+        # Tiempo quieto en esta parada: igual que en la simulación.
+        tiempo_recogida = tiempo_recogida + 1 + mayor_altura
 
         quedan = []
         for parada in pendientes:
@@ -565,7 +586,8 @@ def plan_route(
 
     tiempo_ms = (time.perf_counter() - inicio_ms) * 1000
     return RouteResult(
-        estrategia, buscador, path, paradas, descargas, stats["nodos_expandidos"], tiempo_ms
+        estrategia, buscador, path, paradas, descargas, stats["nodos_expandidos"], tiempo_ms,
+        tiempo_recogida,
     )
 
 

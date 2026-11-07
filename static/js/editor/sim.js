@@ -739,8 +739,8 @@ async function simCompareAll() {
 
 
 /**
- * Genera las waves con ambos modos de armado ("por_pedido" y "por_cercania")
- * sobre el mismo escenario y renderiza dos tablas lado a lado para comparar.
+ * Genera las waves con los tres modos de armado ("por_pedido", "por_cercania"
+ * y "solo_cercania") sobre el mismo escenario y renderiza una tabla por modo.
  */
 async function simCompareWaves() {
     const sc = _getScenario();
@@ -750,7 +750,7 @@ async function simCompareWaves() {
     if (btn) btn.disabled = true;
 
     try {
-        showToast('Generando waves con ambos modos...', 'info');
+        showToast('Generando waves con los tres modos...', 'info');
         const datos = await apiCompareWaves(sc.toJSON());
         _renderWaveComparison(datos);
         showToast('Comparación de modos de armado de waves lista.', 'success');
@@ -883,8 +883,8 @@ function _renderComparison(datos, options = {}) {
 }
 
 /**
- * Renderiza la comparacion de modos de armado de waves (por_pedido vs
- * por_cercania) como dos tablas lado a lado en #compare-waves-result.
+ * Renderiza la comparacion de modos de armado de waves (por_pedido,
+ * por_cercania y solo_cercania) como una tabla por modo en #compare-waves-result.
  *
  * @param {Object} datos Respuesta de /api/waves/compare:
  *   { comparacion: [{estrategia, total_waves, total_unidades,
@@ -905,11 +905,16 @@ function _renderWaveComparison(datos) {
     const mismoResultado = datos.mismo_resultado === true;
 
     const igual = mismoResultado
-        ? '<span class="compare-badge--equal">Ambos modos generan el mismo armado de waves.</span>'
+        ? '<span class="compare-badge--equal">Todos los modos generan el mismo armado de waves.</span>'
         : '';
 
     const tablas = comparacion.map(c => {
-        const titulo = c.estrategia === 'por_cercania' ? 'Por cercanía' : 'Por pedido';
+        const TITULOS = {
+            por_pedido:    'Por pedido',
+            por_cercania:  'Por cercanía (con prioridad)',
+            solo_cercania: 'Solo cercanía (sin prioridad)',
+        };
+        const titulo = TITULOS[c.estrategia] || c.estrategia;
         const filas = (c.waves || []).map(w => `
             <tr>
                 <td class="compare-cell--name"><strong>${w.wave_id}</strong></td>
