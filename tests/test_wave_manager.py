@@ -278,5 +278,95 @@ class TestWaveManager(unittest.TestCase):
         self.assertEqual(wm._distance([item_z1], dist, incluir_z=True), 5)
 
 
+class TestTablaDeDistancias(unittest.TestCase):
+    """La tabla de distancias del WaveManager y el costo de altura."""
+
+    def setUp(self):
+        import json
+        with open("scenarios/escenario_basico.json", "r", encoding="utf-8") as f:
+            self.data = json.load(f)
+        self.wh = Warehouse.from_dict(self.data)
+        self.wm = WaveManager.from_dict(self.data, self.wh)
+
+    def test_costo_altura(self):
+        self.assertEqual(Product("P1", "Piso", "R1", [1, 1, 1], 10, 1.0).costo_altura(), 0)
+        self.assertEqual(Product("P3", "Alto", "R1", [1, 1, 3], 10, 1.0).costo_altura(), 2)
+
+    def test_tabla_da_lo_mismo_que_bfs_multiorigen(self):
+        from algorithms.graph import bfs_distances
+        self.wm.generate_waves()
+        wave = self.wm.get_waves()[0]
+        origenes = set()
+        for item in wave.get_items():
+            for celda in self.wm._pickup_cells(item):
+                origenes.add(celda)
+        esperado = bfs_distances(self.wm.graph, origenes)
+        self.assertEqual(self.wm._distances_from_wave(wave), esperado)
+
+    def test_un_bfs_por_rack_y_se_reutiliza(self):
+        self.wm.generate_waves(estrategia_wave="por_cercania")
+        racks = set()
+        for wave in self.wm.get_waves():
+            for item in wave.get_items():
+                racks.add((item.product.x, item.product.y))
+        # Como mucho un BFS por rack distinto (puede ser menos: el último
+        # ítem de una wave no necesita fila si no quedan candidatos).
+        self.assertLessEqual(self.wm.bfs_corridos, len(racks))
+        antes = self.wm.bfs_corridos
+        # Pedir de nuevo una fila ya calculada no corre otro BFS.
+        item = self.wm.get_waves()[0].get_items()[0]
+        self.wm._fila(item)
+        self.wm._fila(item)
+        self.assertLessEqual(self.wm.bfs_corridos, antes + 1)
+
+
+class TestSoloCercania(unittest.TestCase):
+    """Estrategia "solo_cercania": arma waves por distancia, sin mirar la prioridad."""
+
+    ESCENARIO = "scenarios/escenario_niveles_z_y_sentidos.json"
+
+    def _waves(self, data):
+        wh = Warehouse.from_dict(data)
+        wm = WaveManager.from_dict(data, wh)
+        wm.generate_waves(estrategia_wave="solo_cercania")
+        return wm, [[i.product.product_id for i in w.get_items()] for w in wm.get_waves()]
+
+    def setUp(self):
+        import json
+        with open(self.ESCENARIO, "r", encoding="utf-8") as f:
+            self.data = json.load(f)
+
+    def test_las_prioridades_no_cambian_las_waves(self):
+        import copy
+        _, originales = self._waves(self.data)
+        invertido = copy.deepcopy(self.data)
+        for pedido in invertido["pedidos"]:
+            pedido["prioridad"] = 6 - pedido["prioridad"]
+        _, con_otra_prioridad = self._waves(invertido)
+        self.assertEqual(originales, con_otra_prioridad)
+
+    def test_semilla_es_el_item_mas_cercano_a_las_zonas(self):
+        wm, waves = self._waves(self.data)
+        dist_zonas = wm._distances_from_zones()
+        items = []
+        for wave in wm.get_waves():
+            items.extend(wave.get_items())
+        mas_cercana = min(wm._distance([item], dist_zonas) for item in items)
+        semilla = wm.get_waves()[0].get_items()[0]
+        self.assertEqual(wm._distance([semilla], dist_zonas), mas_cercana)
+
+    def test_respeta_los_limites_de_la_wave(self):
+        wm, _ = self._waves(self.data)
+        for wave in wm.get_waves():
+            self.assertLessEqual(wave.current_units(), wm.max_productos)
+            self.assertLessEqual(wave.current_orders(), wm.max_pedidos)
+
+    def test_estrategia_desconocida(self):
+        wh = Warehouse.from_dict(self.data)
+        wm = WaveManager.from_dict(self.data, wh)
+        with self.assertRaises(ValueError):
+            wm.generate_waves(estrategia_wave="otra")
+
+
 if __name__ == "__main__":
     unittest.main()

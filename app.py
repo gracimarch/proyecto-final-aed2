@@ -157,9 +157,9 @@ def api_waves_generate():
 @app.route("/api/waves/compare", methods=["POST"])
 def api_waves_compare():
     """
-    Genera las waves con ambas estrategias ("por_pedido" y "por_cercania")
-    sobre el mismo escenario y devuelve los resultados comparados, para que
-    el front pueda mostrar dos tablas y elegir la que mejor convenga.
+    Genera las waves con las tres estrategias ("por_pedido", "por_cercania"
+    y "solo_cercania") sobre el mismo escenario y devuelve los resultados
+    comparados, para que el front pueda mostrar una tabla por estrategia.
 
     Cuerpo esperado (application/json):
     {
@@ -182,8 +182,10 @@ def api_waves_compare():
                 "total_unidades": 12,
                 "total_peso_kg": 24.5,
                 "waves": [ {...}, {...} ]
-            }
-        ]
+            },
+            { "estrategia": "solo_cercania", ... }
+        ],
+        "mismo_resultado": false
     }
 
     Respuesta de error (400):
@@ -198,7 +200,7 @@ def api_waves_compare():
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
 
     comparacion = []
-    for estrategia in ("por_pedido", "por_cercania"):
+    for estrategia in ("por_pedido", "por_cercania", "solo_cercania"):
         try:
             warehouse = _build_warehouse(escenario)
             manager   = _build_wave_manager(escenario, warehouse)
@@ -249,17 +251,19 @@ def api_waves_compare():
         except (ValueError, KeyError) as e:
             return jsonify({"error": f"Estrategia '{estrategia}': {str(e)}"}), 400
 
-    # Marcar si ambos modos dieron exactamente el mismo resultado, para que
-    # el front pueda mostrar un aviso en vez de dos tablas idénticas.
-    mismo_resultado = (
-        len(comparacion) == 2
-        and comparacion[0]["total_waves"] == comparacion[1]["total_waves"]
-        and comparacion[0]["total_unidades"] == comparacion[1]["total_unidades"]
-        and comparacion[0]["total_peso_kg"] == comparacion[1]["total_peso_kg"]
-        and comparacion[0]["distancia_estimada_total"] == comparacion[1]["distancia_estimada_total"]
-        and [ (w["wave_id"], w["pedidos"], w["unidades"]) for w in comparacion[0]["waves"] ]
-        == [ (w["wave_id"], w["pedidos"], w["unidades"]) for w in comparacion[1]["waves"] ]
-    )
+    # Marcar si todos los modos dieron exactamente el mismo resultado, para
+    # que el front pueda mostrar un aviso en vez de tablas idénticas.
+    def _resumen(c):
+        return (
+            c["total_waves"], c["total_unidades"], c["total_peso_kg"],
+            c["distancia_estimada_total"],
+            [(w["wave_id"], w["pedidos"], w["unidades"]) for w in c["waves"]],
+        )
+
+    mismo_resultado = True
+    for c in comparacion[1:]:
+        if _resumen(c) != _resumen(comparacion[0]):
+            mismo_resultado = False
 
     return jsonify({
         "comparacion": comparacion,

@@ -179,6 +179,21 @@ class Simulation:
                      and destino[b.picker_id] == a.posicion_actual)
         return misma_celda or se_cruzan
 
+    def _puede_apartarse(self, picker: Picker) -> bool:
+        """
+        True si el picker no tiene nada que hacer y puede correrse para dejar
+        pasar a otro: está libre, o ya terminó su parte de una wave con varios
+        pickers (sin paradas ni carga) y solo espera a sus compañeros.
+
+        Sin esto, un picker que terminó su parte y quedó parado en la celda
+        de descarga bloquea para siempre al compañero que tiene que descargar
+        ahí, y la wave nunca se completa.
+        """
+        task = self.tasks.get(picker.picker_id)
+        if task is None:
+            return True
+        return len(task.paradas) == 0 and len(picker.carga) == 0 and picker.next_cell is None
+
     def _celda_adyacente_libre(
         self,
         picker_libre: Picker,
@@ -250,8 +265,8 @@ class Simulation:
                     # Solución 1: picker con tarea tiene prioridad, pero el
                     # picker libre se aparta a una celda adyacente libre para
                     # no atravesarlo y respetar la regla de no colisión (§3.6).
-                    a_tiene_tarea = a.picker_id in self.tasks
-                    b_tiene_tarea = b.picker_id in self.tasks
+                    a_tiene_tarea = not self._puede_apartarse(a)
+                    b_tiene_tarea = not self._puede_apartarse(b)
                     if a_tiene_tarea and not b_tiene_tarea:
                         # b está libre y está en el camino de a: b se aparta.
                         apartada = self._celda_adyacente_libre(b, destino, a.posicion_actual)
@@ -285,10 +300,10 @@ class Simulation:
         for picker in ordenados:
             task = self.tasks.get(picker.picker_id)
 
-            # Los pickers libres también se mueven si se les asignó un
-            # destino diferente (por ejemplo, al apartarse para dejar pasar
-            # a un picker con tarea).
-            if task is None:
+            # Los pickers libres (o que ya terminaron su parte de la wave)
+            # también se mueven si se les asignó un destino diferente, por
+            # ejemplo al apartarse para dejar pasar a un picker con tarea.
+            if task is None or self._puede_apartarse(picker):
                 if destino[picker.picker_id] == picker.posicion_actual:
                     continue
                 if self.graph.has_edge(
@@ -529,7 +544,7 @@ class Simulation:
             # ------------------------------------------------------------------
             if celda in task.paradas:
                 recogidos = []
-                max_z = 1
+                mayor_altura = 0    # costo_altura del producto más alto de la parada
                 items_en_parada = []
                 for item in task.wave.get_items():
                     if item.product.product_id in task.paradas[celda]:
@@ -543,11 +558,13 @@ class Simulation:
                     picker.pick(item)
                     recogidos.append(item.product.product_id)
                     recogido_algunos = True
-                    if item.product.z > max_z:
-                        max_z = item.product.z
+                    if item.product.costo_altura() > mayor_altura:
+                        mayor_altura = item.product.costo_altura()
 
                 if recogidos:
-                    task.cooldown_recogida = max(1, max_z)
+                    # 1 tick base por recoger + lo que cuesta llegar al más alto
+                    # (los de la misma celda se recogen en la misma subida).
+                    task.cooldown_recogida = 1 + mayor_altura
                     self.eventos.append({
                         "tipo": "recoge",
                         "picker": picker.picker_id,
