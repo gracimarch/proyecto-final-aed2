@@ -21,6 +21,10 @@ Rutas:
                                    con todos los pickers y devuelve un frame
                                    por tick. El frontend solo los dibuja.
 
+    POST /api/escenario/validar -> Recibe un escenario guardado (archivo .json)
+                                   y dice si se puede cargar. El frontend solo
+                                   lo muestra si el back lo acepta.
+
 Diseno stateless: el cliente envia el estado completo del escenario en cada
 pedido. El servidor no guarda nada entre llamadas; cada request es
 independiente.
@@ -33,6 +37,7 @@ from models.wave_manager import WaveManager
 from algorithms.graph_builder import generate_graph
 from algorithms.routing import plan_route, compare_strategies, compare_all_combinations
 from models.simulation import Simulation
+from models.persistence import validate_scenario
 
 
 app = Flask(__name__)
@@ -502,6 +507,39 @@ def api_simulacion():
         return jsonify({"error": str(e)}), 400
 
     return jsonify(simulacion.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# POST /api/escenario/validar
+# ---------------------------------------------------------------------------
+
+@app.route("/api/escenario/validar", methods=["POST"])
+def api_escenario_validar():
+    """
+    Valida un escenario guardado antes de cargarlo (§17 Persistencia).
+
+    El frontend lee el archivo .json que eligió el usuario y lo manda tal
+    cual. El back es el que decide: arma el Warehouse y el WaveManager con
+    las mismas validaciones que usan las demás rutas y revisa la sección
+    opcional "estado" (la simulación guardada).
+
+    Cuerpo esperado (application/json): el contenido del archivo guardado,
+    es decir Scenario.toJSON() más, opcionalmente, "estado".
+
+    Respuesta (200), aunque el escenario no sea válido:
+    {
+        "valido":  true | false,
+        "errores": ["motivo", ...],
+        "avisos":  ["cosas que no impiden cargarlo", ...]
+    }
+
+    Respuesta de error (400): el cuerpo no es JSON.
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
+
+    return jsonify(validate_scenario(body))
 
 
 # ---------------------------------------------------------------------------

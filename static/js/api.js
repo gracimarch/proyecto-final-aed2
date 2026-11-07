@@ -159,3 +159,20 @@ async function apiSimulate(escenario, estrategia, buscador, estrategiaWave = 'po
         velocidad: velocidad,
     });
 }
+
+
+// ---------------------------------------------------------------------------
+// Validar un escenario guardado (persistencia)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le pide al servidor que valide un escenario leído de un archivo .json
+ * antes de cargarlo en el editor. El back es el que decide.
+ *
+ * @param {Object} escenario  El contenido del archivo (Scenario.toJSON()
+ *                            y, opcionalmente, la sección "estado").
+ * @returns {Promise<Object>} { valido: bool, errores: [str], avisos: [str] }.
+ */
+async function apiValidateScenario(escenario) {
+    return await _post('/api/escenario/validar', escenario);
+}

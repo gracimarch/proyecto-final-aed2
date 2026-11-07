@@ -93,7 +93,8 @@ proyecto-final-aed2/
 │   ├── order.py
 │   ├── wave.py
 │   ├── wave_manager.py
-│   └── simulation.py
+│   ├── simulation.py
+│   └── persistence.py      # Validación de escenarios guardados (guardar/cargar)
 ├── algorithms/             # Algoritmos de grafos y enrutamiento
 │   ├── graph.py
 │   ├── graph_builder.py
