@@ -286,13 +286,16 @@ class Picker:
 
     def celda_anterior(self) -> tuple[int, int] | None:
         """
-        Celda de dónde venimos (anterior en el historial), si existe.
-        Sirve para ceder el paso retrocediendo cuando dos pickers quedan
-        cara a cara en un pasillo sin salida lateral.
+        Celda de dónde venimos: la última del historial distinta de la
+        actual, si existe. (Al esperar se repite la celda en el historial,
+        así que historial[-2] sería la misma celda y "retroceder" no movería
+        al picker.) Sirve para ceder el paso retrocediendo cuando dos pickers
+        quedan cara a cara en un pasillo sin salida lateral.
         """
-        if len(self.historial) < 2:
-            return None
-        return self.historial[-2]
+        for i in range(len(self.historial) - 1, -1, -1):
+            if self.historial[i] != self.posicion_actual:
+                return self.historial[i]
+        return None
 
     def puede_step_back(self, graph: Graph) -> bool:
         """
