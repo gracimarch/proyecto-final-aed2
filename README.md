@@ -11,6 +11,7 @@ Permite modelar la estructura física del almacén, organizar pedidos en waves y
 ## Funcionalidades
 
 - **Modelado del warehouse:** representación espacial mediante grillas y grafos, con racks, pasillos unidireccionales y bidireccionales, puertas y zonas de despacho.
+- **Generación automática de escenarios:** creación procedural de un warehouse válido a partir de parámetros mínimos (cantidad de racks, pasillos, productos y su localización, pedidos, máximo de productos por pedido y capacidad de las waves), con ancho/alto configurables, racks verticales, horizontales o mixtos, pasillos sin sentido asignado (AMBOS) y validación de estructura y alcanzabilidad.
 - **Generación de waves (Wave Picking):** agrupamiento de pedidos considerando prioridades, ubicaciones, peso y capacidades de carga.
 - **Planificación de recorridos (Pathfinding):** cálculo y comparación de rutas para los pickers mediante algoritmos BFS y A*, respetando los sentidos de circulación y evitando colisiones.
 - **Simulación interactiva:** visualización del desplazamiento de los pickers, la recolección de productos y el desarrollo de las waves en tiempo real.
@@ -93,6 +94,7 @@ proyecto-final-aed2/
 │   ├── order.py
 │   ├── wave.py
 │   ├── wave_manager.py
+│   ├── scenario_generator.py
 │   └── simulation.py
 ├── algorithms/             # Algoritmos de grafos y enrutamiento
 │   ├── graph.py

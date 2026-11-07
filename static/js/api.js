@@ -41,6 +41,27 @@ async function _post(url, body) {
 
 
 // ---------------------------------------------------------------------------
+// Generar escenario procedural
+// ---------------------------------------------------------------------------
+
+/**
+ * Le pide al servidor que genere un escenario completo (warehouse, productos
+ * y pedidos) a partir de los parámetros elegidos en el modal.
+ *
+ * @param {Object} parametros  {
+ *     nombre, cantidad_racks, cantidad_pasillos, cantidad_productos,
+ *     distribucion_productos, orientacion_racks, ancho_x, largo_y,
+ *     cantidad_pedidos, max_productos_por_pedido, wave_max_pedidos,
+ *     wave_max_productos, cantidad_puertas, cantidad_pickers, semilla
+ * }
+ * @returns {Promise<Object>} { scenario: {...}, meta: {...} }
+ */
+async function apiGenerateScenario(parametros) {
+    return await _post('/api/scenarios/generate', parametros);
+}
+
+
+// ---------------------------------------------------------------------------
 // Generar waves
 // ---------------------------------------------------------------------------
 
