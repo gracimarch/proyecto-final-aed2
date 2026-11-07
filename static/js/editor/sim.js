@@ -63,6 +63,29 @@ let _frameIndex = -1;
  */
 let _routes = {};
 
+/**
+ * Historial acumulado de celdas ya recorridas por cada picker.
+ * Se construye frame a frame rastreando la posición real del picker,
+ * para que el camino no se borre cuando hay desvíos por colisión
+ * o descargas intermedias. pickerId -> [[x,y], ...]
+ */
+let _routeHistory = {};
+
+/**
+ * Última posición conocida de cada picker (para detectar cambios y
+ * construir el historial acumulado sin saltos ni diagonales).
+ * pickerId -> [x, y]
+ */
+let _lastPickerPos = {};
+
+/**
+ * Devuelve true si dos celdas son ortogonalmente adyacentes
+ * (arriba, abajo, izquierda o derecha). Nunca diagonales.
+ */
+function esAdyacente(c1, c2) {
+    return Math.abs(c1[0] - c2[0]) + Math.abs(c1[1] - c2[1]) === 1;
+}
+
 /** ID del setTimeout del loop de reproduccion, o null si esta pausado. */
 let _animTimer = null;
 
@@ -168,6 +191,17 @@ function _getSpeedValue() {
     return val >= 1 && val <= 10 ? val : 1;
 }
 
+/**
+ * Cantidad de frames que se avanzan por cada tick del timer de reproduccion.
+ * Hasta 5x alcanza con bajar el delay; a partir de ahi el limite practico
+ * pasa a ser el refresco/render, asi que se avanzan varios frames por tick.
+ */
+const FRAMES_PER_TICK = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 2, 7: 2, 8: 3, 9: 4, 10: 5 };
+
+function _framesPerTick() {
+    return FRAMES_PER_TICK[_getSpeedValue()] || 1;
+}
+
 function _currentFrame() {
     if (!_simulation || _frameIndex < 0) return null;
     return _simulation.frames[_frameIndex];
@@ -212,6 +246,7 @@ async function simGenerateWaves() {
         _simParams = null;
         _frameIndex = -1;
         _renderWavesList();
+        simUpdateConsultarBtn();
         _renderFleetStatus();
         if (typeof renderOrdersList === 'function') renderOrdersList();
         showToast(`${_waves.length} wave(s) generada(s).`, 'success');
@@ -242,6 +277,7 @@ function _ensureWavesListDelegation(list) {
         _selectedWaveId = card.dataset.waveId;
         _renderWavesList();   // solo actualiza la clase de selección
         showToast(`Wave ${_selectedWaveId} seleccionada para comparar.`, 'info');
+        simUpdateConsultarBtn();
     });
 }
 
@@ -469,7 +505,7 @@ async function _loadSimulation() {
             params.estrategia,
             params.buscador,
             params.estrategia_wave,
-            params.velocidad,
+            1,
         );
         _simParams = params;
     } catch (err) {
@@ -499,6 +535,8 @@ async function _loadSimulation() {
 function _resetPlayback() {
     _frameIndex = -1;
     _routes = {};
+    _routeHistory = {};
+    _lastPickerPos = {};
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
@@ -571,6 +609,9 @@ function _applyEvent(evento) {
     } else if (evento.tipo === 'fin_wave') {
         if (wave) wave.status = 'COMPLETADA';
         delete _routes[evento.picker];
+        // El picker terminó su trabajo: borrar su ruta, historial y última posición.
+        delete _routeHistory[evento.picker];
+        delete _lastPickerPos[evento.picker];
     }
     // "espera", "desvio" y "descarga" ya se ven en el estado de los pickers.
 }
@@ -585,18 +626,89 @@ function _pushRoutesToRenderer(frame) {
 
     const rutas = [];
     for (const p of frame.pickers) {
-        const ruta = _routes[p.id];
-        if (!ruta || p.paso === null) continue;
+        const pickerId = p.id;
+
+        // ── Rastrear posición real del picker para historial acumulado ──
+        const posActual = [p.x, p.y];
+
+        if (!_routeHistory[pickerId]) _routeHistory[pickerId] = [];
+        const historial = _routeHistory[pickerId];
+
+        if (!_lastPickerPos[pickerId]) {
+            // Primera vez que vemos al picker: registrar posición inicial
+            _lastPickerPos[pickerId] = [...posActual];
+            // Si ya tiene ruta activa, incluir la posición actual como primer punto
+            if (_routes[pickerId] && historial.length === 0) {
+                historial.push([...posActual]);
+            }
+        } else {
+            const ultimaPos = _lastPickerPos[pickerId];
+            const movio = posActual[0] !== ultimaPos[0] || posActual[1] !== ultimaPos[1];
+            if (movio) {
+                // Agregar nueva posición al historial (solo si tiene ruta activa)
+                if (_routes[pickerId]) {
+                    historial.push([...posActual]);
+                }
+                _lastPickerPos[pickerId] = [...posActual];
+            } else if (historial.length === 0 && _routes[pickerId]) {
+                // Picker parado con ruta activa pero sin historial: registrar pos actual
+                historial.push([...posActual]);
+            }
+        }
+
+        const ruta = _routes[pickerId];
+        if (!ruta) continue;
+
+        const pasoActual = p.paso;
+        if (pasoActual === null || pasoActual === undefined) continue;
+
+        // Camino pendiente de la ruta actual (desde el siguiente paso en adelante)
+        const caminoPendiente = pasoActual >= 0 ? ruta.path.slice(pasoActual + 1) : ruta.path.slice(1);
+
+        // ── Construir path para el renderer ──────────────────────────────
+        // path = historial (ya recorrido) + caminoPendiente (futuro)
+        // step = historial.length  →  path[0..step-1] sólido, path[step-1..end] punteado
+        //
+        // Si el historial está vacío (picker sin movimiento previo), usar la posición
+        // actual como punto de inicio del tramo sólido.
+
+        let pathParaRenderer;
+        let stepParaRenderer;
+
+        if (historial.length > 0) {
+            if (caminoPendiente.length > 0) {
+                pathParaRenderer = [...historial, ...caminoPendiente];
+            } else {
+                pathParaRenderer = [...historial];
+            }
+            stepParaRenderer = historial.length; // todo el historial está "ya recorrido"
+        } else {
+            // Sin historial: mostrar la pos actual como inicio + pendiente como punteado
+            if (caminoPendiente.length > 0) {
+                pathParaRenderer = [[p.x, p.y], ...caminoPendiente];
+            } else {
+                pathParaRenderer = [[p.x, p.y]];
+            }
+            stepParaRenderer = 1; // solo el punto actual está "hecho"
+        }
+
+        // ── Filtrar paradas: solo las que están en el camino pendiente ──
+        // Las paradas ya recogidas no deben mostrarse (ya no están en caminoPendiente).
+        const caminoPendienteSet = new Set(caminoPendiente.map(([cx, cy]) => `${cx},${cy}`));
+        const paradasPendientes = (ruta.paradas || []).filter(parada => {
+            const [cx, cy] = parada.celda;
+            return caminoPendienteSet.has(`${cx},${cy}`);
+        });
+
         rutas.push({
-            path: ruta.path,
-            paradas: ruta.paradas,
-            step: p.paso + 1,     // el renderer pinta como recorrido hasta step - 1
-            color: _pickerColor(p.id),
+            path: pathParaRenderer,
+            paradas: paradasPendientes,
+            step: stepParaRenderer,
+            color: _pickerColor(pickerId),
         });
     }
     _renderer.agentRoutes = rutas;
 }
-
 function _clearRoutesFromRenderer() {
     if (typeof _renderer === 'undefined' || !_renderer) return;
     _renderer.agentRoutes = [];
@@ -639,12 +751,18 @@ function simPause() {
 
 function _scheduleNextTick() {
     _animTimer = setTimeout(() => {
-        if (_isLastFrame()) {
+        const framesPerTick = _framesPerTick();
+        let advanced = 0;
+        for (let i = 0; i < framesPerTick && !_isLastFrame(); i++) {
+            _showFrame(_frameIndex + 1);
+            advanced++;
+        }
+
+        if (_isLastFrame() || advanced === 0) {
             _animTimer = null;
             _onSimulationComplete();
             return;
         }
-        _showFrame(_frameIndex + 1);
         _scheduleNextTick();
     }, _tickDelayMs());
 }
@@ -677,6 +795,7 @@ function simRestart() {
     _clearMetrics();
     _setFocusMode(false);
     _setEditingLock(false);     // devuelve la edicion al usuario
+    simUpdateConsultarBtn();
     _renderWavesList();
     _renderFleetStatus();
     if (typeof renderOrdersList === 'function') renderOrdersList();
@@ -723,6 +842,9 @@ async function simCompare() {
     const btn = _dom('btn-compare');
     if (btn) btn.disabled = true;
 
+    const compareWavesResult = _dom('compare-waves-result');
+    if (compareWavesResult) compareWavesResult.innerHTML = '';
+
     try {
         const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId);
         _renderComparison(comparacion, { waveId: _selectedWaveId });
@@ -747,6 +869,9 @@ async function simCompareAll() {
     const btn = _dom('btn-compare-all');
     if (btn) btn.disabled = true;
 
+    const compareWavesResult = _dom('compare-waves-result');
+    if (compareWavesResult) compareWavesResult.innerHTML = '';
+
     try {
         showToast('Ejecutando simulación de todas las waves en simultáneo...', 'info');
         const res = await apiCompareAllCombinations(sc.toJSON());
@@ -770,6 +895,9 @@ async function simCompareWaves() {
 
     const btn = _dom('btn-compare-waves');
     if (btn) btn.disabled = true;
+
+    const compareResult = _dom('compare-result');
+    if (compareResult) compareResult.innerHTML = '';
 
     try {
         showToast('Generando waves con los tres modos...', 'info');
@@ -807,25 +935,94 @@ function _clearMetrics() {
 function _clearCollected() {
     const list = _dom('collected-list');
     if (list) list.innerHTML = '<p class="empty-msg">Ninguno todavía.</p>';
+    _updateCollectedTotal();
 }
 
+/** Actualiza el contador del encabezado del panel. */
+function _updateCollectedTotal() {
+    const list = _dom('collected-list');
+    const total = _dom('collected-total');
+    if (!list || !total) return;
+    total.textContent = list.querySelectorAll('.collected-item').length;
+}
+
+/**
+ * Agrega productos recogidos agrupándolos en una tarjeta por wave.
+ * Se llama en tiempo real a medida que avanza la simulación.
+ */
 function _addCollectedProducts(productIds, waveId) {
     const list = _dom('collected-list');
-    if (!list) return;
+    if (!list || !productIds || productIds.length === 0) return;
 
     const empty = list.querySelector('.empty-msg');
     if (empty) empty.remove();
 
+    // Tarjeta de la wave (se crea la primera vez que aparece).
+    let card = list.querySelector('[data-collected-wave="' + waveId + '"]');
+    if (!card) {
+        card = document.createElement('div');
+        card.className = 'collected-wave';
+        card.dataset.collectedWave = waveId;
+
+        const header = document.createElement('div');
+        header.className = 'collected-wave__header';
+
+        const title = document.createElement('span');
+        title.className = 'collected-wave__title';
+        title.textContent = waveId;
+
+        const count = document.createElement('span');
+        count.className = 'collected-wave__count';
+        count.textContent = '0 productos';
+
+        header.append(title, count);
+
+        const innerList = document.createElement('div');
+        innerList.className = 'collected-wave__list';
+
+        card.append(header, innerList);
+        list.appendChild(card);
+    }
+
+    const inner = card.querySelector('.collected-wave__list');
+    if (!inner) return;
+
+    const sc = _getScenario();
+    const allProducts = sc ? sc.getAllProducts() : [];
+
     for (const pid of productIds) {
-        const key = `${waveId}::${pid}`;
-        if (list.querySelector(`[data-key="${key}"]`)) continue;
+        const key = waveId + '::' + pid;
+        if (list.querySelector('[data-key="' + key + '"]')) continue;
+
+        const product = allProducts.find(pr => pr.id === pid);
+        const nombre = product ? product.name : pid;
 
         const item = document.createElement('div');
         item.className = 'collected-item';
         item.dataset.key = key;
-        item.textContent = `[${waveId}] ${pid}`;
-        list.appendChild(item);
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'collected-item__name';
+        nameEl.textContent = nombre;
+        nameEl.title = nombre;
+
+        const idEl = document.createElement('span');
+        idEl.className = 'collected-item__id';
+        idEl.textContent = pid;
+        idEl.title = 'id del producto';
+
+        item.append(nameEl, idEl);
+        inner.appendChild(item);
     }
+
+    // Contador de la tarjeta (productos distintos recogidos de esa wave).
+    const countEl = card.querySelector('.collected-wave__count');
+    if (countEl) {
+        const n = inner.querySelectorAll('.collected-item').length;
+        countEl.textContent = n + (n === 1 ? ' producto' : ' productos');
+    }
+
+    _updateCollectedTotal();
 }
 
 function _renderComparison(datos, options = {}) {
@@ -1011,6 +1208,7 @@ function simGetOrderStatus(orderId) {
 function simReset() {
     simPause();
     _setEditingLock(false);     // garantiza que el reset siempre libera la edicion
+    simUpdateConsultarBtn();
 
     _restorePickerPositions();
     _initialPickerPositions.clear();
@@ -1034,6 +1232,9 @@ function simReset() {
     const compareResult = _dom('compare-result');
     if (compareResult) compareResult.innerHTML = '';
 
+    const compareWavesResult = _dom('compare-waves-result');
+    if (compareWavesResult) compareWavesResult.innerHTML = '';
+
     _clearRoutesFromRenderer();
     _renderFleetStatus();
     if (typeof renderOrdersList === 'function') renderOrdersList();
@@ -1053,7 +1254,7 @@ function _setFocusMode(active) {
     }
     const btn = _dom('btn-focus-mode');
     if (btn) {
-        btn.setAttribute('aria-pressed', String(active));
+        btn.setAttribute('aria-checked', String(active));
         btn.classList.toggle('active', active);
     }
 }
@@ -1158,7 +1359,7 @@ function _setEditingLock(locked) {
     });
 
     // Panel de pickers
-    ['btn-picker-add', 'btn-picker-remove'].forEach(id => {
+    ['btn-picker-add'].forEach(id => {
         const btn = _dom(id);
         if (!btn) return;
         btn.disabled = locked;
@@ -1177,8 +1378,9 @@ function _setEditingLock(locked) {
     // (se llama al final de esta funcion para que _simulationLocked ya este
     // actualizado cuando renderOrdersList lo consulte con simIsEditingLocked())
 
-    // Selectores de estrategia y algoritmo
-    ['select-strategy', 'select-buscador'].forEach(id => {
+    // Selectores de estrategia y algoritmo (no se pueden cambiar una vez
+    // que hay una simulación activa, porque las waves ya se armaron con esos valores)
+    ['select-strategy', 'select-buscador', 'select-onda'].forEach(id => {
         const el = _dom(id);
         if (!el) return;
         el.disabled = locked;
@@ -1207,6 +1409,10 @@ function _setEditingLock(locked) {
     // a los botones existentes (evita que botones previos sigan disparando),
     // y al desbloquear restaura los event listeners.
     if (typeof renderOrdersList === 'function') renderOrdersList();
+
+    // Re-renderizar la tabla de pickers para deshabilitar/habilitar
+    // los inputs de capacidad y los botones de eliminar.
+    if (typeof _updatePickersList === 'function') _updatePickersList();
 }
 
 /** Sincroniza el estado de los botones de paso adelante y atras. */
@@ -1246,6 +1452,8 @@ function _replayTo(target) {
     // Volver al estado inicial limpio
     _frameIndex = -1;
     _routes = {};
+    _routeHistory = {};
+    _lastPickerPos = {};
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
@@ -1273,6 +1481,34 @@ function _replayTo(target) {
         // Eventos: modifica _waves, _routes y la lista de productos recogidos
         for (const evento of frame.eventos) {
             _applyEvent(evento);
+        }
+
+        // Actualizar historial de posiciones durante el replay silencioso.
+        // Es necesario para que _pushRoutesToRenderer tenga el historial correcto al final.
+        for (const p of frame.pickers) {
+            const pickerId = p.id;
+            const posActual = [p.x, p.y];
+
+            if (!_routeHistory[pickerId]) _routeHistory[pickerId] = [];
+            const historial = _routeHistory[pickerId];
+
+            if (!_lastPickerPos[pickerId]) {
+                _lastPickerPos[pickerId] = [...posActual];
+                if (_routes[pickerId] && historial.length === 0) {
+                    historial.push([...posActual]);
+                }
+            } else {
+                const ultimaPos = _lastPickerPos[pickerId];
+                const movio = posActual[0] !== ultimaPos[0] || posActual[1] !== ultimaPos[1];
+                if (movio) {
+                    if (_routes[pickerId]) {
+                        historial.push([...posActual]);
+                    }
+                    _lastPickerPos[pickerId] = [...posActual];
+                } else if (historial.length === 0 && _routes[pickerId]) {
+                    historial.push([...posActual]);
+                }
+            }
         }
     }
 
@@ -1428,3 +1664,178 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+ // ================================================================
+ // Detalle de wave (consultar) — modal con productos, pedidos y pickers
+ // ================================================================
+
+ /** Abre el modal de detalle de la wave seleccionada. */
+ function simOpenWaveDetail() {
+    try {
+        if (!_selectedWaveId) {
+            showToast('Seleccioná una wave de la lista antes de consultar.', 'warning');
+            return;
+        }
+        const w = _waves.find(x => x.wave_id === _selectedWaveId);
+        if (!w) {
+            showToast('No se encontró la wave seleccionada.', 'error');
+            return;
+        }
+
+        const sc = _getScenario();
+        const orders = sc ? sc.orders : [];
+        const allProducts = sc ? sc.getAllProducts() : [];
+
+        const ids = (w.picker_ids && w.picker_ids.length > 0)
+            ? w.picker_ids
+            : (w.picker_id ? [w.picker_id] : []);
+        const pickersText = ids.length > 0 ? ids.join(', ') : '\u2014';
+
+        const pedidosText = (w.pedidos && w.pedidos.length > 0)
+            ? w.pedidos.join(', ')
+            : '\u2014';
+
+        // Filas planas: una fila por ítem de cada pedido de la wave (sin recursividad).
+        let filas = '';
+        if (w.pedidos && w.pedidos.length > 0) {
+            filas = w.pedidos.map(oid => {
+                const order = orders.find(o => o.id === oid);
+                if (!order || !order.items || order.items.length === 0) {
+                    return '<tr>' +
+                        '<td class="text-right"><strong>' + oid + '</strong></td>' +
+                        '<td class="text-right">' + (order ? order.prioridad : '—') + '</td>' +
+                        '<td colspan="4">Sin items</td>' +
+                        '</tr>';
+                }
+                return order.items.map(it => {
+                    const p = allProducts.find(pr => pr.id === it.productoId);
+                    const nombre = p ? p.name : it.productoId;
+                    const sku = p ? (p.sku || it.productoId) : it.productoId;
+                    const peso = p ? p.pesoKg : '?';
+                    return '<tr>' +
+                        '<td class="text-right"><strong>' + oid + '</strong></td>' +
+                        '<td class="text-right">' + order.prioridad + '</td>' +
+                        '<td class="text-right">' + it.cantidad + '</td>' +
+                        '<td>' + nombre + '</td>' +
+                        '<td class="text-right" style="font-family:var(--font-mono,monospace)">[' + sku + ']</td>' +
+                        '<td class="text-right">' + (peso ? peso.toFixed(2) : '?') + ' kg</td>' +
+                        '</tr>';
+                }).join('');
+            }).join('');
+        }
+
+        const detalle = filas ? (
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Pedidos (' + w.pedidos.length + ')</span>' +
+            '<span class="wave-detail__value">' + pedidosText + '</span>' +
+            '</div>' +
+            '<table class="wave-detail__table">' +
+            '<thead><tr>' +
+            '<th class="text-right">Pedido</th>' +
+            '<th class="text-right">Prioridad</th>' +
+            '<th class="text-right">Cant.</th>' +
+            '<th>Producto</th>' +
+            '<th class="text-right">SKU</th>' +
+            '<th class="text-right">Peso</th>' +
+            '</tr></thead>' +
+            '<tbody>' + filas + '</tbody>' +
+            '</table>'
+        ) : (
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Pedidos</span>' +
+            '<span class="wave-detail__value">' + pedidosText + '</span>' +
+            '</div>' +
+            '<p class="wave-detail__empty">Sin detalle de pedidos disponible.</p>'
+        );
+
+        const html = '<div class="wave-detail">' +
+            '<div class="wave-detail__meta">' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Wave</span>' +
+            '<span class="wave-detail__value">' + w.wave_id + '</span>' +
+            '</div>' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Estado</span>' +
+            '<span class="wave-detail__value" style="color:var(--color-primary)">' + w.status + '</span>' +
+            '</div>' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Picker(s)</span>' +
+            '<span class="wave-detail__value">' + pickersText + '</span>' +
+            '</div>' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Prioridad</span>' +
+            '<span class="wave-detail__value">' + w.prioridad + '</span>' +
+            '</div>' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Unidades</span>' +
+            '<span class="wave-detail__value">' + w.unidades + '</span>' +
+            '</div>' +
+            '<div class="wave-detail__row">' +
+            '<span class="wave-detail__label">Peso</span>' +
+            '<span class="wave-detail__value">' + Number(w.peso_kg || 0).toFixed(2) + ' kg</span>' +
+            '</div>' +
+            '</div>' +
+            detalle +
+            '</div>';
+
+        const modalIdEl = document.getElementById('modal-wave-id');
+        const modalBodyEl = document.getElementById('modal-wave-body');
+        const modalEl = document.getElementById('modal-wave-detail');
+        if (!modalIdEl || !modalBodyEl || !modalEl) {
+            showToast('Error interno: elementos del modal no encontrados.', 'error');
+            return;
+        }
+        modalIdEl.textContent = w.wave_id;
+        modalBodyEl.innerHTML = html;
+        modalEl.classList.add('open');
+    } catch (err) {
+        showToast('Error al abrir detalle de wave: ' + (err && err.message ? err.message : err), 'error');
+    }
+}
+
+ /** Cierra el modal de detalle de wave. */
+ function simCloseWaveDetail() {
+     document.getElementById('modal-wave-detail').classList.remove('open');
+ }
+
+ // ================================================================
+ // Cableado del botón "Consultar" y modal de detalle de wave
+ // ================================================================
+
+ /** Habilita/deshabilita el botón Consultar según si hay una wave seleccionada. */
+ function simUpdateConsultarBtn() {
+     const btn = _dom('btn-consultar-wave');
+     if (!btn) return;
+     btn.disabled = !_selectedWaveId;
+     if (btn.disabled) {
+         btn.title = 'Seleccioná una wave de la lista para consultar su detalle.';
+     } else {
+         btn.title = 'Ver detalle de la wave seleccionada';
+     }
+ }
+
+ function _wireConsultar() {
+     const btnConsultar = _dom('btn-consultar-wave');
+     const btnClose = _dom('btn-close-wave-detail');
+     const modal = document.getElementById('modal-wave-detail');
+
+     if (btnConsultar) {
+         btnConsultar.addEventListener('click', (e) => {
+             e.preventDefault();
+             e.stopPropagation();
+             simOpenWaveDetail();
+         });
+     }
+     if (btnClose) btnClose.addEventListener('click', simCloseWaveDetail);
+     if (modal) {
+         modal.addEventListener('click', (e) => {
+             if (e.target === modal) simCloseWaveDetail();
+         });
+     }
+ }
+
+ // Registrar cuanto antes (DOMContentLoaded o inmediatamente si ya pasó).
+ if (document.readyState === 'loading') {
+     document.addEventListener('DOMContentLoaded', _wireConsultar);
+ } else {
+     _wireConsultar();
+ }
