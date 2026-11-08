@@ -35,6 +35,11 @@ if TYPE_CHECKING:
     from models.warehouse import DispatchZone
 
 
+def are_adjacent(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """True si las celdas a y b están ortogonalmente adyacentes (distancia Manhattan = 1)."""
+    return abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1
+
+
 class PickerStatus(Enum):
     """Estados posibles de un picker."""
     LIBRE        = "LIBRE"         # sin wave
@@ -297,7 +302,7 @@ class Picker:
                 return self.historial[i]
         return None
 
-    def puede_step_back(self, graph: Graph) -> bool:
+    def can_step_back(self, graph: Graph) -> bool:
         """
         True si existe una arista válida del grafo hacia la celda anterior.
         Respeta los sentidos de circulación: en un pasillo de un solo
@@ -314,7 +319,7 @@ class Picker:
         Valida la arista en el grafo. No toca el plan: quien llama debe
         recalcular la ruta después si es necesario.
         """
-        if not self.puede_step_back(graph):
+        if not self.can_step_back(graph):
             raise ValueError(
                 f"El picker '{self.picker_id}' no puede step_back: "
                 f"no hay celda anterior o el sentido del pasillo no lo permite."
@@ -328,11 +333,6 @@ class Picker:
     # ------------------------------------------------------------------
     # Recoger y descargar (consigna §3.6 y §3.4)
     # ------------------------------------------------------------------
-
-    def _adjacent(self, a: tuple[int, int], b: tuple[int, int]) -> bool:
-        """True si las celdas a y b están pegadas (arriba, abajo, izquierda o derecha)."""
-        distancia = abs(a[0] - b[0]) + abs(a[1] - b[1])
-        return distancia == 1
 
     def _already_picked(self, item: OrderItem) -> bool:
         """True si el ítem ya está en la carga o ya se entregó."""
@@ -366,7 +366,7 @@ class Picker:
                 f"picker '{self.picker_id}'."
             )
         celda_rack = (item.product.x, item.product.y)
-        if not self._adjacent(self.posicion_actual, celda_rack):
+        if not are_adjacent(self.posicion_actual, celda_rack):
             raise ValueError(
                 f"El picker '{self.picker_id}' está en {self.posicion_actual} y no "
                 f"puede alcanzar el producto '{item.product.product_id}' en "

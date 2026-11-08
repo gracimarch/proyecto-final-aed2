@@ -147,23 +147,12 @@ class Order:
     # Totales del pedido
     # ------------------------------------------------------------------
 
-    def get_locations(self) -> list[tuple]:
-        """Ubicaciones (x, y, z) de los productos del pedido."""
-        ubicaciones = []
-        for item in self.items:
-            ubicaciones.append(tuple(item.product.location))
-        return ubicaciones
-
     def total_units(self) -> int:
         """Cantidad total de unidades pedidas."""
         total = 0
         for item in self.items:
             total = total + item.cantidad
         return total
-
-    def total_lines(self) -> int:
-        """Cantidad de líneas (productos distintos) del pedido."""
-        return len(self.items)
 
     def total_weight(self) -> float:
         """Peso total del pedido (kg)."""

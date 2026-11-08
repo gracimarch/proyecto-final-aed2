@@ -222,44 +222,14 @@ class _Stop:
         self.pickup = pickup
 
 
-def _wave_stops(wave: Wave, warehouse: Warehouse, graph: Graph) -> list[_Stop]:
-    """
-    Agrupa los productos de la wave por celda de rack, en el orden en que
-    aparecen sus pedidos.
-
-    Raises:
-        ValueError: Si algún producto no tiene celda de recogida transitable.
-    """
-    paradas = {}    # celda del rack -> _Stop (los dict recuerdan el orden de inserción)
-    for item in wave.get_items():
-        product = item.product
-        celda = (product.x, product.y)
-
-        if celda not in paradas:
-            pickup = set(pickup_cells(product, warehouse, graph))
-            if len(pickup) == 0:
-                raise ValueError(
-                    f"El producto '{product.product_id}' no tiene ninguna celda "
-                    f"de recogida transitable."
-                )
-            paradas[celda] = _Stop(celda, pickup)
-
-        parada = paradas[celda]
-        if product.product_id not in parada.product_ids:
-            parada.product_ids.append(product.product_id)
-
-    return list(paradas.values())
-
-
 def _wave_stops_from_items(
     items: list, warehouse: Warehouse, graph: Graph
 ) -> list[_Stop]:
     """
-    Versión de _wave_stops que trabaja sobre una lista de ítems directamente,
-    sin necesitar el objeto Wave completo.
-
-    Se usa cuando varios pickers dividen los ítems de una wave entre sí:
-    cada picker planifica su ruta usando únicamente sus ítems asignados.
+    Agrupa una lista de ítems por celda de rack y construye las paradas del
+    recorrido. Acepta tanto el conjunto completo de ítems de una wave
+    (wave.get_items()) como un subconjunto asignado a un picker en particular
+    cuando varios pickers dividen el trabajo.
 
     Raises:
         ValueError: Si algún producto no tiene celda de recogida transitable.
@@ -337,14 +307,6 @@ def _served_stops(
         if celda in parada.pickup:
             atendidas.append(parada)
     return atendidas
-
-
-def _contains(items: list[OrderItem], item: OrderItem) -> bool:
-    """True si ese mismo ítem (el mismo objeto) ya está en la lista."""
-    for otro in items:
-        if otro is item:
-            return True
-    return False
 
 
 def _lightest_weight(items: list[OrderItem]) -> float:
@@ -528,11 +490,7 @@ def plan_route(
     paradas = []
     carga = []    # ítems recogidos, en el orden en que se recogen
     tiempo_recogida = 0
-    pendientes = (
-        _wave_stops_from_items(items_to_route, warehouse, graph)
-        if items is not None
-        else _wave_stops(wave, warehouse, graph)
-    )
+    pendientes = _wave_stops_from_items(items_to_route, warehouse, graph)
 
     # Ida: un tramo por parada hasta que no quede ninguna pendiente.
     while len(pendientes) > 0:
@@ -567,7 +525,14 @@ def plan_route(
             if item.product.product_id in recogidos:
                 if item.product.costo_altura() > mayor_altura:
                     mayor_altura = item.product.costo_altura()
-                if not _contains(carga, item):
+                # Evitar duplicados en carga (comparación por identidad, ya que
+                # OrderItem no implementa __eq__).
+                ya_esta = False
+                for otro in carga:
+                    if otro is item:
+                        ya_esta = True
+                        break
+                if not ya_esta:
                     carga.append(item)
         # Tiempo quieto en esta parada: igual que en la simulación.
         tiempo_recogida = tiempo_recogida + 1 + mayor_altura
@@ -641,7 +606,7 @@ def compare_all_combinations(
 # 5. Validación: todo producto se puede alcanzar
 # ===========================================================================
 
-def reverse_graph(graph: Graph) -> Graph:
+def _reverse_graph(graph: Graph) -> Graph:
     """
     Grafo con todas las aristas dadas vuelta: si en graph hay u -> v, en el
     nuevo hay v -> u.
@@ -695,7 +660,7 @@ def validate_reachability(
         )
 
     ida = bfs_distances(graph, set(acceso))
-    vuelta = bfs_distances(reverse_graph(graph), set(acceso))
+    vuelta = bfs_distances(_reverse_graph(graph), set(acceso))
 
     inalcanzables = []
     for product_id in sorted(warehouse.products):

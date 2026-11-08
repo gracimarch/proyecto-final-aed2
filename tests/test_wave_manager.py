@@ -436,5 +436,25 @@ class TestPickerMasCercano(unittest.TestCase):
         self.assertEqual(wm.bfs_pickers, antes)
 
 
+
+class TestValidacionDeStock(unittest.TestCase):
+    """Los pedidos sin stock suficiente siguen marcados después de armar las waves."""
+
+    def test_generate_waves_mantiene_pedidos_sin_stock(self):
+        import json
+        with open("scenarios/escenario_grande.json", "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        wh = Warehouse.from_dict(data)
+        wm = WaveManager.from_dict(data, wh)
+        antes = sorted(o.order_id for o, _ in wm.unprocessable_orders)
+        self.assertGreater(len(antes), 0)
+        wm.generate_waves(estrategia_wave="por_cercania")
+        despues = sorted(o.order_id for o, _ in wm.unprocessable_orders)
+        self.assertEqual(antes, despues)
+        items_sin_stock = {id(item) for o, _ in wm.unprocessable_orders for item in o.items}
+        en_waves = {id(item) for w in wm.get_waves() for item in w.get_items()}
+        self.assertEqual(en_waves & items_sin_stock, set())
+
+
 if __name__ == "__main__":
     unittest.main()

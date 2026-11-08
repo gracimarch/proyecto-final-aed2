@@ -474,6 +474,8 @@ class WaveManager:
         agregado: O(N · (V + E + N)).
         """
         self.unprocessable_orders = []
+        # La lista se vacía en cada armado, así que hay que volver a validar
+        # el stock: si no, se pierde lo que marcó el constructor.
         if self.warehouse is not None and self.orders:
             self._validate_stock_consistency()
 
@@ -885,9 +887,6 @@ class WaveManager:
 
     def get_queued_waves(self) -> list[Wave]:
         return list(self.queue)
-
-    def get_unprocessable_orders(self) -> list[tuple[Order, str]]:
-        return list(self.unprocessable_orders)
 
     # ------------------------------------------------------------------
     # Guardar y cargar

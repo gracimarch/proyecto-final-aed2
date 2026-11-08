@@ -27,13 +27,14 @@ Termina cuando no quedan waves por preparar o se llega a max_ticks.
 """
 
 import time
+from collections import deque
 
 from algorithms.graph import bfs_to_any
 from algorithms.routing import plan_route, plan_unloading, graph_without
 
 from models.picker import Picker
 from models.warehouse import DispatchZone, Warehouse
-from models.wave import Wave, WaveStatus
+from models.wave import WaveStatus
 from models.wave_manager import WaveManager
 
 
@@ -42,7 +43,7 @@ class _Task:
     Lo que le falta hacer a un picker con su wave.
 
     Atributos:
-        wave            (Wave)  : Wave que está preparando.
+        wave            ("Wave")  : Wave que está preparando.
         paradas         (dict)  : {celda: [product_id, ...]} que faltan recoger.
         descargas       (list)  : [(celda, zone_id), ...] que faltan hacer.
         ruta            (list)  : Camino que está siguiendo (para dibujarlo).
@@ -51,7 +52,7 @@ class _Task:
         cooldown_recogida (int) : Ticks restantes de pausa por recogida (según altura z).
     """
 
-    def __init__(self, wave: Wave, path: list[tuple[int, int]]):
+    def __init__(self, wave: "Wave", path: list[tuple[int, int]]):
         self.wave = wave
         self.paradas = {}
         self.descargas = []
@@ -110,6 +111,7 @@ class Simulation:
         self.error = None
         self.cedieron_paso = set()   # pickers que cedieron el paso este tick (necesitan recálculo de ruta)
         self.parking_plans = {}      # picker_id -> camino hacia una celda donde no estorbar
+        self.tiempo_ms = 0.0         # se actualiza al terminar run()
 
     # ------------------------------------------------------------------
     # Bucle principal
@@ -313,8 +315,6 @@ class Simulation:
         Devuelve las celdas a recorrer (sin incluir la posición actual), o []
         si no hay ninguna celda segura alcanzable.
         """
-        from collections import deque
-
         inicio = picker.posicion_actual
         cola: deque[tuple[tuple[int, int], list[tuple[int, int]]]] = deque()
         cola.append((inicio, []))
@@ -506,8 +506,6 @@ class Simulation:
 
         Devuelve None si no se puede resolver la cadena.
         """
-        from collections import deque
-
         x, y = picker_libre.posicion_actual
         visitados = {picker_libre.picker_id}
         # cola: (ocupante_actual, camino_de_ids_desde_picker1_hasta_este)
@@ -667,14 +665,17 @@ class Simulation:
                 return cand
         return None
 
-    def _puede_step_back_para_ceder(
+    def _can_yield_by_stepping_back(
         self, picker: Picker, destino: dict
     ) -> bool:
         """
-        True si el picker puede retroceder una celda (step_back) para ceder el
-        paso en un cruce cara a cara. La celda anterior no puede estar ocupada
-        como destino de otro picker ni ser la posición actual de otro picker,
-        y debe existir la arista en el grafo.
+        True if the picker can step back one cell to yield in a head-on crossing
+        without causing another collision. Checks:
+        - Picker is not in pickup cooldown
+        - Has a previous cell in history
+        - Previous cell is not another picker's planned destination this tick
+        - Previous cell is not occupied by another picker right now
+        - Graph edge exists
         """
         if self._inamovible(picker):
             return False
@@ -779,7 +780,7 @@ class Simulation:
                     )
                     if se_cruzan:
                         # 1. Intentar step_back del de menor prioridad (b).
-                        if self._puede_step_back_para_ceder(b, destino):
+                        if self._can_yield_by_stepping_back(b, destino):
                             destino[b.picker_id] = b.celda_anterior()
                             self.cedieron_paso.add(b.picker_id)
                             hubo_cambio = True
@@ -1180,6 +1181,27 @@ class Simulation:
                 return zona
         raise ValueError(f"No existe la zona '{zone_id}'.")
 
+    def _emit_wait(self, picker, task) -> None:
+        """Registra que el picker esperó un tick."""
+        picker.wait()
+        self.esperas = self.esperas + 1
+        self.esperando.add(picker.picker_id)
+        task.esperas_seguidas = task.esperas_seguidas + 1
+        if task.esperas_seguidas == 1:
+            self.eventos.append({"tipo": "espera", "picker": picker.picker_id})
+
+    def _emit_descarga(self, picker, task, zona) -> None:
+        """Descarga en zona y emite el evento correspondiente."""
+        dejados = picker.unload(zona)
+        productos = [item.product.product_id for item in dejados]
+        self.eventos.append({
+            "tipo": "descarga",
+            "picker": picker.picker_id,
+            "wave": task.wave.wave_id,
+            "zona": zona.zone_id,
+            "productos": productos,
+        })
+
     def _pick_and_unload(self) -> None:
         for picker in self.warehouse.pickers:
             if picker.picker_id not in self.tasks:
@@ -1196,17 +1218,7 @@ class Simulation:
                 zona = self._zone(task.descargas[0][1])
                 task.descargas.pop(0)
                 if picker.can_unload(zona):
-                    dejados = picker.unload(zona)
-                    productos = []
-                    for item in dejados:
-                        productos.append(item.product.product_id)
-                    self.eventos.append({
-                        "tipo": "descarga",
-                        "picker": picker.picker_id,
-                        "wave": task.wave.wave_id,
-                        "zona": zona.zone_id,
-                        "productos": productos,
-                    })
+                    self._emit_descarga(picker, task, zona)
                     # Si todavía hay descargas intermedias pendientes, seguir.
                     if len(task.descargas) > 0:
                         continue
@@ -1225,12 +1237,7 @@ class Simulation:
                         if llegada is not None:
                             self._change_route(picker, task, camino)
                         else:
-                            picker.wait()
-                            self.esperas = self.esperas + 1
-                            self.esperando.add(picker.picker_id)
-                            task.esperas_seguidas = task.esperas_seguidas + 1
-                            if task.esperas_seguidas == 1:
-                                self.eventos.append({"tipo": "espera", "picker": picker.picker_id})
+                            self._emit_wait(picker, task)
                         continue
 
             # ------------------------------------------------------------------
@@ -1259,7 +1266,6 @@ class Simulation:
                         "producto_id": item.product.product_id,
                         "cantidad": item.cantidad,
                     })
-                    recogido_algunos = True
                     if item.product.costo_altura() > mayor_altura:
                         mayor_altura = item.product.costo_altura()
 
@@ -1298,13 +1304,8 @@ class Simulation:
                         continue
                     except ValueError:
                         # Ninguna zona tiene lugar ahora. Esperar.
-                        picker.wait()
-                        self.esperas = self.esperas + 1
-                        self.esperando.add(picker.picker_id)
-                        task.esperas_seguidas = task.esperas_seguidas + 1
+                        self._emit_wait(picker, task)
                         task.esperas_totales = task.esperas_totales + 1
-                        if task.esperas_seguidas == 1:
-                            self.eventos.append({"tipo": "espera", "picker": picker.picker_id})
                         continue
 
                 # Todos los ítems de esta parada se recogieron: borrarla.
@@ -1334,12 +1335,7 @@ class Simulation:
                 if llegada is not None:
                     self._change_route(picker, task, camino)
                 else:
-                    picker.wait()
-                    self.esperas = self.esperas + 1
-                    self.esperando.add(picker.picker_id)
-                    task.esperas_seguidas = task.esperas_seguidas + 1
-                    if task.esperas_seguidas == 1:
-                        self.eventos.append({"tipo": "espera", "picker": picker.picker_id})
+                    self._emit_wait(picker, task)
                 continue
 
             # ------------------------------------------------------------------
@@ -1351,17 +1347,7 @@ class Simulation:
                 zona = self._zone(task.descargas[0][1])
                 task.descargas.pop(0)
                 if picker.can_unload(zona):
-                    dejados = picker.unload(zona)
-                    productos = []
-                    for item in dejados:
-                        productos.append(item.product.product_id)
-                    self.eventos.append({
-                        "tipo": "descarga",
-                        "picker": picker.picker_id,
-                        "wave": task.wave.wave_id,
-                        "zona": zona.zone_id,
-                        "productos": productos,
-                    })
+                    self._emit_descarga(picker, task, zona)
 
             # ------------------------------------------------------------------
             # 5. Llegó al final y todavía lleva algo: ir a descargar.
@@ -1370,18 +1356,8 @@ class Simulation:
                 descargado_algo = False
                 for zona in self.warehouse.dispatch_zones:
                     if picker.can_unload(zona):
-                        dejados = picker.unload(zona)
+                        self._emit_descarga(picker, task, zona)
                         descargado_algo = True
-                        productos = []
-                        for item in dejados:
-                            productos.append(item.product.product_id)
-                        self.eventos.append({
-                            "tipo": "descarga",
-                            "picker": picker.picker_id,
-                            "wave": task.wave.wave_id,
-                            "zona": zona.zone_id,
-                            "productos": productos,
-                        })
                 if descargado_algo:
                     continue
 
@@ -1396,12 +1372,7 @@ class Simulation:
                         task.descargas.append((celda_zona, zone_id))
                     self._change_route(picker, task, path)
                 except ValueError:
-                    picker.wait()
-                    self.esperas = self.esperas + 1
-                    self.esperando.add(picker.picker_id)
-                    task.esperas_seguidas = task.esperas_seguidas + 1
-                    if task.esperas_seguidas == 1:
-                        self.eventos.append({"tipo": "espera", "picker": picker.picker_id})
+                    self._emit_wait(picker, task)
 
     # ------------------------------------------------------------------
     # 3. Terminar waves

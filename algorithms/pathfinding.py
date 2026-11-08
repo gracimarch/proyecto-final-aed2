@@ -11,12 +11,10 @@ recogida".
 Funciones:
     adjacent_aisle_cells  : celdas de pasillo ortogonalmente adyacentes.
     pickup_cells          : celdas de recogida de un producto.
-    path_to_product_bfs   : camino mínimo hasta un producto con BFS.
-    path_to_product_astar : camino mínimo hasta un producto con A*.
     manhattan             : heurística que usa A*.
 """
 
-from algorithms.graph import Graph, bfs_to_any, astar_to_any
+from algorithms.graph import Graph
 
 from models.product import Product
 from models.warehouse import Warehouse
@@ -128,23 +126,6 @@ def _pickup_targets(
 # 2. Camino con BFS
 # ===========================================================================
 
-def path_to_product_bfs(
-    graph: Graph,
-    source: tuple[int, int],
-    product: Product,
-    warehouse: Warehouse,
-    stats: dict | None = None,
-) -> tuple[list[tuple[int, int]], float, tuple[int, int] | None]:
-    """
-    Camino mínimo desde source hasta alguna celda de recogida del producto.
-
-    Returns:
-        (camino, distancia, celda de recogida a la que llegó)
-    """
-    destinos = _pickup_targets(graph, source, product, warehouse)
-    return bfs_to_any(graph, source, destinos, stats)
-
-
 # ===========================================================================
 # 3. Heurística y camino con A*
 # ===========================================================================
@@ -158,20 +139,3 @@ def manhattan(source: tuple[int, int], target: tuple[int, int]) -> int:
     encontrando el camino mínimo.
     """
     return abs(source[0] - target[0]) + abs(source[1] - target[1])
-
-
-def path_to_product_astar(
-    graph: Graph,
-    source: tuple[int, int],
-    product: Product,
-    warehouse: Warehouse,
-    stats: dict | None = None,
-) -> tuple[list[tuple[int, int]], float, tuple[int, int] | None]:
-    """
-    Igual que path_to_product_bfs, pero con A* y la heurística Manhattan.
-
-    Returns:
-        (camino, costo, celda de recogida a la que llegó)
-    """
-    destinos = _pickup_targets(graph, source, product, warehouse)
-    return astar_to_any(graph, source, destinos, manhattan, stats)

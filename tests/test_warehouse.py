@@ -136,5 +136,20 @@ class TestWarehouse(unittest.TestCase):
         self.assertEqual(len(data_exported["warehouse"]["racks"]), 3)
 
 
+
+class TestPuertasConZona(unittest.TestCase):
+    """§3.3: cada puerta tiene que tener una zona de despacho."""
+
+    def test_puerta_sin_zona_se_rechaza(self):
+        with open("scenarios/escenario_basico.json", "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        ancho = data["warehouse"]["dimensiones"]["ancho_x"]
+        data["warehouse"]["puertas"].append(
+            {"id": "PUERTA_SIN_ZONA", "tipo": "OUTBOUND", "ubicacion": {"x": ancho - 1, "y": 0}}
+        )
+        with self.assertRaises(ValueError):
+            Warehouse.from_dict(data)
+
+
 if __name__ == "__main__":
     unittest.main()

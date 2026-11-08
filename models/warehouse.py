@@ -90,43 +90,6 @@ class Rack:
         product.location[1] = cy
         product.location[2] = z
 
-    def remove_product(self, cx: int, cy: int, z: int) -> Product:
-        """
-        Retira el producto de (cx, cy, z) y baja un nivel los que estaban
-        encima en la misma celda.
-
-        Raises:
-            KeyError: Si no hay producto en esa posición.
-        """
-        clave = (cx, cy, z)
-        if clave not in self._slots:
-            raise KeyError(
-                f"No hay producto en ({cx},{cy},z={z}) del rack '{self.rack_id}'."
-            )
-        retirado = self._slots.pop(clave)
-
-        nuevos_slots = {}
-        for clave_slot in self._slots:
-            producto = self._slots[clave_slot]
-            kx = clave_slot[0]
-            ky = clave_slot[1]
-            kz = clave_slot[2]
-            if kx == cx and ky == cy and kz > z:
-                producto.drop_z()
-                nuevos_slots[(kx, ky, kz - 1)] = producto
-            else:
-                nuevos_slots[clave_slot] = producto
-        self._slots = nuevos_slots
-        return retirado
-
-    def get_product_at(self, cx: int, cy: int, z: int) -> Product | None:
-        """El producto en (cx, cy, z), o None si está vacío."""
-        return self._slots.get((cx, cy, z))
-
-    def get_all_products(self) -> dict[tuple[int, int, int], Product]:
-        """Copia del diccionario {(cx, cy, z): Product}."""
-        return dict(self._slots)
-
     def is_empty(self) -> bool:
         return len(self._slots) == 0
 
@@ -485,17 +448,6 @@ class Warehouse:
             raise KeyError(f"No hay rack con id '{rack_id}'.")
         return self.racks[rack_id]
 
-    def get_rack_at(self, x: int, y: int) -> Rack | None:
-        """El rack que contiene la celda (x, y), o None."""
-        for rack in self.racks.values():
-            if rack.contains_cell(x, y):
-                return rack
-        return None
-
-    # ------------------------------------------------------------------
-    # Zonas de despacho
-    # ------------------------------------------------------------------
-
     def add_dispatch_zone(self, zone: DispatchZone) -> None:
         """
         Validaciones: id único, dentro, sin solaparse; su puerta existe, no
@@ -568,13 +520,6 @@ class Warehouse:
         self._aisles.append(aisle)
         for celda in _rectangle_cells(aisle.x, aisle.y, aisle.ancho, aisle.alto):
             self._aisle_cells[celda] = aisle
-
-    def get_aisle_direction(self, x: int, y: int) -> str:
-        """Sentido de la celda (x, y); "AMBOS" si no está en ningún pasillo declarado."""
-        aisle = self._aisle_cells.get((x, y))
-        if aisle is None:
-            return "AMBOS"
-        return aisle.sentido
 
     # ------------------------------------------------------------------
     # Pickers
@@ -756,10 +701,6 @@ class Warehouse:
             raise ValueError(
                 f"Las siguientes puertas no tienen zona de despacho: {', '.join(faltan)}."
             )
-
-    # ------------------------------------------------------------------
-    # Serialización
-    # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
         """
