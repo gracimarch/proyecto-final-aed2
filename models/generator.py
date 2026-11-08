@@ -20,10 +20,17 @@ ancho/alto cercana a 1). Si las dimensiones indicadas no alcanzan para
 ubicar todos los racks con el largo preferido, se prueba con largos menores
 (hasta 2) antes de lanzar un ValueError explicativo.
 
-IMPORTANTE: el generador NO declara pasillos (Aisle). Todos los pasillos
-quedan sin sentido asignado, por lo que el grafo los trata como AMBOS. El
-usuario puede declarar pasillos manualmente después desde el editor. El
-parámetro `cantidad_pasillos` indica cuántos pasillos verticales separan
+El parámetro `generar_pasillos` decide si el generador declara pasillos
+(Aisle) con sentido de circulación:
+
+    - Desactivado (por defecto): no se declara ningún pasillo. Todas las
+      celdas libres quedan AMBOS, tal como funcionaba antes.
+    - Activado: se declaran pasillos sobre los huecos entre racks de cada
+      fila (sentidos N/S alternados) y sobre las bandas horizontales que
+      separan las filas (AMBOS). Así todas las celdas entre racks quedan
+      cubiertas y el escenario sigue siendo válido.
+
+El parámetro `cantidad_pasillos` indica cuántos pasillos verticales separan
 las columnas de racks dentro de cada fila (P pasillos -> P + 1 racks por
 fila), por lo que la separación entre racks no es un único hueco fijo.
 
@@ -80,6 +87,25 @@ def _entero(valor, nombre: str, minimo: int, maximo: int, por_defecto: int | Non
             f"(recibido: {numero})."
         )
     return numero
+
+
+def _booleano(valor, nombre: str, por_defecto: bool = False) -> bool:
+    """Convierte y valida un parámetro booleano (acepta true/false, 1/0, etc.)."""
+    if valor is None or valor == "":
+        return por_defecto
+    if isinstance(valor, bool):
+        return valor
+    if isinstance(valor, (int, float)) and valor in (0, 1):
+        return bool(valor)
+    texto = str(valor).strip().lower()
+    if texto in ("true", "1", "si", "sí", "yes", "on"):
+        return True
+    if texto in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(
+        f"El parámetro '{nombre}' debe ser booleano (true/false) "
+        f"(recibido: {valor!r})."
+    )
 
 
 def _largo_rack(cantidad_productos: int, cantidad_racks: int) -> int:
@@ -443,6 +469,125 @@ def _construir_layout(
     )
 
 
+def _generar_pasillos(
+    racks: list[dict],
+    ancho: int,
+    alto: int,
+) -> list[dict]:
+    """
+    Declara pasillos (Aisle) sobre las celdas libres del layout.
+
+    Se cubren dos tipos de huecos:
+
+    - Huecos verticales entre racks de una misma fila: se declaran con
+      sentido N o S alternado (boustrophedon), de modo que el recorrido
+      siempre pueda subir por un pasillo y bajar por otro.
+    - Bandas horizontales (pasillo inferior, separación entre filas y
+      margen superior): se declaran AMBOS para poder cambiar de pasillo
+      y volver a la zona de despacho por los laterales.
+
+    Los márgenes laterales quedan sin declarar (AMBOS), lo que garantiza
+    que siempre exista un camino de ida y vuelta entre la zona de despacho
+    y cualquier pasillo.
+
+    Returns:
+        Lista de diccionarios en el formato de Aisle.
+    """
+    if not racks:
+        return []
+
+    # Agrupar racks por fila (todos los racks de una fila comparten y).
+    filas: dict[int, list[dict]] = {}
+    for rack in racks:
+        y = rack["ubicacion"]["y"]
+        filas.setdefault(y, []).append(rack)
+
+    pasillos = []
+
+    def agregar(x: int, y: int, ancho_pasillo: int, alto_pasillo: int,
+                sentido: str) -> None:
+        pasillos.append({
+            "id": f"AIS{len(pasillos) + 1:02d}",
+            "ubicacion": {"x": x, "y": y},
+            "ancho": ancho_pasillo,
+            "alto": alto_pasillo,
+            "sentido": sentido,
+        })
+
+    # 1. Huecos verticales entre racks de una misma fila.
+    indice_vertical = 0
+    for y in sorted(filas):
+        fila = sorted(filas[y], key=lambda r: r["ubicacion"]["x"])
+        alto_fila = fila[0]["alto"]
+        for izquierdo, derecho in zip(fila, fila[1:]):
+            x_inicio = izquierdo["ubicacion"]["x"] + izquierdo["ancho"]
+            ancho_hueco = derecho["ubicacion"]["x"] - x_inicio
+            if ancho_hueco <= 0:
+                continue
+            # Alternar N/S: un pasillo sube y el siguiente baja.
+            sentido = "N" if indice_vertical % 2 == 0 else "S"
+            indice_vertical += 1
+            agregar(x_inicio, y, ancho_hueco, alto_fila, sentido)
+
+    # 2. Bandas horizontales: inferior, entre filas y superior.
+    ys = sorted(filas)
+    primera_y = ys[0]
+    if primera_y > Y_PASILLO_INFERIOR:
+        agregar(
+            0, Y_PASILLO_INFERIOR, ancho,
+            primera_y - Y_PASILLO_INFERIOR, "AMBOS",
+        )
+
+    for y_actual, y_siguiente in zip(ys, ys[1:]):
+        alto_fila = filas[y_actual][0]["alto"]
+        inicio = y_actual + alto_fila
+        if y_siguiente > inicio:
+            agregar(0, inicio, ancho, y_siguiente - inicio, "AMBOS")
+
+    ultima_y = ys[-1]
+    alto_ultima = filas[ultima_y][0]["alto"]
+    inicio_superior = ultima_y + alto_ultima
+    if alto > inicio_superior:
+        agregar(0, inicio_superior, ancho, alto - inicio_superior, "AMBOS")
+
+    return pasillos
+
+
+def _validar_cobertura_pasillos(racks: list[dict], pasillos: list[dict]) -> None:
+    """
+    Verifica que todos los huecos entre racks de una misma fila estén
+    cubiertos por algún pasillo declarado.
+
+    Raises:
+        ValueError: Si queda alguna celda entre racks sin pasillo.
+    """
+    celdas_pasillo = set()
+    for pasillo in pasillos:
+        x0 = pasillo["ubicacion"]["x"]
+        y0 = pasillo["ubicacion"]["y"]
+        for dx in range(pasillo["ancho"]):
+            for dy in range(pasillo["alto"]):
+                celdas_pasillo.add((x0 + dx, y0 + dy))
+
+    filas: dict[int, list[dict]] = {}
+    for rack in racks:
+        filas.setdefault(rack["ubicacion"]["y"], []).append(rack)
+
+    for y, fila in filas.items():
+        fila = sorted(fila, key=lambda r: r["ubicacion"]["x"])
+        alto_fila = fila[0]["alto"]
+        for izquierdo, derecho in zip(fila, fila[1:]):
+            x_inicio = izquierdo["ubicacion"]["x"] + izquierdo["ancho"]
+            x_fin = derecho["ubicacion"]["x"]
+            for x in range(x_inicio, x_fin):
+                for dy in range(alto_fila):
+                    if (x, y + dy) not in celdas_pasillo:
+                        raise ValueError(
+                            f"La celda ({x},{y + dy}) entre los racks "
+                            f"'{izquierdo['id']}' y '{derecho['id']}' no tiene pasillo."
+                        )
+
+
 def _elegir_celdas(racks: list[dict], cantidad: int,
                    distribucion: str, rng: random.Random) -> list[tuple[int, int, str]]:
     """
@@ -502,6 +647,7 @@ def generate_scenario(
     cantidad_puertas: int = 1,
     cantidad_pickers: int = 2,
     semilla: int | None = None,
+    generar_pasillos: bool = False,
 ) -> dict:
     """
     Genera un escenario completo listo para cargar en el editor.
@@ -529,6 +675,7 @@ def generate_scenario(
     wave_max_pedidos = _entero(wave_max_pedidos, "wave_max_pedidos", 1, 100)
     cantidad_puertas = _entero(cantidad_puertas, "cantidad_puertas", 1, 4)
     cantidad_pickers = _entero(cantidad_pickers, "cantidad_pickers", 1, 20)
+    generar_pasillos = _booleano(generar_pasillos, "generar_pasillos", False)
 
     distribucion = str(distribucion_productos or "uniforme").strip().lower()
     if distribucion not in DISTRIBUCIONES:
@@ -584,9 +731,13 @@ def generate_scenario(
         rng,
     )
 
-    # No se declaran pasillos: todos los pasillos quedan AMBOS por defecto
-    # y el usuario puede definirlos manualmente en el editor.
-    pasillos = []
+    # Pasillos declarados (opcional). Si no se pidieron, todos los huecos
+    # quedan AMBOS por defecto y el usuario puede definirlos en el editor.
+    if generar_pasillos:
+        pasillos = _generar_pasillos(racks, ancho, alto)
+        _validar_cobertura_pasillos(racks, pasillos)
+    else:
+        pasillos = []
 
     # ------------------------------------------------------------------
     # 3. Puertas y zonas de despacho
@@ -742,7 +893,9 @@ def generate_scenario(
     # Controles extra de coherencia entre lo pedido y lo generado.
     if len(racks) != cantidad_racks:
         raise ValueError("La cantidad de racks generada no coincide con la pedida.")
-    if len(pasillos) != 0:
+    if generar_pasillos and len(pasillos) == 0:
+        raise ValueError("Se pidieron pasillos, pero no se generó ninguno.")
+    if not generar_pasillos and len(pasillos) != 0:
         raise ValueError("El escenario generado no debe declarar pasillos.")
     if len(productos) != cantidad_productos:
         raise ValueError("La cantidad de productos generada no coincide con la pedida.")
@@ -773,8 +926,9 @@ def generate_scenario(
             "dimensiones": {"ancho_x": ancho, "largo_y": alto},
             "dimensiones_fijas": ancho_x is not None or largo_y is not None,
             "racks": len(racks),
-            "pasillos": 0,
-            "pasillos_totales": pasillos_totales,
+            "pasillos": len(pasillos),
+            "pasillos_totales": len(pasillos) if generar_pasillos else pasillos_totales,
+            "generar_pasillos": generar_pasillos,
             "ancho_pasillo": ancho_pasillo,
             "largo_rack": largo_rack_usado,
             "largo_rack_preferido": largo_rack,
