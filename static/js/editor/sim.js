@@ -79,6 +79,13 @@ let _routeHistory = {};
 let _lastPickerPos = {};
 
 /**
+ * Unidades ya recogidas en la simulación que se está reproduciendo:
+ * productId -> cantidad. Permite mostrar el stock restante en los racks
+ * sin modificar los datos del escenario (que conserva el stock original).
+ */
+let _consumedStock = {};
+
+/**
  * Devuelve true si dos celdas son ortogonalmente adyacentes
  * (arriba, abajo, izquierda o derecha). Nunca diagonales.
  */
@@ -245,6 +252,8 @@ async function simGenerateWaves() {
         _simulation = null;     // las waves cambiaron: hay que volver a simular
         _simParams = null;
         _frameIndex = -1;
+        _resetConsumedStock();
+        _refreshStockDisplays();
         _renderWavesList();
         simUpdateConsultarBtn();
         _renderFleetStatus();
@@ -540,10 +549,13 @@ function _resetPlayback() {
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
+    _resetZoneWeights();
+    _resetConsumedStock();
     if (_initialWavesSnapshot.length > 0) {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
     _requestCanvasRender();   // los pickers volvieron a su posición inicial
+    _refreshStockDisplays();
     if (typeof renderOrdersList === 'function') renderOrdersList();
 }
 
@@ -576,6 +588,8 @@ function _showFrame(index) {
     }
 
     // 3. Actualizar el dibujo de las rutas y los paneles.
+    _refreshStockDisplays();
+    _syncZoneWeights(frame);
     _pushRoutesToRenderer(frame);
     _renderWavesList();
     _renderFleetStatus();
@@ -605,6 +619,7 @@ function _applyEvent(evento) {
             }
         }
     } else if (evento.tipo === 'recoge') {
+        _applyCollectedStock(evento);
         _addCollectedProducts(evento.productos, evento.wave);
     } else if (evento.tipo === 'fin_wave') {
         if (wave) wave.status = 'COMPLETADA';
@@ -719,6 +734,52 @@ function _clearRoutesFromRenderer() {
 
 
 // ---------------------------------------------------------------------------
+// Zonas de despacho: peso ocupado segun el frame actual
+// ---------------------------------------------------------------------------
+
+/**
+ * Copia al escenario el peso ocupado de cada zona de despacho que viene en
+ * el frame (`frame.zonas`, zone_id -> kg) y repinta si hubo cambios.
+ * Las zonas se dibujan en la capa estatica del renderer, por eso hay que
+ * invalidarla cuando cambia el valor.
+ */
+function _syncZoneWeights(frame) {
+    const sc = _getScenario();
+    if (!sc) return;
+
+    const pesos = (frame && frame.zonas) || {};
+    let changed = false;
+    for (const dz of sc.dispatchZones) {
+        const nuevo = Number(pesos[dz.id] ?? 0) || 0;
+        if ((dz.peso_actual ?? 0) !== nuevo) {
+            dz.peso_actual = nuevo;
+            changed = true;
+        }
+    }
+    if (changed && typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.invalidateStaticLayer();
+    }
+}
+
+/** Vuelve a cero el peso ocupado de todas las zonas de despacho. */
+function _resetZoneWeights() {
+    const sc = _getScenario();
+    if (!sc) return;
+
+    let changed = false;
+    for (const dz of sc.dispatchZones) {
+        if ((dz.peso_actual ?? 0) !== 0) {
+            dz.peso_actual = 0;
+            changed = true;
+        }
+    }
+    if (changed && typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.invalidateStaticLayer();
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // Controles de reproduccion: play, pause, step, restart
 // ---------------------------------------------------------------------------
 
@@ -730,6 +791,7 @@ async function simPlanAndPlay() {
         // Ya termino: Play la vuelve a mostrar desde el principio.
         _resetPlayback();
         _showFrame(0);
+        _setEditingLock(true);   // vuelve a bloquear la edicion durante el replay
     }
     simPlay();
 }
@@ -783,6 +845,7 @@ async function simStep() {
         return;
     }
     if (_isLastFrame()) return;
+    _setEditingLock(true);      // sigue habiendo una simulacion activa
     _showFrame(_frameIndex + 1);
 }
 
@@ -1228,6 +1291,9 @@ function simReset() {
 
     _clearMetrics();
     _clearCollected();
+    _resetZoneWeights();
+    _resetConsumedStock();
+    _refreshStockDisplays();
 
     const compareResult = _dom('compare-result');
     if (compareResult) compareResult.innerHTML = '';
@@ -1281,6 +1347,59 @@ function simToggleFocusMode() {
 function simIsEditingLocked() {
     return _simulationLocked;
 }
+
+// ---------------------------------------------------------------------------
+// Stock restante de los productos
+// ---------------------------------------------------------------------------
+
+/**
+ * Acumula las unidades recogidas por el evento "recoge". Usa el detalle
+ * `items` (con cantidades); si no viene, cae al listado de ids y descuenta
+ * una unidad por cada id (compatibilidad con eventos viejos).
+ */
+function _applyCollectedStock(evento) {
+    if (Array.isArray(evento.items)) {
+        for (const it of evento.items) {
+            const pid  = it.producto_id;
+            const cant = Number(it.cantidad) || 0;
+            if (!pid || cant <= 0) continue;
+            _consumedStock[pid] = (_consumedStock[pid] || 0) + cant;
+        }
+        return;
+    }
+    for (const pid of evento.productos || []) {
+        if (!pid) continue;
+        _consumedStock[pid] = (_consumedStock[pid] || 0) + 1;
+    }
+}
+
+/**
+ * Unidades que le quedan a un producto segun lo recogido hasta el frame
+ * que se esta mostrando. No modifica el escenario: el stock original se
+ * conserva para guardar/cargar y para reiniciar la simulacion.
+ */
+function simGetRemainingStock(product) {
+    if (!product) return 0;
+    const base  = Number(product.quantity) || 0;
+    const usado = _consumedStock[product.id] || 0;
+    return Math.max(0, base - usado);
+}
+
+function _resetConsumedStock() {
+    _consumedStock = {};
+}
+
+/** Refresca los paneles abiertos que muestran stock (tooltip y panel de rack). */
+function _refreshStockDisplays() {
+    if (typeof _editor !== 'undefined' && _editor &&
+        typeof _editor._refreshPinnedRackTooltip === 'function') {
+        _editor._refreshPinnedRackTooltip();
+    }
+    if (typeof simRefreshSelectedRackStock === 'function') {
+        simRefreshSelectedRackStock();
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Tooltip de pickers: acceso al estado de simulacion del frame actual
@@ -1434,6 +1553,7 @@ function _updateStepButtons() {
 function simStepBack() {
     simPause();
     if (!_simulation || _frameIndex <= 0) return;
+    _setEditingLock(true);      // al retroceder vuelve a haber una simulacion activa
     _replayTo(_frameIndex - 1);
 }
 
@@ -1457,6 +1577,8 @@ function _replayTo(target) {
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
+    _resetZoneWeights();
+    _resetConsumedStock();
     if (_initialWavesSnapshot.length > 0) {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
@@ -1514,8 +1636,10 @@ function _replayTo(target) {
 
     // Una sola actualizacion del renderer y los paneles al final
     if (target >= 0) {
+        _syncZoneWeights(_simulation.frames[target]);
         _pushRoutesToRenderer(_simulation.frames[target]);
     }
+    _refreshStockDisplays();
     _renderWavesList();
     _renderFleetStatus();
     if (typeof renderOrdersList === 'function') renderOrdersList();

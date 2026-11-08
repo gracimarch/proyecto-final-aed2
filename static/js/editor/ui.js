@@ -287,10 +287,14 @@ function initEditorUI() {
     // Keyboard shortcuts
     document.addEventListener('keydown', e => _onKeyDown(e));
 
+    // Cargar escenario soltando un archivo .json en la ventana
+    _initScenarioDragDrop();
+
     // Inicializar renderer en el canvas (sin escenario todavía)
     const canvas = DOM.canvas();
     _renderer = new WarehouseRenderer(canvas);
     _editor   = new WarehouseEditor(canvas, _renderer, _onEditorEvent);
+    _installUndoHooks();   // Ctrl+Z sobre las ediciones del escenario
     _renderer.render();   // dibuja fondo vacío
 }
 
@@ -592,6 +596,7 @@ function _onWizardFinish() {
     _updatePickersList();
     _updateCanvasStatus();
     _setActiveTool('select');
+    _resetUndoHistory();
     showToast('Escenario "' + s.name + '" creado (' + s.width + 'x' + s.height + ')', 'success');
 }
 
@@ -963,10 +968,12 @@ function submitOrder() {
         // Modo edicion: actualizar el pedido existente
         const existing = (sc.orders || []).find(o => o.id === _editingOrderId);
         if (existing) {
-            existing.prioridad = priority;
-            existing.items = _orderDraftItems.map(
-                it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad })
-            );
+            _withUndo(() => {
+                existing.prioridad = priority;
+                existing.items = _orderDraftItems.map(
+                    it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad })
+                );
+            });
             renderOrdersList();
             closeModalOrder();
             showToast(`Pedido ${existing.id} actualizado con ${existing.items.length} item(s).`, 'success');
@@ -980,7 +987,7 @@ function submitOrder() {
     // Se pasa el array existente para generar ORDR01, ORDR02...
     const items = _orderDraftItems.map(it => new OrderItem({ productoId: it.productoId, cantidad: it.cantidad }));
     const order = new Order({ prioridad: priority, estado: 'PENDIENTE', items, _existingOrders: sc.orders });
-    sc.orders.push(order);
+    _withUndo(() => sc.orders.push(order));
 
     renderOrdersList();
     closeModalOrder();
@@ -1098,7 +1105,7 @@ function renderOrdersList() {
             const oid = btn.dataset.deleteOrder;
             const idx = sc.orders.findIndex(o => o.id === oid);
             if (idx !== -1) {
-                sc.orders.splice(idx, 1);
+                _withUndo(() => sc.orders.splice(idx, 1));
                 renderOrdersList();
                 showToast('Pedido eliminado.', 'warning');
             }
@@ -1259,7 +1266,7 @@ function _showSelectionRack(rack, highlightCell = null) {
         <div class="prod-chip${isActive ? ' prod-chip--active' : ''}" data-px="${p.x}" data-py="${p.y}">
             <div class="prod-chip__body">
                 <span class="prod-chip__name">${p.name}</span>
-                <span class="prod-chip__meta">${p.sku} &middot; ${p.pesoKg}&thinsp;kg &middot; &times;${p.quantity}</span>
+                <span class="prod-chip__meta">${p.sku} &middot; ${p.pesoKg}&thinsp;kg &middot; <span class="prod-chip__stock" data-stock-pid="${p.id}">&times;${typeof simGetRemainingStock === 'function' ? simGetRemainingStock(p) : p.quantity}</span></span>
             </div>
             <span class="prod-chip__cell" title="Coordenadas (x, y, z)">(${p.x},${p.y},${p.z})</span>
             <button class="prod-chip__del" data-pid="${p.id}" title="Eliminar" aria-label="Eliminar ${p.name}">
@@ -1338,6 +1345,29 @@ function _showSelectionRack(rack, highlightCell = null) {
     panel.classList.add('open');
 }
 
+/**
+ * Actualiza el stock de los productos del rack seleccionado sin reconstruir
+ * el panel. Se llama en cada frame de la simulación.
+ */
+function simRefreshSelectedRackStock() {
+    const panel = DOM.selectionPanel();
+    if (!panel || !panel.classList.contains('open')) return;
+
+    const selected = _renderer?.selectedElement;
+    if (!selected || selected.type !== 'rack') return;
+
+    const rack = selected.element;
+    panel.querySelectorAll('.prod-chip__stock[data-stock-pid]').forEach(el => {
+        const prod = rack.products.find(p => p.id === el.dataset.stockPid);
+        if (!prod) return;
+        const stock = (typeof simGetRemainingStock === 'function')
+            ? simGetRemainingStock(prod)
+            : prod.quantity;
+        const text = `×${stock}`;
+        if (el.textContent !== text) el.textContent = text;
+    });
+}
+
 function _showSelectionPicker(picker) {
     const panel = DOM.selectionPanel();
     const body  = DOM.selectionBody();
@@ -1371,7 +1401,7 @@ function _showSelectionPicker(picker) {
     body.querySelector('#sel-picker-cap-btn')?.addEventListener('click', () => {
         const val = parseFloat(body.querySelector('#sel-picker-cap').value);
         if (!val || val < 1) { showToast('Capacidad inválida (mínimo 1 kg).', 'warning'); return; }
-        picker.capacidadKg = val;
+        _withUndo(() => { picker.capacidadKg = val; });
         _updateSidebarInfo();
         showToast(`${picker.name}: capacidad actualizada a ${val} kg`, 'info');
     });
@@ -1521,7 +1551,7 @@ function _showSelectionDispatch(dz) {
             e.target.value = dz.puertaId || '';
             return;
         }
-        dz.puertaId = newId;
+        _withUndo(() => { dz.puertaId = newId; });
         _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         if (_wizardScenario) _updateWizardValidMsg();
@@ -1530,7 +1560,7 @@ function _showSelectionDispatch(dz) {
     body.querySelector('#sel-dz-weight-btn')?.addEventListener('click', () => {
         const val = parseFloat(body.querySelector('#sel-dz-weight').value);
         if (!val || val < 1) { showToast('Peso máximo inválido (mínimo 1 kg).', 'warning'); return; }
-        dz.pesoMaxKg = val;
+        _withUndo(() => { dz.pesoMaxKg = val; });
         _renderer?.invalidateStaticLayer();
         _updateSidebarInfo();
         showToast(`Zona ${dz.id}: peso máximo actualizado a ${val} kg`, 'info');
@@ -1808,6 +1838,7 @@ function _showLoadedScenario(data) {
     _updateCanvasStatus();
     _hideSelection();
     renderOrdersList();
+    _resetUndoHistory();
 }
 
 async function _loadScenarioFromText(texto) {
@@ -1865,15 +1896,100 @@ async function _loadScenarioFromText(texto) {
 function loadScenario() {
     const input = document.createElement('input');
     input.type  = 'file';
-    input.accept = '.json';
+    input.accept = '.json,application/json';
     input.addEventListener('change', e => {
         const file = e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = ev => _loadScenarioFromText(ev.target.result);
-        reader.readAsText(file);
+        _loadScenarioFile(file);
     });
     input.click();
+}
+
+/** Lee un archivo .json y lo manda al cargador de escenarios. */
+function _loadScenarioFile(file) {
+    if (!file) return;
+    if (!/\.json$/i.test(file.name)) {
+        showToast('El archivo tiene que ser .json.', 'warning');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload  = ev => _loadScenarioFromText(ev.target.result);
+    reader.onerror = () => showToast('No se pudo leer el archivo.', 'error');
+    reader.readAsText(file);
+}
+
+// ── Cargar escenario arrastrando un archivo ──────────────────────
+
+/** Profundidad de dragenter/dragleave: evita parpadeos al pasar por hijos. */
+let _dragDepth = 0;
+
+function _dragHasFiles(e) {
+    const dt = e.dataTransfer;
+    if (!dt) return false;
+    if (dt.types) return Array.from(dt.types).includes('Files');
+    return !!(dt.files && dt.files.length > 0);
+}
+
+function _scenarioDropAllowed() {
+    return !(typeof simIsEditingLocked === 'function' && simIsEditingLocked());
+}
+
+function _getScenarioDropOverlay() {
+    let overlay = document.getElementById('scenario-drop-overlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'scenario-drop-overlay';
+    overlay.className = 'scenario-drop-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.innerHTML =
+        '<div class="scenario-drop-overlay__box">' +
+            '<span class="icon icon--lg icon--filled" aria-hidden="true">upload</span>' +
+            '<span class="scenario-drop-overlay__title">Soltá el archivo para cargar el escenario</span>' +
+            '<span class="scenario-drop-overlay__hint">Archivo .json</span>' +
+        '</div>';
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function _setScenarioDropOverlay(visible) {
+    const overlay = _getScenarioDropOverlay();
+    overlay.classList.toggle('scenario-drop-overlay--visible', visible);
+    overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function _initScenarioDragDrop() {
+    window.addEventListener('dragenter', e => {
+        if (!_dragHasFiles(e)) return;
+        e.preventDefault();
+        _dragDepth++;
+        if (_scenarioDropAllowed()) _setScenarioDropOverlay(true);
+    });
+
+    window.addEventListener('dragover', e => {
+        if (!_dragHasFiles(e)) return;
+        e.preventDefault();   // sin esto el navegador no permite soltar
+        e.dataTransfer.dropEffect = _scenarioDropAllowed() ? 'copy' : 'none';
+    });
+
+    window.addEventListener('dragleave', () => {
+        _dragDepth = Math.max(0, _dragDepth - 1);
+        if (_dragDepth === 0) _setScenarioDropOverlay(false);
+    });
+
+    window.addEventListener('drop', e => {
+        if (!_dragHasFiles(e)) return;
+        e.preventDefault();
+        _dragDepth = 0;
+        _setScenarioDropOverlay(false);
+
+        if (!_scenarioDropAllowed()) {
+            showToast('No se puede cargar un escenario mientras la simulación está activa.', 'warning');
+            return;
+        }
+        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        _loadScenarioFile(file);
+    });
 }
 
 // ── Generar escenario automático ─────────────────────────────────
@@ -1995,6 +2111,7 @@ function _aplicarEscenarioGenerado(resultado) {
     _hideSelection();
     renderOrdersList();
     _setActiveTool('select');
+    _resetUndoHistory();
 
     closeModalGenerate();
 
@@ -2020,11 +2137,160 @@ function _aplicarEscenarioGenerado(resultado) {
     showToast(`Escenario "${_scenario.name}" generado: ${resumen}${validado}${semilla}`, 'success');
 }
 
+// ── Deshacer / rehacer ediciones (Ctrl+Z) ─────────────────────────
+//
+// Cada entrada del historial es un snapshot JSON del escenario tomado
+// ANTES de una edición. Se enganchan los métodos que mutan el escenario
+// (Scenario.prototype) más los pocos lugares que lo modifican a mano
+// (pedidos, capacidad de picker, zona de despacho). No se registra nada
+// mientras la simulación está activa ni durante el wizard.
+
+const UNDO_MAX = 50;
+let _undoStack = [];
+let _redoStack = [];
+
+/** Serializa el escenario activo, o null si no se puede. */
+function _undoSnapshot(sc) {
+    try {
+        return JSON.stringify((sc || _scenario).toJSON());
+    } catch (err) {
+        return null;
+    }
+}
+
+/**
+ * Guarda un estado previo en el historial. Solo si cambió respecto del
+ * estado posterior (evita pasos vacíos por operaciones que fallan).
+ */
+function _recordUndoSnapshot(before, after) {
+    if (!before || !after || before === after) return;
+    if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) return;
+    if (_wizardScenario || !_scenario) return;
+    // Si ya está arriba, no duplicar (p. ej. Enter + click en un mismo botón).
+    if (_undoStack[_undoStack.length - 1] === before) { _redoStack = []; return; }
+    _undoStack.push(before);
+    if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    _redoStack = [];
+}
+
+/** Toma un snapshot del escenario actual antes de una mutación directa. */
+function _withUndo(fn) {
+    const active = !(_wizardScenario || !_scenario) &&
+        !(typeof simIsEditingLocked === 'function' && simIsEditingLocked());
+    if (!active) return fn();
+    const before = _undoSnapshot(_scenario);
+    const result = fn();
+    _recordUndoSnapshot(before, _undoSnapshot(_scenario));
+    return result;
+}
+
+/** Limpia el historial (escenario nuevo, cargado o generado). */
+function _resetUndoHistory() {
+    _undoStack = [];
+    _redoStack = [];
+}
+
+/** Aplica un snapshot reconstruyendo el escenario y toda la UI asociada. */
+function _applyUndoSnapshot(snapshot) {
+    const data = JSON.parse(snapshot);
+
+    // La simulación vieja apunta a objetos que van a quedar obsoletos.
+    if (typeof simReset === 'function') simReset();
+
+    _scenario = Scenario.fromJSON(data);
+    _editor.setScenario(_scenario);
+
+    DOM.canvasPlaceholder().style.display = 'none';
+    DOM.canvas().style.display = 'block';
+
+    closeModalProduct();
+    closeModalOrder();
+    _hideSelection();
+    if (_editor && typeof _editor._hideTooltip === 'function') _editor._hideTooltip();
+    _updateSidebarInfo();
+    _updatePickersList();
+    _updateCanvasStatus();
+    renderOrdersList();
+}
+
+function _undo() {
+    if (_wizardScenario || _undoStack.length === 0) return false;
+    if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) return false;
+    const current = _undoSnapshot(_scenario);
+    const previous = _undoStack.pop();
+    if (!previous) return false;
+    _redoStack.push(current);
+    _applyUndoSnapshot(previous);
+    return true;
+}
+
+function _redo() {
+    if (_wizardScenario || _redoStack.length === 0) return false;
+    if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) return false;
+    const current = _undoSnapshot(_scenario);
+    const next = _redoStack.pop();
+    if (!next) return false;
+    _undoStack.push(current);
+    _applyUndoSnapshot(next);
+    return true;
+}
+
+/**
+ * Envuelve los métodos de Scenario que modifican el escenario para
+ * registrar automáticamente el estado previo. Es un solo punto de
+ * enganche: no hay que acordarse de llamar a _withUndo en cada uno.
+ */
+let _undoHooksInstalled = false;
+function _installUndoHooks() {
+    if (_undoHooksInstalled || typeof Scenario === 'undefined') return;
+    _undoHooksInstalled = true;
+
+    const mutators = [
+        'addRack', 'moveRack', 'rotateRack', 'removeRack',
+        'addProduct', 'removeProduct',
+        'addDoor', 'removeDoor', 'moveDoor',
+        'addDispatchZone', 'moveDispatchZone', 'removeDispatchZone',
+        'addAisle', 'removeAisle',
+        'addPicker', 'removePicker', 'movePicker',
+    ];
+
+    for (const name of mutators) {
+        const original = Scenario.prototype[name];
+        if (typeof original !== 'function') continue;
+        Scenario.prototype[name] = function (...args) {
+            const before = (this === _scenario) ? _undoSnapshot(this) : null;
+            const result = original.apply(this, args);
+            if (before !== null && this === _scenario) {
+                _recordUndoSnapshot(before, _undoSnapshot(this));
+            }
+            return result;
+        };
+    }
+}
+
 // ── Keyboard shortcuts ────────────────────────────────────────────
 
 function _onKeyDown(e) {
     // No activar si el foco está en un input/textarea
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+
+    // Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y): deshacer / rehacer ediciones
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const key = (e.key || '').toLowerCase();
+        const isZ = key === 'z' || e.code === 'KeyZ';
+        const isY = key === 'y' || e.code === 'KeyY';
+        if (isZ) {
+            e.preventDefault();
+            const ok = e.shiftKey ? _redo() : _undo();
+            if (ok) showToast(e.shiftKey ? 'Rehacer' : 'Deshacer', 'info', 1200);
+            return;
+        }
+        if (isY) {
+            e.preventDefault();
+            if (_redo()) showToast('Rehacer', 'info', 1200);
+            return;
+        }
+    }
 
     // Bloquear atajos de edicion mientras la simulacion esta activa
     if (typeof simIsEditingLocked === 'function' && simIsEditingLocked()) {

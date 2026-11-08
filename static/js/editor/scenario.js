@@ -135,6 +135,8 @@ class DispatchZone {
     constructor({ id = null, puertaId = null, x, y, width = 3, height = 2, pesoMaxKg = 500, _existingZones = null } = {}) {
         this.id = id || _genSeqId('ZONE', _existingZones, 2); this.puertaId = puertaId;
         this.x = x; this.y = y; this.width = width; this.height = height; this.pesoMaxKg = pesoMaxKg;
+        /** Peso depositado por los pickers (solo durante la simulación). */
+        this.peso_actual = 0;
     }
     containsCell(cx, cy) {
         return cx >= this.x && cx < this.x + this.width && cy >= this.y && cy < this.y + this.height;

@@ -1223,6 +1223,7 @@ class Simulation:
             # ------------------------------------------------------------------
             if celda in task.paradas:
                 recogidos = []
+                recogidos_items = []    # detalle con cantidades para actualizar el stock en el front
                 mayor_altura = 0    # costo_altura del producto más alto de la parada
                 items_en_parada = []
                 for item in task.wave.get_items():
@@ -1236,6 +1237,10 @@ class Simulation:
                         break
                     picker.pick(item)
                     recogidos.append(item.product.product_id)
+                    recogidos_items.append({
+                        "producto_id": item.product.product_id,
+                        "cantidad": item.cantidad,
+                    })
                     recogido_algunos = True
                     if item.product.costo_altura() > mayor_altura:
                         mayor_altura = item.product.costo_altura()
@@ -1249,6 +1254,7 @@ class Simulation:
                         "picker": picker.picker_id,
                         "wave": task.wave.wave_id,
                         "productos": recogidos,
+                        "items": recogidos_items,
                     })
 
                 # ¿Quedan ítems sin recoger en esta parada?

@@ -15,7 +15,7 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}?v=4">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=4">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}?v=4">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}?v=5">
 
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
@@ -36,7 +36,7 @@
                 aria-label="Cambiar tema">
                 <span class="icon icon--18 icon--filled" aria-hidden="true">light_mode</span>
             </button>
-            <button class="btn btn--ghost" id="btn-load-scenario">
+            <button class="btn btn--ghost" id="btn-load-scenario" title="Cargar escenario (también podés arrastrar un .json a la ventana)">
                 <span class="icon icon--16 icon--filled" aria-hidden="true">upload</span>
                 <span class="btn-label">Cargar escenario</span>
             </button>
@@ -256,6 +256,7 @@
                 <span><kbd>A</kbd> Pasillo</span>
                 <span><kbd>E</kbd> Borrar</span>
                 <span><kbd>Del</kbd> Eliminar sel.</span>
+                <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> Deshacer</span>
                 <span class="legend-sep">·</span>
                 <span>Rueda: zoom</span>
                 <span>Clic der.: vista</span>

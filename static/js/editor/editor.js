@@ -1,4 +1,4 @@
-﻿﻿/* ================================================================
+﻿/* ================================================================
    WAREHOUSE EDITOR
    Maneja la interacción del usuario con el canvas:
    colocar/remover racks, productos y pickers.
@@ -831,6 +831,27 @@ class WarehouseEditor {
         }
     }
 
+    /**
+     * Refresca el stock mostrado en el tooltip de celda de rack anclado.
+     * Solo actualiza los valores, así conserva el scroll y los listeners.
+     */
+    _refreshPinnedRackTooltip() {
+        if (!this._tooltip || this._pinnedRackCell === null || !this.scenario) return;
+        const values = this._tooltip.querySelectorAll('.rct-stock-value');
+        if (values.length === 0) return;
+
+        const products = this.scenario.getAllProducts ? this.scenario.getAllProducts() : [];
+        for (const el of values) {
+            const prod = products.find(p => p.id === el.dataset.stockPid);
+            if (!prod) continue;
+            const stock = (typeof simGetRemainingStock === 'function')
+                ? simGetRemainingStock(prod)
+                : prod.quantity;
+            const text = `${stock}\u2009u.`;
+            if (el.textContent !== text) el.textContent = text;
+        }
+    }
+
     /** Construye el HTML interno del tooltip. Puro, sin efectos secundarios. */
     _buildTooltipHTML(rack, cx, cy, cellProds) {
         const total = cellProds.length;
@@ -851,6 +872,9 @@ class WarehouseEditor {
         // ── Lista de productos ─────────────────────────────────────
         const prodsHTML = cellProds.map((p, i) => {
             const sep = i > 0 ? '<div class="rct-separator" aria-hidden="true"></div>' : '';
+            const stock = (typeof simGetRemainingStock === 'function')
+                ? simGetRemainingStock(p)
+                : p.quantity;
             return `${sep}
                 <div class="rct-product">
                     <div class="rct-product__head">
@@ -861,7 +885,7 @@ class WarehouseEditor {
                     <div class="rct-product__meta">
                         <span class="rct-chip rct-chip--stock" title="Stock disponible">
                             <span class="icon icon--16 icon--filled" style="font-size:10px">inventory_2</span>
-                            ${p.quantity}&thinsp;u.
+                            <span class="rct-stock-value" data-stock-pid="${this._esc(p.id)}">${stock}&thinsp;u.</span>
                         </span>
                         <span class="rct-chip rct-chip--weight" title="Peso unitario">
                             <span class="icon icon--16 icon--filled" style="font-size:10px">weight</span>
