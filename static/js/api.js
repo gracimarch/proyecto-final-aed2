@@ -52,7 +52,8 @@ async function _post(url, body) {
  *     nombre, cantidad_racks, cantidad_pasillos, cantidad_productos,
  *     distribucion_productos, orientacion_racks, ancho_x, largo_y,
  *     cantidad_pedidos, max_productos_por_pedido, wave_max_pedidos,
- *     wave_max_productos, cantidad_puertas, cantidad_pickers, semilla
+ *     wave_max_productos, cantidad_puertas, cantidad_pickers,
+ *     generar_pasillos, semilla
  * }
  * @returns {Promise<Object>} { scenario: {...}, meta: {...} }
  */

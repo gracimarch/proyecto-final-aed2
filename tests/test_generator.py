@@ -68,6 +68,97 @@ class TestScenarioGenerator(unittest.TestCase):
         self.assertEqual(resultado["meta"]["racks_horizontales"], 0)
         self.assertEqual(resultado["meta"]["racks_verticales"], 12)
         self.assertFalse(resultado["meta"]["dimensiones_fijas"])
+        # Sin pedir pasillos, el generador no declara ninguno.
+        self.assertFalse(resultado["meta"]["generar_pasillos"])
+
+    def _validar_pasillos(self, resultado):
+        """Valida el escenario y que los huecos entre racks sean pasillos."""
+        scenario = resultado["scenario"]
+        wh = Warehouse.from_dict(scenario)
+        graph = generate_graph(wh)
+        validate_reachability(wh, graph)
+
+        pasillos = scenario["warehouse"]["pasillos"]
+        self.assertGreater(len(pasillos), 0)
+        self.assertTrue(resultado["meta"]["generar_pasillos"])
+        self.assertEqual(resultado["meta"]["pasillos"], len(pasillos))
+
+        celdas_pasillo = set()
+        for pasillo in pasillos:
+            self.assertIn(pasillo["sentido"], ("N", "S", "E", "O", "AMBOS"))
+            x0 = pasillo["ubicacion"]["x"]
+            y0 = pasillo["ubicacion"]["y"]
+            for dx in range(pasillo["ancho"]):
+                for dy in range(pasillo["alto"]):
+                    celdas_pasillo.add((x0 + dx, y0 + dy))
+
+        # Todo hueco entre dos racks de una misma fila está cubierto.
+        filas = {}
+        for rack in scenario["warehouse"]["racks"]:
+            filas.setdefault(rack["ubicacion"]["y"], []).append(rack)
+        for y, fila in filas.items():
+            fila = sorted(fila, key=lambda r: r["ubicacion"]["x"])
+            alto_fila = fila[0]["alto"]
+            for izquierdo, derecho in zip(fila, fila[1:]):
+                x_inicio = izquierdo["ubicacion"]["x"] + izquierdo["ancho"]
+                for x in range(x_inicio, derecho["ubicacion"]["x"]):
+                    for dy in range(alto_fila):
+                        self.assertIn((x, y + dy), celdas_pasillo)
+
+    def test_generar_pasillos_vertical(self):
+        resultado = generate_scenario(
+            cantidad_racks=12,
+            cantidad_pasillos=5,
+            cantidad_productos=40,
+            cantidad_pedidos=10,
+            max_productos_por_pedido=3,
+            wave_max_pedidos=3,
+            orientacion_racks="vertical",
+            generar_pasillos=True,
+            semilla=42,
+        )
+        self._validar_pasillos(resultado)
+        # Hay pasillos verticales con sentido N y S (alternados).
+        sentidos = {
+            p["sentido"] for p in resultado["scenario"]["warehouse"]["pasillos"]
+        }
+        self.assertIn("N", sentidos)
+        self.assertIn("S", sentidos)
+
+    def test_generar_pasillos_horizontal_y_aleatorio(self):
+        for orientacion in ("horizontal", "aleatorio"):
+            with self.subTest(orientacion=orientacion):
+                resultado = generate_scenario(
+                    cantidad_racks=10,
+                    cantidad_pasillos=4,
+                    cantidad_productos=30,
+                    cantidad_pedidos=8,
+                    max_productos_por_pedido=3,
+                    wave_max_pedidos=3,
+                    orientacion_racks=orientacion,
+                    generar_pasillos=True,
+                    semilla=21,
+                )
+                self._validar_pasillos(resultado)
+
+    def test_generar_pasillos_con_dimensiones_fijas(self):
+        resultado = generate_scenario(
+            cantidad_racks=12,
+            cantidad_pasillos=5,
+            cantidad_productos=40,
+            cantidad_pedidos=10,
+            max_productos_por_pedido=3,
+            wave_max_pedidos=3,
+            orientacion_racks="vertical",
+            ancho_x=45,
+            largo_y=40,
+            generar_pasillos=True,
+            semilla=31,
+        )
+        self._validar_pasillos(resultado)
+        dims = resultado["scenario"]["warehouse"]["dimensiones"]
+        self.assertEqual((dims["ancho_x"], dims["largo_y"]), (45, 40))
+
 
     def test_generacion_minima(self):
         resultado = generate_scenario(
@@ -336,6 +427,8 @@ class TestScenarioGenerator(unittest.TestCase):
             generate_scenario(ancho_x=0)
         with self.assertRaises(ValueError):
             generate_scenario(largo_y=-3)
+        with self.assertRaises(ValueError):
+            generate_scenario(generar_pasillos="quizas")
 
 
 if __name__ == "__main__":
