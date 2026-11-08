@@ -238,8 +238,21 @@ def api_waves_generate():
         picker_ids = [p.picker_id for p in wave.pickers]
 
         pedidos_ids = []
+        entries_list = []
         for entry in wave.entries:
             pedidos_ids.append(entry.order.order_id)
+            entries_list.append({
+                "order_id":  entry.order.order_id,
+                "prioridad": entry.order.prioridad,
+                "items": [
+                    {
+                        "productoId": item.product.product_id,
+                        "cantidad":   item.cantidad,
+                        "peso_kg":    item.product.peso_kg,
+                    }
+                    for item in entry.items
+                ],
+            })
 
         waves_dict.append({
             "wave_id":         wave.wave_id,
@@ -248,6 +261,7 @@ def api_waves_generate():
             "picker_id":       picker_ids[0] if picker_ids else None,  # compat
             "prioridad":       wave.priority(),
             "pedidos":         pedidos_ids,
+            "entries":         entries_list,
             "unidades":        wave.current_units(),
             "peso_kg":         round(wave.total_weight(), 3),
             "estrategia_wave": estrategia_wave,
