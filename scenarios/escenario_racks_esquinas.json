@@ -1,0 +1,214 @@
+{
+  "warehouse": {
+    "dimensiones": {
+      "ancho_x": 12,
+      "largo_y": 6
+    },
+    "puertas": [
+      {
+        "id": "DOOR01",
+        "tipo": "AMBOS",
+        "ubicacion": {
+          "x": 0,
+          "y": 2
+        }
+      }
+    ],
+    "zonas_despacho": [
+      {
+        "id": "ZONE01",
+        "puerta_id": "DOOR01",
+        "ubicacion": {
+          "x": 1,
+          "y": 2
+        },
+        "ancho": 2,
+        "alto": 2,
+        "peso_max_kg": 500
+      }
+    ],
+    "racks": [
+      {
+        "id": "RACK01",
+        "ubicacion": {
+          "x": 10,
+          "y": 5
+        },
+        "ancho": 2,
+        "alto": 1
+      },
+      {
+        "id": "RACK02",
+        "ubicacion": {
+          "x": 10,
+          "y": 2
+        },
+        "ancho": 2,
+        "alto": 2
+      },
+      {
+        "id": "RACK03",
+        "ubicacion": {
+          "x": 10,
+          "y": 0
+        },
+        "ancho": 2,
+        "alto": 1
+      },
+      {
+        "id": "RACK04",
+        "ubicacion": {
+          "x": 6,
+          "y": 5
+        },
+        "ancho": 2,
+        "alto": 1
+      },
+      {
+        "id": "RACK05",
+        "ubicacion": {
+          "x": 6,
+          "y": 0
+        },
+        "ancho": 2,
+        "alto": 1
+      },
+      {
+        "id": "RACK06",
+        "ubicacion": {
+          "x": 6,
+          "y": 2
+        },
+        "ancho": 2,
+        "alto": 2
+      }
+    ],
+    "pasillos": []
+  },
+  "pickers": [
+    {
+      "id": "PICK01",
+      "posicion_inicial": {
+        "x": 0,
+        "y": 0
+      },
+      "capacidad_carga_kg": 100
+    }
+  ],
+  "productos": [
+    {
+      "id": "PRD002",
+      "nombre": "Mouse",
+      "rack_id": "RACK01",
+      "ubicacion": {
+        "x": 11,
+        "y": 5,
+        "z": 1
+      },
+      "cantidad_disponible": 20,
+      "peso_kg": 1
+    },
+    {
+      "id": "PRD004",
+      "nombre": "Auriculares",
+      "rack_id": "RACK01",
+      "ubicacion": {
+        "x": 11,
+        "y": 5,
+        "z": 2
+      },
+      "cantidad_disponible": 7,
+      "peso_kg": 1
+    },
+    {
+      "id": "PRD005",
+      "nombre": "Teclado",
+      "rack_id": "RACK02",
+      "ubicacion": {
+        "x": 10,
+        "y": 2,
+        "z": 1
+      },
+      "cantidad_disponible": 8,
+      "peso_kg": 1
+    },
+    {
+      "id": "PRD003",
+      "nombre": "Impresora Laser",
+      "rack_id": "RACK03",
+      "ubicacion": {
+        "x": 10,
+        "y": 0,
+        "z": 1
+      },
+      "cantidad_disponible": 1,
+      "peso_kg": 1
+    },
+    {
+      "id": "PRD006",
+      "nombre": "Cuadernos",
+      "rack_id": "RACK04",
+      "ubicacion": {
+        "x": 6,
+        "y": 5,
+        "z": 1
+      },
+      "cantidad_disponible": 1,
+      "peso_kg": 1
+    },
+    {
+      "id": "PRD001",
+      "nombre": "Monitor 27",
+      "rack_id": "RACK06",
+      "ubicacion": {
+        "x": 6,
+        "y": 3,
+        "z": 1
+      },
+      "cantidad_disponible": 10,
+      "peso_kg": 1
+    }
+  ],
+  "pedidos": [
+    {
+      "id": "ORDR01",
+      "prioridad": 3,
+      "estado": "PENDIENTE",
+      "items": [
+        {
+          "producto_id": "PRD002",
+          "cantidad": 1
+        },
+        {
+          "producto_id": "PRD004",
+          "cantidad": 1
+        },
+        {
+          "producto_id": "PRD006",
+          "cantidad": 1
+        },
+        {
+          "producto_id": "PRD005",
+          "cantidad": 1
+        }
+      ]
+    }
+  ],
+  "configuracion": {
+    "wave_max_pedidos": 5,
+    "wave_max_productos": 20
+  },
+  "_editor": {
+    "id": "SCEN01",
+    "name": "escenario_racks_esquinas",
+    "_nextPickerColorIdx": 1,
+    "_nextPickerNum": 2,
+    "pickerColors": [
+      {
+        "id": "PICK01",
+        "color": "#FF6B6B",
+        "name": "PICK01"
+      }
+    ]
+  }
+}
