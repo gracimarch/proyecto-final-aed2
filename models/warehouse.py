@@ -385,9 +385,10 @@ class Warehouse:
         Cierra la configuración: después no se pueden agregar zonas, puertas,
         pasillos ni pickers.
 
-        La validación de que cada puerta tenga zona de despacho se hace
-        incrementalmente al agregar cada zona (ver _validate_zone_faces_its_door).
+        Raises:
+            ValueError: Si alguna puerta no tiene zona de despacho.
         """
+        self._validate_every_door_has_zone()
         self._sealed = True
 
     def _check_not_sealed(self, que: str) -> None:
@@ -683,6 +684,22 @@ class Warehouse:
             raise ValueError(
                 f"El picker '{picker.picker_id}' empieza en {celda}, donde ya está "
                 f"el picker '{self._picker_cells[celda].picker_id}'."
+            )
+
+    def _validate_every_door_has_zone(self) -> None:
+        """§3.3: frente a cada puerta hay una zona de despacho."""
+        puertas_con_zona = set()
+        for zona in self._dispatch_zones:
+            puertas_con_zona.add(zona.puerta_id)
+
+        faltan = []
+        for door in self._doors:
+            if door.door_id not in puertas_con_zona:
+                faltan.append(door.door_id)
+
+        if len(faltan) > 0:
+            raise ValueError(
+                f"Las siguientes puertas no tienen zona de despacho: {', '.join(faltan)}."
             )
 
     def to_dict(self) -> dict:

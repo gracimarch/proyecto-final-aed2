@@ -474,6 +474,10 @@ class WaveManager:
         agregado: O(N · (V + E + N)).
         """
         self.unprocessable_orders = []
+        # La lista se vacía en cada armado, así que hay que volver a validar
+        # el stock: si no, se pierde lo que marcó el constructor.
+        if self.warehouse is not None and self.orders:
+            self._validate_stock_consistency()
 
         if estrategia_wave not in ("por_pedido", "por_cercania", "solo_cercania"):
             raise ValueError(
