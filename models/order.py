@@ -57,6 +57,15 @@ class OrderItem:
         """Peso de la línea: peso por unidad × cantidad."""
         return self.product.peso_kg * self.cantidad
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, OrderItem):
+            return NotImplemented
+        return (self.product.product_id == other.product.product_id
+                and self.cantidad == other.cantidad)
+
+    def __hash__(self) -> int:
+        return hash((self.product.product_id, self.cantidad))
+
     def to_dict(self) -> dict:
         return {
             "producto_id": self.product.product_id,
@@ -147,23 +156,12 @@ class Order:
     # Totales del pedido
     # ------------------------------------------------------------------
 
-    def get_locations(self) -> list[tuple]:
-        """Ubicaciones (x, y, z) de los productos del pedido."""
-        ubicaciones = []
-        for item in self.items:
-            ubicaciones.append(tuple(item.product.location))
-        return ubicaciones
-
     def total_units(self) -> int:
         """Cantidad total de unidades pedidas."""
         total = 0
         for item in self.items:
             total = total + item.cantidad
         return total
-
-    def total_lines(self) -> int:
-        """Cantidad de líneas (productos distintos) del pedido."""
-        return len(self.items)
 
     def total_weight(self) -> float:
         """Peso total del pedido (kg)."""

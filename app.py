@@ -36,7 +36,7 @@ from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
 from models.generator import generate_scenario
 from algorithms.graph_builder import generate_graph
-from algorithms.routing import plan_route, compare_strategies, compare_all_combinations
+from algorithms.routing import plan_route, compare_all_combinations
 from models.simulation import Simulation
 from models.persistence import validate_scenario
 
@@ -77,6 +77,26 @@ def _picker_start(wave):
     if wave.picker is None:
         return None
     return wave.picker.posicion_actual
+
+
+def _find_wave(manager: WaveManager, wave_id: str):
+    """Busca una wave por su id en el manager. Devuelve None si no existe."""
+    for w in manager.get_waves():
+        if w.wave_id == wave_id:
+            return w
+    return None
+
+
+def _build_manager(data: dict, estrategia_wave: str = "por_cercania") -> tuple[Warehouse, WaveManager]:
+    """
+    Construye Warehouse y WaveManager, genera waves y asigna pickers.
+    Helper para evitar duplicación en los endpoints.
+    """
+    warehouse = _build_warehouse(data)
+    manager = _build_wave_manager(data, warehouse)
+    manager.generate_waves(estrategia_wave=estrategia_wave)
+    manager.assign_pickers()
+    return warehouse, manager
 
 
 # ---------------------------------------------------------------------------
@@ -208,11 +228,8 @@ def api_waves_generate():
         return jsonify({"error": "El cuerpo de la peticion debe ser JSON."}), 400
 
     try:
-        warehouse = _build_warehouse(data)
-        manager   = _build_wave_manager(data, warehouse)
         estrategia_wave = data.get("estrategia_wave", "por_cercania")
-        manager.generate_waves(estrategia_wave=estrategia_wave)
-        manager.assign_pickers()
+        warehouse, manager = _build_manager(data, estrategia_wave)
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
 
@@ -292,10 +309,7 @@ def api_waves_compare():
     comparacion = []
     for estrategia in ("por_pedido", "por_cercania", "solo_cercania"):
         try:
-            warehouse = _build_warehouse(escenario)
-            manager   = _build_wave_manager(escenario, warehouse)
-            manager.generate_waves(estrategia_wave=estrategia)
-            manager.assign_pickers()
+            warehouse, manager = _build_manager(escenario, estrategia)
 
             waves_info = []
             total_unidades = 0
@@ -409,19 +423,11 @@ def api_routes_plan():
         return jsonify({"error": "Falta la clave 'wave_id' en el cuerpo."}), 400
 
     try:
-        warehouse = _build_warehouse(escenario)
-        manager   = _build_wave_manager(escenario, warehouse)
-        manager.generate_waves(estrategia_wave=estrategia_wave)
-        manager.assign_pickers()
+        warehouse, manager = _build_manager(escenario, estrategia_wave)
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
 
-    wave = None
-    for w in manager.get_waves():
-        if w.wave_id == wave_id:
-            wave = w
-            break
-
+    wave = _find_wave(manager, wave_id)
     if wave is None:
         return jsonify({"error": f"No existe la wave '{wave_id}'."}), 400
 
@@ -484,10 +490,7 @@ def api_routes_compare():
             ]
             total_waves = 0
             for est, bus in combos:
-                wh = _build_warehouse(escenario)
-                wm = _build_wave_manager(escenario, wh)
-                wm.generate_waves()
-                wm.assign_pickers()
+                wh, wm = _build_manager(escenario)
                 total_waves = len(wm.get_waves())
                 sim = Simulation(wh, wm, est, bus)
                 sim.run()
@@ -510,19 +513,11 @@ def api_routes_compare():
         return jsonify({"error": "Falta la clave 'wave_id' en el cuerpo."}), 400
 
     try:
-        warehouse = _build_warehouse(escenario)
-        manager   = _build_wave_manager(escenario, warehouse)
-        manager.generate_waves()
-        manager.assign_pickers()
+        warehouse, manager = _build_manager(escenario)
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
 
-    wave = None
-    for w in manager.get_waves():
-        if w.wave_id == wave_id:
-            wave = w
-            break
-
+    wave = _find_wave(manager, wave_id)
     if wave is None:
         return jsonify({"error": f"No existe la wave '{wave_id}'."}), 400
 
@@ -587,10 +582,7 @@ def api_simulacion():
         return jsonify({"error": str(e)}), 400
 
     try:
-        warehouse = _build_warehouse(escenario)
-        manager   = _build_wave_manager(escenario, warehouse)
-        manager.generate_waves(estrategia_wave=estrategia_wave)
-        manager.assign_pickers()
+        warehouse, manager = _build_manager(escenario, estrategia_wave)
         simulacion = Simulation(
             warehouse, manager, estrategia, buscador,
             speed_multiplier=velocidad,

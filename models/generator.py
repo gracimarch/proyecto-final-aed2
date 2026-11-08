@@ -243,8 +243,8 @@ def _empaquetar_filas(
         (score, cols_v, cols_h, filas_v, filas_h, ancho_grid, alto_grid)
         o None si no entra.
     """
-    racks_por_fila = cantidad_pasillos + 1
 
+    racks_por_fila = cantidad_pasillos + 1
     filas_v = (
         math.ceil(cantidad_vertical / racks_por_fila)
         if cantidad_vertical > 0 else 0
@@ -326,7 +326,6 @@ def _construir_layout(
 
     mejor = None
     largo_usado = largo_rack
-    racks_por_fila = cantidad_pasillos + 1
     for largo in range(largo_rack, 1, -1):
         empaquetado = _empaquetar_filas(
             cantidad_vertical,
@@ -369,6 +368,7 @@ def _construir_layout(
         _score, cols_v, cols_h, filas_v, filas_h,
         ancho_grid, alto_grid,
     ) = mejor
+    racks_por_fila = cols_v  # cols_v == cols_h == cantidad_pasillos + 1
 
     ancho = ancho_x if ancho_x is not None else ancho_grid + 2 * MARGEN_LATERAL
     # alto se recalcula después con los largos variables reales
@@ -504,7 +504,7 @@ def _generar_pasillos(
 
     pasillos = []
 
-    def agregar(x: int, y: int, ancho_pasillo: int, alto_pasillo: int,
+    def _add_aisle(x: int, y: int, ancho_pasillo: int, alto_pasillo: int,
                 sentido: str) -> None:
         pasillos.append({
             "id": f"AIS{len(pasillos) + 1:02d}",
@@ -527,13 +527,13 @@ def _generar_pasillos(
             # Alternar N/S: un pasillo sube y el siguiente baja.
             sentido = "N" if indice_vertical % 2 == 0 else "S"
             indice_vertical += 1
-            agregar(x_inicio, y, ancho_hueco, alto_fila, sentido)
+            _add_aisle(x_inicio, y, ancho_hueco, alto_fila, sentido)
 
     # 2. Bandas horizontales: inferior, entre filas y superior.
     ys = sorted(filas)
     primera_y = ys[0]
     if primera_y > Y_PASILLO_INFERIOR:
-        agregar(
+        _add_aisle(
             0, Y_PASILLO_INFERIOR, ancho,
             primera_y - Y_PASILLO_INFERIOR, "AMBOS",
         )
@@ -542,13 +542,13 @@ def _generar_pasillos(
         alto_fila = filas[y_actual][0]["alto"]
         inicio = y_actual + alto_fila
         if y_siguiente > inicio:
-            agregar(0, inicio, ancho, y_siguiente - inicio, "AMBOS")
+            _add_aisle(0, inicio, ancho, y_siguiente - inicio, "AMBOS")
 
     ultima_y = ys[-1]
     alto_ultima = filas[ultima_y][0]["alto"]
     inicio_superior = ultima_y + alto_ultima
     if alto > inicio_superior:
-        agregar(0, inicio_superior, ancho, alto - inicio_superior, "AMBOS")
+        _add_aisle(0, inicio_superior, ancho, alto - inicio_superior, "AMBOS")
 
     return pasillos
 

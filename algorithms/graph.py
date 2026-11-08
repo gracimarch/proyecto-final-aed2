@@ -146,13 +146,6 @@ class Graph:
                     cola.append(v)
         return nivel
 
-    def reachable_from(self, source: object) -> set[object]:
-        """Conjunto de nodos a los que se puede llegar desde source."""
-        alcanzables = set()
-        for nodo in self.bfs(source):
-            alcanzables.add(nodo)
-        return alcanzables
-
     def __repr__(self) -> str:
         return (
             f"Graph(nodes={self._node_count}, edges={self._edge_count}, "
@@ -280,18 +273,6 @@ def bfs_to_any(
     return [], INFINITO, None
 
 
-def bfs_shortest_path(
-    graph: Graph,
-    source: object,
-    target: object,
-) -> tuple[list[object], float]:
-    """Camino mínimo de source a target con BFS. Devuelve (camino, distancia)."""
-    if not graph.has_node(target):
-        raise KeyError(f"Nodo destino {target} no existe en el grafo.")
-    path, distance, alcanzado = bfs_to_any(graph, source, {target})
-    return path, distance
-
-
 # ===========================================================================
 # A* hacia uno o varios destinos
 # ===========================================================================
@@ -387,16 +368,3 @@ def astar_to_any(
 
     _count_expanded(stats, expanded)
     return [], INFINITO, None
-
-
-def astar_shortest_path(
-    graph: Graph,
-    source: object,
-    target: object,
-    heuristic: Callable[[object, object], float],
-) -> tuple[list[object], float]:
-    """Camino mínimo de source a target con A*. Devuelve (camino, costo)."""
-    if not graph.has_node(target):
-        raise KeyError(f"Nodo destino {target} no existe en el grafo.")
-    path, distance, alcanzado = astar_to_any(graph, source, {target}, heuristic)
-    return path, distance

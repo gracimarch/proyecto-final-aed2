@@ -49,12 +49,6 @@ class WaveOrderEntry:
             total = total + item.total_weight
         return total
 
-    def get_locations(self) -> list[tuple]:
-        ubicaciones = []
-        for item in self.items:
-            ubicaciones.append(tuple(item.product.location))
-        return ubicaciones
-
     def __repr__(self) -> str:
         return (
             f"WaveOrderEntry(order='{self.order.order_id}', "
@@ -192,17 +186,6 @@ class Wave:
         if max_peso is not None and self.total_weight() + peso_nuevo > max_peso:
             return False
         return True
-
-    def get_all_locations(self) -> list[tuple]:
-        """Ubicaciones (x, y, z) distintas de todos los ítems, en orden de aparición."""
-        vistas = set()
-        ubicaciones = []
-        for entry in self.entries:
-            for ubicacion in entry.get_locations():
-                if ubicacion not in vistas:
-                    vistas.add(ubicacion)
-                    ubicaciones.append(ubicacion)
-        return ubicaciones
 
     # ------------------------------------------------------------------
     # Agregar ítems
@@ -348,10 +331,10 @@ class Wave:
 
     def _index_in_order(self, order: Order, item: OrderItem) -> int:
         """Posición (0, 1, 2...) del ítem dentro de order.items."""
-        for i in range(len(order.items)):
-            if order.items[i] is item:
-                return i
-        raise ValueError("El ítem no pertenece al pedido.")
+        try:
+            return order.items.index(item)
+        except ValueError:
+            raise ValueError("El ítem no pertenece al pedido.")
 
     def to_dict(self) -> dict:
         """

@@ -7,7 +7,7 @@ from algorithms.graph import (
     astar_to_any,
 )
 from algorithms.pathfinding import manhattan
-from algorithms.routing import reverse_graph, graph_without
+from algorithms.routing import _reverse_graph, graph_without
 
 
 class TestGraph(unittest.TestCase):
@@ -137,7 +137,7 @@ class TestGraph(unittest.TestCase):
         g.add_edge((1, 1), (1, 2), 1.0)
         g.add_edge((1, 2), (2, 2), 2.0)
 
-        rev = reverse_graph(g)
+        rev = _reverse_graph(g)
         self.assertTrue(rev.has_edge((1, 2), (1, 1)))
         self.assertTrue(rev.has_edge((2, 2), (1, 2)))
         self.assertFalse(rev.has_edge((1, 1), (1, 2)))
