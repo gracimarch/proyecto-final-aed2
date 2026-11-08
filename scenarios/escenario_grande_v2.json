@@ -2852,7 +2852,7 @@
       "items": [
         {
           "producto_id": "P036",
-          "cantidad": 3
+          "cantidad": 2
         },
         {
           "producto_id": "P076",
@@ -3120,10 +3120,6 @@
         {
           "producto_id": "P030",
           "cantidad": 1
-        },
-        {
-          "producto_id": "P036",
-          "cantidad": 4
         },
         {
           "producto_id": "P001",
@@ -3498,22 +3494,22 @@
     "_nextPickerNum": 5,
     "pickerColors": [
       {
-        "id": "PKLPGNH8XI",
+        "id": "PK_01",
         "color": "#FF8B94",
         "name": "Picker 1"
       },
       {
-        "id": "PK6VU76IRA",
+        "id": "PK_02",
         "color": "#7C83FD",
         "name": "Picker 2"
       },
       {
-        "id": "PKMMXWQYGG",
+        "id": "PK_03",
         "color": "#96E6A1",
         "name": "Picker 3"
       },
       {
-        "id": "PK5HMR36DR",
+        "id": "PK_04",
         "color": "#F7B267",
         "name": "Picker 4"
       }
