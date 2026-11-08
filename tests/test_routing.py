@@ -36,6 +36,87 @@ class TestRouting(unittest.TestCase):
         celdas3 = pickup_cells(p3, self.wh, self.graph)
         self.assertIn((5, 7), celdas3)
 
+    def test_pickup_cells_en_esquina_usa_vecina_perpendicular(self):
+        # RACK01 es 2x1 y está pegado a la pared derecha. Sus productos en la
+        # columna derecha (11,5) no pueden recogerse desde (12,5) porque está
+        # fuera del warehouse, pero sí desde el pasillo (11,4) de abajo.
+        with open("scenarios/escenario_racks_esquinas.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        wh = Warehouse.from_dict(data)
+        graph = generate_graph(wh)
+
+        for product_id in ("PRD002", "PRD004"):
+            product = wh.products[product_id]
+            self.assertEqual(set(pickup_cells(product, wh, graph)), {(11, 4)})
+
+        # El escenario completo debe poder validarse y generar waves.
+        validate_reachability(wh, graph)
+        wm = WaveManager.from_dict(data, wh)
+        self.assertGreater(len(wm.generate_waves()), 0)
+
+    def test_pickup_cells_rack_horizontal_en_borde_superior(self):
+        # Rack 1x2 apoyado en el borde superior. El producto de la fila de
+        # arriba (3,5) solo tiene vecinas laterales: (2,5) y (4,5).
+        data = {
+            "warehouse": {
+                "dimensiones": {"ancho_x": 6, "largo_y": 6},
+                "puertas": [
+                    {"id": "D1", "tipo": "AMBOS", "ubicacion": {"x": 0, "y": 0}}
+                ],
+                "zonas_despacho": [
+                    {
+                        "id": "Z1",
+                        "puerta_id": "D1",
+                        "ubicacion": {"x": 1, "y": 0},
+                        "ancho": 2,
+                        "alto": 2,
+                        "peso_max_kg": 100,
+                    }
+                ],
+                "racks": [
+                    {"id": "R1", "ubicacion": {"x": 3, "y": 4}, "ancho": 1, "alto": 2}
+                ],
+                "pasillos": [],
+            },
+            "pickers": [
+                {
+                    "id": "P1",
+                    "posicion_inicial": {"x": 0, "y": 2},
+                    "capacidad_carga_kg": 100,
+                }
+            ],
+            "productos": [
+                {
+                    "id": "X1",
+                    "nombre": "Producto X",
+                    "rack_id": "R1",
+                    "ubicacion": {"x": 3, "y": 5, "z": 1},
+                    "cantidad_disponible": 5,
+                    "peso_kg": 1,
+                }
+            ],
+            "pedidos": [
+                {
+                    "id": "O1",
+                    "prioridad": 1,
+                    "estado": "PENDIENTE",
+                    "items": [{"producto_id": "X1", "cantidad": 1}],
+                }
+            ],
+        }
+
+        wh = Warehouse.from_dict(data)
+        graph = generate_graph(wh)
+
+        self.assertEqual(
+            set(pickup_cells(wh.products["X1"], wh, graph)), {(2, 5), (4, 5)}
+        )
+
+        validate_reachability(wh, graph)
+        wm = WaveManager.from_dict(data, wh)
+        self.assertGreater(len(wm.generate_waves()), 0)
+
     def test_plan_route_valid_path_continuity(self):
         combos = [
             ("cercania", "bfs"),

@@ -40,7 +40,7 @@ Métricas de cada recorrido:
 import time
 
 from algorithms.graph import Graph, bfs_to_any, astar_to_any, bfs_distances
-from algorithms.pathfinding import pickup_cells, manhattan
+from algorithms.pathfinding import adjacent_aisle_cells, pickup_cells, manhattan
 
 from models.order import OrderItem
 from models.warehouse import DispatchZone, Warehouse
@@ -187,17 +187,16 @@ def dispatch_access_cells(
     """
     Celdas de pasillo pegadas (arriba, abajo, izquierda o derecha) a la zona
     de despacho, ordenadas por (y, x) para que siempre se elija la misma.
+
+    Usa la misma regla de adyacencia que las celdas de recogida de un
+    producto: cualquier vecina ortogonal que sea nodo del grafo.
     """
-    celdas = []
+    celdas_zona = []
     for dx in range(zone.ancho):
         for dy in range(zone.alto):
-            cx = zone.x + dx
-            cy = zone.y + dy
-            vecinas = [(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)]
-            for vecina in vecinas:
-                if graph.has_node(vecina) and vecina not in celdas:
-                    celdas.append(vecina)
+            celdas_zona.append((zone.x + dx, zone.y + dy))
 
+    celdas = adjacent_aisle_cells(celdas_zona, graph)
     celdas.sort(key=_row_column_key)
     return celdas
 

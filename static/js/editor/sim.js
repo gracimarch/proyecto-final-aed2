@@ -882,7 +882,8 @@ function _onSimulationComplete() {
     _updatePlayPauseBtn(false);
     _focusModeUserSet = false;
     _setFocusMode(false);
-    _setEditingLock(false);     // la simulacion termino: desbloquear edicion
+    // NO desbloquear edicion aqui: la simulacion sigue "activa" hasta que
+    // el usuario presione el boton Reiniciar (simRestart).
 
     if (_simulation.error) {
         showToast(`La simulación se detuvo: ${_simulation.error}`, 'error');

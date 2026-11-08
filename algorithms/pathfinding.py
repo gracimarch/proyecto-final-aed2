@@ -4,10 +4,12 @@ algorithms/pathfinding.py
 Cómo llega un picker hasta un producto.
 
 Un producto está dentro de un rack, y los racks no son transitables. El
-picker lo recoge parado en la celda de pasillo que está pegada a la cara del
-rack donde está el producto. Esa celda se llama "celda de recogida".
+picker lo recoge parado en una celda de pasillo ortogonalmente adyacente a
+la celda del rack donde está el producto. Esa celda se llama "celda de
+recogida".
 
 Funciones:
+    adjacent_aisle_cells  : celdas de pasillo ortogonalmente adyacentes.
     pickup_cells          : celdas de recogida de un producto.
     path_to_product_bfs   : camino mínimo hasta un producto con BFS.
     path_to_product_astar : camino mínimo hasta un producto con A*.
@@ -24,6 +26,36 @@ from models.warehouse import Warehouse
 # 1. Celdas de recogida de un producto
 # ===========================================================================
 
+# Las cuatro vecinas ortogonales de una celda.
+DIRECCIONES_ORT = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def adjacent_aisle_cells(
+    cells: list[tuple[int, int]],
+    graph: Graph,
+) -> list[tuple[int, int]]:
+    """
+    Celdas de pasillo que están ortogonalmente pegadas a `cells`.
+
+    Se usa tanto para las celdas de un rack (celdas de recogida de un
+    producto) como para las de una zona de despacho (celdas de acceso).
+    Devuelve solo nodos del grafo, sin repetir y en orden determinista.
+
+    Complejidad: O(4 × cantidad de celdas de entrada).
+    """
+    celdas = []
+    vistas = set()
+    for cx, cy in cells:
+        for dx, dy in DIRECCIONES_ORT:
+            vecina = (cx + dx, cy + dy)
+            if vecina in vistas:
+                continue
+            vistas.add(vecina)
+            if graph.has_node(vecina):
+                celdas.append(vecina)
+    return celdas
+
+
 def pickup_cells(
     product: Product,
     warehouse: Warehouse,
@@ -32,18 +64,16 @@ def pickup_cells(
     """
     Lista de celdas de pasillo desde las que se puede recoger el producto.
 
-    Todo rack tiene ancho 2 o alto 2, así que cada celda del rack da a una cara:
+    Un producto se recoge desde cualquier celda de pasillo ortogonalmente
+    adyacente a la celda del rack donde está (§3.6 y §8). La regla de que un
+    lado del rack valga 2 garantiza que cada celda tenga al menos una cara
+    expuesta, pero no limita la recogida a esa cara: los extremos del rack
+    también sirven si dan a un pasillo.
 
-        Rack vertical (ancho == 2):
-            producto en la columna izquierda (x == rack.x)  -> recoge desde (x - 1, y)
-            producto en la columna derecha   (x == rack.x + 1) -> recoge desde (x + 1, y)
+    Por eso no se calcula una única cara según la columna/fila del producto:
+    se miran las cuatro vecinas, igual que para las zonas de despacho.
 
-        Rack horizontal (alto == 2):
-            producto en la fila de abajo  (y == rack.y)     -> recoge desde (x, y - 1)
-            producto en la fila de arriba (y == rack.y + 1) -> recoge desde (x, y + 1)
-
-    Un rack 2x2 cumple las dos cosas, así que cada producto puede tener dos
-    celdas de recogida. La altura z no cambia la celda.
+    La altura z no cambia la celda.
 
     Solo se devuelven las celdas que son nodos del grafo (transitables y
     dentro del warehouse).
@@ -68,26 +98,7 @@ def pickup_cells(
             f"(ancho={rack.ancho}, alto={rack.alto})."
         )
 
-    candidatas = []
-
-    if rack.ancho == 2:
-        if px == rack.x:                     # cara izquierda
-            candidatas.append((px - 1, py))
-        if px == rack.x + 1:                 # cara derecha
-            candidatas.append((px + 1, py))
-
-    if rack.alto == 2:
-        if py == rack.y:                     # cara de abajo
-            candidatas.append((px, py - 1))
-        if py == rack.y + 1:                 # cara de arriba
-            candidatas.append((px, py + 1))
-
-    celdas = []
-    for celda in candidatas:
-        # graph.has_node ya descarta lo que está fuera del warehouse o bloqueado
-        if graph.has_node(celda) and celda not in celdas:
-            celdas.append(celda)
-    return celdas
+    return adjacent_aisle_cells([(px, py)], graph)
 
 
 def _pickup_targets(
