@@ -27,6 +27,7 @@ const DOM = {
     inputGenName:         () => document.getElementById('input-gen-name'),
     inputGenRacks:        () => document.getElementById('input-gen-racks'),
     inputGenAisles:       () => document.getElementById('input-gen-aisles'),
+    inputGenAislesEnabled:() => document.getElementById('input-gen-aisles-enabled'),
     inputGenProducts:     () => document.getElementById('input-gen-products'),
     selectGenDistribution:() => document.getElementById('select-gen-distribution'),
     selectGenOrientation: () => document.getElementById('select-gen-orientation'),
@@ -2146,6 +2147,7 @@ function _leerParametrosGeneracion() {
         wave_max_productos: _enteroDeInput(DOM.inputGenWaveProducts(), 'Capacidad wave (unidades)', 1, 5000),
         cantidad_puertas: _enteroDeInput(DOM.inputGenDoors(), 'Puertas', 1, 4),
         cantidad_pickers: _enteroDeInput(DOM.inputGenPickers(), 'Pickers', 1, 20),
+        generar_pasillos: DOM.inputGenAislesEnabled()?.checked === true,
         semilla: semillaTexto === '' ? null : _enteroDeInput(DOM.inputGenSeed(), 'Semilla', 0, 2147483647),
     };
 }

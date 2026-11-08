@@ -114,6 +114,7 @@ def api_scenarios_generate():
         "wave_max_productos": 36,               // opcional
         "cantidad_puertas": 1,                  // opcional
         "cantidad_pickers": 2,                  // opcional
+        "generar_pasillos": false,              // opcional: declarar pasillos con sentido
         "semilla": 12345                        // opcional
     }
 
@@ -125,6 +126,7 @@ def api_scenarios_generate():
             "dimensiones": {"ancho_x": 31, "largo_y": 15},
             "dimensiones_fijas": false,
             "racks": 12, "pasillos": 0, "pasillos_totales": 10,
+            "generar_pasillos": false,
             "ancho_pasillo": 1,
             "largo_rack": 4, "largo_rack_preferido": 4,
             "grilla": {"columnas": 6, "filas": 2},
@@ -160,6 +162,7 @@ def api_scenarios_generate():
             wave_max_productos=body.get("wave_max_productos"),
             cantidad_puertas=body.get("cantidad_puertas", 1),
             cantidad_pickers=body.get("cantidad_pickers", 2),
+            generar_pasillos=body.get("generar_pasillos", False),
             semilla=body.get("semilla"),
         )
     except (ValueError, KeyError, TypeError) as e:
