@@ -1825,9 +1825,40 @@ document.addEventListener('DOMContentLoaded', () => {
             ? w.pedidos.join(', ')
             : '\u2014';
 
-        // Filas planas: una fila por ítem de cada pedido de la wave (sin recursividad).
+        // Filas planas: una fila por ítem de cada pedido de la wave.
+        // Usa w.entries (ítems reales de la wave) si el backend los provee;
+        // si no, cae al comportamiento anterior (order.items completo).
         let filas = '';
-        if (w.pedidos && w.pedidos.length > 0) {
+        if (w.entries && w.entries.length > 0) {
+            // Camino correcto: el backend indica exactamente qué ítems de cada
+            // pedido entraron en esta wave (pueden ser un subconjunto del pedido).
+            filas = w.entries.map(entry => {
+                const oid = entry.order_id;
+                if (!entry.items || entry.items.length === 0) {
+                    return '<tr>' +
+                        '<td class="text-right"><strong>' + oid + '</strong></td>' +
+                        '<td class="text-right">' + entry.prioridad + '</td>' +
+                        '<td colspan="4">Sin items</td>' +
+                        '</tr>';
+                }
+                return entry.items.map(it => {
+                    const p = allProducts.find(pr => pr.id === it.productoId);
+                    const nombre = p ? p.name : it.productoId;
+                    const sku = p ? (p.sku || it.productoId) : it.productoId;
+                    const pesoKg = it.peso_kg != null ? it.peso_kg : (p ? p.pesoKg : null);
+                    return '<tr>' +
+                        '<td class="text-right"><strong>' + oid + '</strong></td>' +
+                        '<td class="text-right">' + entry.prioridad + '</td>' +
+                        '<td class="text-right">' + it.cantidad + '</td>' +
+                        '<td>' + nombre + '</td>' +
+                        '<td class="text-right" style="font-family:var(--font-mono,monospace)">[' + sku + ']</td>' +
+                        '<td class="text-right">' + (pesoKg != null ? Number(pesoKg).toFixed(2) : '?') + ' kg</td>' +
+                        '</tr>';
+                }).join('');
+            }).join('');
+        } else if (w.pedidos && w.pedidos.length > 0) {
+            // Fallback: el servidor no mandó entries; mostrar todos los ítems
+            // del pedido (comportamiento anterior, puede sobrestimar).
             filas = w.pedidos.map(oid => {
                 const order = orders.find(o => o.id === oid);
                 if (!order || !order.items || order.items.length === 0) {
