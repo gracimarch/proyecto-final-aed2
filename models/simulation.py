@@ -1140,6 +1140,23 @@ class Simulation:
         self.eventos.append({"tipo": "desvio", "picker": picker.picker_id})
         return True
 
+    def _pending_paradas(self, task: _Task) -> list[dict]:
+        """
+        Serializa las paradas que todavía faltan recoger para el frontend.
+
+        Se envía junto con cada evento "ruta" y "parada_recogida" para que el
+        front no tenga que inferir qué paradas siguen pendientes mirando el
+        camino: una celda ya recogida puede volver a aparecer en el recorrido
+        como celda de tránsito y no debe dibujarse como parada.
+        """
+        return [
+            {
+                "celda": [celda[0], celda[1]],
+                "productos": list(product_ids),
+            }
+            for celda, product_ids in task.paradas.items()
+        ]
+
     def _change_route(self, picker: Picker, task: _Task, path: list[tuple[int, int]]) -> None:
         """Le da un camino nuevo al picker y lo anota para dibujarlo."""
         picker.change_route(path)
@@ -1150,6 +1167,7 @@ class Simulation:
             "tipo": "ruta",
             "picker": picker.picker_id,
             "path": _cells_to_lists(path),
+            "paradas": self._pending_paradas(task),
         })
 
     # ------------------------------------------------------------------
@@ -1223,6 +1241,7 @@ class Simulation:
             # ------------------------------------------------------------------
             if celda in task.paradas:
                 recogidos = []
+                recogidos_items = []    # detalle con cantidades para actualizar el stock en el front
                 mayor_altura = 0    # costo_altura del producto más alto de la parada
                 items_en_parada = []
                 for item in task.wave.get_items():
@@ -1236,6 +1255,10 @@ class Simulation:
                         break
                     picker.pick(item)
                     recogidos.append(item.product.product_id)
+                    recogidos_items.append({
+                        "producto_id": item.product.product_id,
+                        "cantidad": item.cantidad,
+                    })
                     recogido_algunos = True
                     if item.product.costo_altura() > mayor_altura:
                         mayor_altura = item.product.costo_altura()
@@ -1249,6 +1272,7 @@ class Simulation:
                         "picker": picker.picker_id,
                         "wave": task.wave.wave_id,
                         "productos": recogidos,
+                        "items": recogidos_items,
                     })
 
                 # ¿Quedan ítems sin recoger en esta parada?
@@ -1285,6 +1309,15 @@ class Simulation:
 
                 # Todos los ítems de esta parada se recogieron: borrarla.
                 del task.paradas[celda]
+                # Avisar al frontend que la celda dejó de ser una parada. El
+                # camino puede volver a pasar por acá como tránsito, pero ya
+                # no debe dibujarse el círculo de recogida.
+                self.eventos.append({
+                    "tipo": "parada_recogida",
+                    "picker": picker.picker_id,
+                    "celda": [celda[0], celda[1]],
+                    "paradas": self._pending_paradas(task),
+                })
 
             # ------------------------------------------------------------------
             # 3. Si terminó el camino pero todavía faltan paradas de recogida
@@ -1525,7 +1558,7 @@ class Simulation:
                     "tipo": "ruta",
                     "picker": picker.picker_id,
                     "path": _cells_to_lists(ruta.path),
-                    "paradas": ruta.to_dict()["paradas"],
+                    "paradas": self._pending_paradas(task),
                 })
 
     # ------------------------------------------------------------------
@@ -1595,8 +1628,9 @@ class Simulation:
              "eventos": [...]}
 
         Los eventos dicen qué pasó en este tick: "inicio_wave", "ruta"
-        (camino nuevo para dibujar), "recoge", "descarga", "espera",
-        "desvio" y "fin_wave". El estado de las waves no se repite en cada
+        (camino nuevo para dibujar), "parada_recogida" (una parada dejó de
+        estar pendiente), "recoge", "descarga", "espera", "desvio" y
+        "fin_wave". El estado de las waves no se repite en cada
         frame: el front lo actualiza con inicio_wave y fin_wave.
         """
         pickers = []

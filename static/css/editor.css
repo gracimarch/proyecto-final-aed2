@@ -1333,8 +1333,8 @@ select.sel-value option {
     font-size: .82rem;
     font-weight: 700;
     color: #4f9cf9;
-    min-width: 28px;
-    text-align: right;
+    min-width: 26px;
+    text-align: center;
 }
 
 .order-items-count {
@@ -1962,4 +1962,54 @@ select.sel-value option {
     text-align: center;
     padding: var(--space-md) 0;
     font-style: italic;
+}
+/* ── Cargar escenario arrastrando un archivo ───────────────────── */
+
+.scenario-drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl);
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.scenario-drop-overlay--visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.scenario-drop-overlay__box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xl) 48px;
+    border: 2px dashed var(--color-primary);
+    border-radius: 14px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+    text-align: center;
+}
+
+.scenario-drop-overlay__box .icon {
+    color: var(--color-primary);
+}
+
+.scenario-drop-overlay__title {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+}
+
+.scenario-drop-overlay__hint {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
 }

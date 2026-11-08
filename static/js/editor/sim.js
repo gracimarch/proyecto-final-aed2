@@ -25,8 +25,9 @@
        tick:    3,
        pickers: [{ id, x, y, estado, wave, carga_kg, paso }, ...],
        zonas:   { ZONA_A: 12.5, ... },
-       eventos: [{ tipo: "ruta" | "inicio_wave" | "recoge" | "descarga"
-                         | "espera" | "desvio" | "fin_wave", picker, ... }]
+       eventos: [{ tipo: "ruta" | "inicio_wave" | "recoge" | "parada_recogida"
+                         | "descarga" | "espera" | "desvio" | "fin_wave",
+                  picker, ... }]
      }
    Para mostrar un frame solo hay que poner cada picker en su (x, y)
    y aplicar sus eventos (cambiar el estado de una wave, agregar
@@ -77,6 +78,13 @@ let _routeHistory = {};
  * pickerId -> [x, y]
  */
 let _lastPickerPos = {};
+
+/**
+ * Unidades ya recogidas en la simulación que se está reproduciendo:
+ * productId -> cantidad. Permite mostrar el stock restante en los racks
+ * sin modificar los datos del escenario (que conserva el stock original).
+ */
+let _consumedStock = {};
 
 /**
  * Devuelve true si dos celdas son ortogonalmente adyacentes
@@ -183,7 +191,7 @@ function _getBuscadorValue() {
 }
 
 function _getOndaValue() {
-    return _dom('select-onda')?.value || 'por_pedido';
+    return _dom('select-onda')?.value || 'por_cercania';
 }
 
 function _getSpeedValue() {
@@ -245,6 +253,8 @@ async function simGenerateWaves() {
         _simulation = null;     // las waves cambiaron: hay que volver a simular
         _simParams = null;
         _frameIndex = -1;
+        _resetConsumedStock();
+        _refreshStockDisplays();
         _renderWavesList();
         simUpdateConsultarBtn();
         _renderFleetStatus();
@@ -540,10 +550,13 @@ function _resetPlayback() {
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
+    _resetZoneWeights();
+    _resetConsumedStock();
     if (_initialWavesSnapshot.length > 0) {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
     _requestCanvasRender();   // los pickers volvieron a su posición inicial
+    _refreshStockDisplays();
     if (typeof renderOrdersList === 'function') renderOrdersList();
 }
 
@@ -576,6 +589,8 @@ function _showFrame(index) {
     }
 
     // 3. Actualizar el dibujo de las rutas y los paneles.
+    _refreshStockDisplays();
+    _syncZoneWeights(frame);
     _pushRoutesToRenderer(frame);
     _renderWavesList();
     _renderFleetStatus();
@@ -605,7 +620,16 @@ function _applyEvent(evento) {
             }
         }
     } else if (evento.tipo === 'recoge') {
+        _applyCollectedStock(evento);
         _addCollectedProducts(evento.productos, evento.wave);
+    } else if (evento.tipo === 'parada_recogida') {
+        // El backend envía la lista autoritativa de paradas que todavía
+        // faltan. Reemplazarla evita que una celda ya recogida siga
+        // dibujándose si el camino vuelve a pasar por ella como tránsito.
+        const ruta = _routes[evento.picker];
+        if (ruta && Array.isArray(evento.paradas)) {
+            ruta.paradas = evento.paradas;
+        }
     } else if (evento.tipo === 'fin_wave') {
         if (wave) wave.status = 'COMPLETADA';
         delete _routes[evento.picker];
@@ -692,13 +716,12 @@ function _pushRoutesToRenderer(frame) {
             stepParaRenderer = 1; // solo el punto actual está "hecho"
         }
 
-        // ── Filtrar paradas: solo las que están en el camino pendiente ──
-        // Las paradas ya recogidas no deben mostrarse (ya no están en caminoPendiente).
-        const caminoPendienteSet = new Set(caminoPendiente.map(([cx, cy]) => `${cx},${cy}`));
-        const paradasPendientes = (ruta.paradas || []).filter(parada => {
-            const [cx, cy] = parada.celda;
-            return caminoPendienteSet.has(`${cx},${cy}`);
-        });
+        // ── Paradas: el backend ya envía solo las que siguen pendientes ──
+        // No se filtran por el camino actual: una parada puede no estar en
+        // este tramo (por ejemplo, mientras se va a descargar por capacidad)
+        // y aun así seguir pendiente. Filtrarlas por geometría era lo que
+        // hacía reaparecer el círculo en celdas de simple tránsito.
+        const paradasPendientes = ruta.paradas || [];
 
         rutas.push({
             path: pathParaRenderer,
@@ -719,6 +742,52 @@ function _clearRoutesFromRenderer() {
 
 
 // ---------------------------------------------------------------------------
+// Zonas de despacho: peso ocupado segun el frame actual
+// ---------------------------------------------------------------------------
+
+/**
+ * Copia al escenario el peso ocupado de cada zona de despacho que viene en
+ * el frame (`frame.zonas`, zone_id -> kg) y repinta si hubo cambios.
+ * Las zonas se dibujan en la capa estatica del renderer, por eso hay que
+ * invalidarla cuando cambia el valor.
+ */
+function _syncZoneWeights(frame) {
+    const sc = _getScenario();
+    if (!sc) return;
+
+    const pesos = (frame && frame.zonas) || {};
+    let changed = false;
+    for (const dz of sc.dispatchZones) {
+        const nuevo = Number(pesos[dz.id] ?? 0) || 0;
+        if ((dz.peso_actual ?? 0) !== nuevo) {
+            dz.peso_actual = nuevo;
+            changed = true;
+        }
+    }
+    if (changed && typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.invalidateStaticLayer();
+    }
+}
+
+/** Vuelve a cero el peso ocupado de todas las zonas de despacho. */
+function _resetZoneWeights() {
+    const sc = _getScenario();
+    if (!sc) return;
+
+    let changed = false;
+    for (const dz of sc.dispatchZones) {
+        if ((dz.peso_actual ?? 0) !== 0) {
+            dz.peso_actual = 0;
+            changed = true;
+        }
+    }
+    if (changed && typeof _renderer !== 'undefined' && _renderer) {
+        _renderer.invalidateStaticLayer();
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // Controles de reproduccion: play, pause, step, restart
 // ---------------------------------------------------------------------------
 
@@ -730,6 +799,7 @@ async function simPlanAndPlay() {
         // Ya termino: Play la vuelve a mostrar desde el principio.
         _resetPlayback();
         _showFrame(0);
+        _setEditingLock(true);   // vuelve a bloquear la edicion durante el replay
     }
     simPlay();
 }
@@ -783,6 +853,7 @@ async function simStep() {
         return;
     }
     if (_isLastFrame()) return;
+    _setEditingLock(true);      // sigue habiendo una simulacion activa
     _showFrame(_frameIndex + 1);
 }
 
@@ -842,9 +913,6 @@ async function simCompare() {
     const btn = _dom('btn-compare');
     if (btn) btn.disabled = true;
 
-    const compareWavesResult = _dom('compare-waves-result');
-    if (compareWavesResult) compareWavesResult.innerHTML = '';
-
     try {
         const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId);
         _renderComparison(comparacion, { waveId: _selectedWaveId });
@@ -868,9 +936,6 @@ async function simCompareAll() {
 
     const btn = _dom('btn-compare-all');
     if (btn) btn.disabled = true;
-
-    const compareWavesResult = _dom('compare-waves-result');
-    if (compareWavesResult) compareWavesResult.innerHTML = '';
 
     try {
         showToast('Ejecutando simulación de todas las waves en simultáneo...', 'info');
@@ -896,9 +961,6 @@ async function simCompareWaves() {
     const btn = _dom('btn-compare-waves');
     if (btn) btn.disabled = true;
 
-    const compareResult = _dom('compare-result');
-    if (compareResult) compareResult.innerHTML = '';
-
     try {
         showToast('Generando waves con los tres modos...', 'info');
         const datos = await apiCompareWaves(sc.toJSON());
@@ -918,6 +980,7 @@ async function simCompareWaves() {
 
 function _renderMetrics(m) {
     const set = (id, val) => { const el = _dom(id); if (el) el.textContent = val; };
+    set('metric-ticks', m.ticks);
     set('metric-distance', m.distancia_total + ' celdas');
     set('metric-nodes', m.nodos_visitados);
     set('metric-edges', m.aristas_recorridas);
@@ -926,7 +989,7 @@ function _renderMetrics(m) {
 }
 
 function _clearMetrics() {
-    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
+    ['metric-ticks', 'metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
         const el = _dom(id);
         if (el) el.textContent = '—';
     });
@@ -1065,12 +1128,15 @@ function _renderComparison(datos, options = {}) {
         astar: 'A*'
     };
 
+    const tieneTicks = lista.some(r => r.ticks !== undefined && r.ticks !== null);
+
     const filas = lista.map(r => {
         const estLabel = strategyLabels[r.estrategia] || r.estrategia;
         const algLabel = buscadorLabels[r.buscador] || (r.buscador ? r.buscador.toUpperCase() : '—');
         const distancia = (r.distancia_total !== undefined && r.distancia_total !== null) ? `${r.distancia_total} celdas` : '—';
         const nodosVis = (r.nodos_visitados !== undefined && r.nodos_visitados !== null) ? r.nodos_visitados : '—';
         const nodosExp = (r.nodos_expandidos !== undefined && r.nodos_expandidos !== null) ? r.nodos_expandidos : '—';
+        const ticks = (r.ticks !== undefined && r.ticks !== null) ? r.ticks : '—';
         const tiempo = (r.tiempo_ms !== undefined && r.tiempo_ms !== null) ? `${Number(r.tiempo_ms).toFixed(2)} ms` : '—';
 
         return `
@@ -1080,6 +1146,7 @@ function _renderComparison(datos, options = {}) {
             <td class="text-right">${distancia}</td>
             <td class="text-right">${nodosVis}</td>
             <td class="text-right">${nodosExp}</td>
+            ${tieneTicks ? `<td class="text-right">${ticks}</td>` : ''}
             <td class="text-right">${tiempo}</td>
         </tr>`;
     }).join('');
@@ -1094,6 +1161,7 @@ function _renderComparison(datos, options = {}) {
                     <th class="text-right">Distancia total</th>
                     <th class="text-right">Nodos visitados</th>
                     <th class="text-right">Nodos expandidos</th>
+                    ${tieneTicks ? '<th class="text-right">Ticks</th>' : ''}
                     <th class="text-right">Tiempo</th>
                 </tr>
             </thead>
@@ -1106,7 +1174,7 @@ function _renderComparison(datos, options = {}) {
  * por_cercania y solo_cercania) como una tabla por modo en #compare-waves-result.
  *
  * @param {Object} datos Respuesta de /api/waves/compare:
- *   { comparacion: [{estrategia, total_waves, total_unidades,
+ *   { comparacion: [{estrategia, total_waves, total_ticks, total_unidades,
  *     total_peso_kg, distancia_estimada_total, promedio_unidades_por_wave,
  *     waves: [{wave_id, pedidos, unidades, peso_kg, distancia_estimada, picker_ids}]}],
  *     mismo_resultado }
@@ -1129,9 +1197,9 @@ function _renderWaveComparison(datos) {
 
     const tablas = comparacion.map(c => {
         const TITULOS = {
-            por_pedido:    'Por pedido',
-            por_cercania:  'Por cercanía (con prioridad)',
-            solo_cercania: 'Solo cercanía (sin prioridad)',
+            por_pedido:    'Pedidos completos',
+            por_cercania:  'Cercanía entre pedidos',
+            solo_cercania: 'Cercanía sin prioridad',
         };
         const titulo = TITULOS[c.estrategia] || c.estrategia;
         const filas = (c.waves || []).map(w => `
@@ -1147,9 +1215,10 @@ function _renderWaveComparison(datos) {
 
         const totales = [
             `${c.total_waves} wave${c.total_waves !== 1 ? 's' : ''}`,
-            `${c.total_unidades} ud`,
-            `${Number(c.total_peso_kg || 0).toFixed(2)} kg`,
         ];
+        if (c.total_ticks !== undefined && c.total_ticks !== null) {
+            totales.push(`${c.total_ticks} ticks`);
+        }
         if (c.distancia_estimada_total !== undefined) {
             totales.push(`${c.distancia_estimada_total} celdas est.`);
         }
@@ -1228,6 +1297,9 @@ function simReset() {
 
     _clearMetrics();
     _clearCollected();
+    _resetZoneWeights();
+    _resetConsumedStock();
+    _refreshStockDisplays();
 
     const compareResult = _dom('compare-result');
     if (compareResult) compareResult.innerHTML = '';
@@ -1281,6 +1353,59 @@ function simToggleFocusMode() {
 function simIsEditingLocked() {
     return _simulationLocked;
 }
+
+// ---------------------------------------------------------------------------
+// Stock restante de los productos
+// ---------------------------------------------------------------------------
+
+/**
+ * Acumula las unidades recogidas por el evento "recoge". Usa el detalle
+ * `items` (con cantidades); si no viene, cae al listado de ids y descuenta
+ * una unidad por cada id (compatibilidad con eventos viejos).
+ */
+function _applyCollectedStock(evento) {
+    if (Array.isArray(evento.items)) {
+        for (const it of evento.items) {
+            const pid  = it.producto_id;
+            const cant = Number(it.cantidad) || 0;
+            if (!pid || cant <= 0) continue;
+            _consumedStock[pid] = (_consumedStock[pid] || 0) + cant;
+        }
+        return;
+    }
+    for (const pid of evento.productos || []) {
+        if (!pid) continue;
+        _consumedStock[pid] = (_consumedStock[pid] || 0) + 1;
+    }
+}
+
+/**
+ * Unidades que le quedan a un producto segun lo recogido hasta el frame
+ * que se esta mostrando. No modifica el escenario: el stock original se
+ * conserva para guardar/cargar y para reiniciar la simulacion.
+ */
+function simGetRemainingStock(product) {
+    if (!product) return 0;
+    const base  = Number(product.quantity) || 0;
+    const usado = _consumedStock[product.id] || 0;
+    return Math.max(0, base - usado);
+}
+
+function _resetConsumedStock() {
+    _consumedStock = {};
+}
+
+/** Refresca los paneles abiertos que muestran stock (tooltip y panel de rack). */
+function _refreshStockDisplays() {
+    if (typeof _editor !== 'undefined' && _editor &&
+        typeof _editor._refreshPinnedRackTooltip === 'function') {
+        _editor._refreshPinnedRackTooltip();
+    }
+    if (typeof simRefreshSelectedRackStock === 'function') {
+        simRefreshSelectedRackStock();
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Tooltip de pickers: acceso al estado de simulacion del frame actual
@@ -1434,6 +1559,7 @@ function _updateStepButtons() {
 function simStepBack() {
     simPause();
     if (!_simulation || _frameIndex <= 0) return;
+    _setEditingLock(true);      // al retroceder vuelve a haber una simulacion activa
     _replayTo(_frameIndex - 1);
 }
 
@@ -1457,6 +1583,8 @@ function _replayTo(target) {
     _restorePickerPositions();
     _clearCollected();
     _clearRoutesFromRenderer();
+    _resetZoneWeights();
+    _resetConsumedStock();
     if (_initialWavesSnapshot.length > 0) {
         _waves = JSON.parse(JSON.stringify(_initialWavesSnapshot));
     }
@@ -1514,8 +1642,10 @@ function _replayTo(target) {
 
     // Una sola actualizacion del renderer y los paneles al final
     if (target >= 0) {
+        _syncZoneWeights(_simulation.frames[target]);
         _pushRoutesToRenderer(_simulation.frames[target]);
     }
+    _refreshStockDisplays();
     _renderWavesList();
     _renderFleetStatus();
     if (typeof renderOrdersList === 'function') renderOrdersList();

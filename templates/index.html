@@ -15,7 +15,7 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}?v=4">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=4">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}?v=4">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}?v=5">
 
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
@@ -36,7 +36,7 @@
                 aria-label="Cambiar tema">
                 <span class="icon icon--18 icon--filled" aria-hidden="true">light_mode</span>
             </button>
-            <button class="btn btn--ghost" id="btn-load-scenario">
+            <button class="btn btn--ghost" id="btn-load-scenario" title="Cargar escenario (también podés arrastrar un .json a la ventana)">
                 <span class="icon icon--16 icon--filled" aria-hidden="true">upload</span>
                 <span class="btn-label">Cargar escenario</span>
             </button>
@@ -92,13 +92,13 @@
                     <h2 class="panel__title">Pickers</h2>
                     <span class="panel__count" id="wh-pickers" title="Pickers en el escenario">—</span>
                     <button class="btn btn--icon btn--xs btn--ghost pickers-toggle" id="btn-pickers-list-toggle"
-                        aria-expanded="true" aria-controls="pickers-list" title="Ocultar lista de pickers">
-                        <span class="icon icon--sm pickers-toggle__chevron open" aria-hidden="true">expand_more</span>
+                        aria-expanded="false" aria-controls="pickers-list" title="Mostrar lista de pickers">
+                        <span class="icon icon--sm pickers-toggle__chevron" aria-hidden="true">expand_more</span>
                     </button>
                 </div>
                 <div class="panel__body">
                     <!-- Tabla compacta y editable: una fila por picker -->
-                    <div id="pickers-list" class="pickers-table">
+                    <div id="pickers-list" class="pickers-table pickers-table--collapsed">
                         <p class="empty-msg">Sin pickers asignados.</p>
                     </div>
                     <div class="pickers-add-row">
@@ -256,6 +256,7 @@
                 <span><kbd>A</kbd> Pasillo</span>
                 <span><kbd>E</kbd> Borrar</span>
                 <span><kbd>Del</kbd> Eliminar sel.</span>
+                <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> Deshacer</span>
                 <span class="legend-sep">·</span>
                 <span>Rueda: zoom</span>
                 <span>Clic der.: vista</span>
@@ -303,10 +304,9 @@
                     <div class="field-group">
                         <label class="field-label" for="select-onda">Modo de armado de waves</label>
                         <select class="select" id="select-onda">
-                            <option value="por_pedido">Por pedido (agrupar pedidos enteros)</option>
-                            <option value="por_cercania">Por cercanía (juntar ítems cercanos de distintos pedidos)
-                            </option>
-                            <option value="solo_cercania">Solo cercanía (ignora la prioridad de los pedidos)</option>
+                            <option value="por_pedido">Pedidos completos</option>
+                            <option value="por_cercania" selected>Cercanía entre pedidos</option>
+                            <option value="solo_cercania">Cercanía sin prioridad</option>
                         </select>
                     </div>
 
@@ -375,6 +375,10 @@
                         <div class="metric-card">
                             <span class="metric-card__label">Tiempo de ejec.</span>
                             <span class="metric-card__value" id="metric-time">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Ticks</span>
+                            <span class="metric-card__value" id="metric-ticks">—</span>
                         </div>
                     </div>
 

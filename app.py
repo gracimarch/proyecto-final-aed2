@@ -207,7 +207,7 @@ def api_waves_generate():
     try:
         warehouse = _build_warehouse(data)
         manager   = _build_wave_manager(data, warehouse)
-        estrategia_wave = data.get("estrategia_wave", "por_pedido")
+        estrategia_wave = data.get("estrategia_wave", "por_cercania")
         manager.generate_waves(estrategia_wave=estrategia_wave)
         manager.assign_pickers()
     except (ValueError, KeyError) as e:
@@ -258,6 +258,7 @@ def api_waves_compare():
             {
                 "estrategia": "por_pedido",
                 "total_waves": 3,
+                "total_ticks": 42,
                 "total_unidades": 12,
                 "total_peso_kg": 24.5,
                 "waves": [ {...}, {...}, {...} ]
@@ -325,9 +326,17 @@ def api_waves_compare():
                     "distancia_estimada": dist_wave,
                 })
 
+            # Ticks totales que tarda este armado de waves en completarse.
+            # Se simula con cercanía + BFS, la misma combinación usada para
+            # calcular la distancia estimada de cada wave.
+            sim = Simulation(warehouse, manager, "cercania", "bfs")
+            sim.run()
+            total_ticks = sim.metrics()["ticks"]
+
             comparacion.append({
                 "estrategia":               estrategia,
                 "total_waves":              len(waves_info),
+                "total_ticks":              total_ticks,
                 "total_unidades":           total_unidades,
                 "total_peso_kg":            round(total_peso, 3),
                 "distancia_estimada_total": round(distancia_estimada, 2),
@@ -389,7 +398,7 @@ def api_routes_plan():
     wave_id    = body.get("wave_id")
     estrategia = body.get("estrategia", "cercania")
     buscador   = body.get("buscador",   "bfs")
-    estrategia_wave = body.get("estrategia_wave", "por_pedido")
+    estrategia_wave = body.get("estrategia_wave", "por_cercania")
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
@@ -562,7 +571,7 @@ def api_simulacion():
     estrategia = body.get("estrategia", "cercania")
     buscador   = body.get("buscador",   "bfs")
     velocidad  = body.get("velocidad", 1)   # multiplicador de ticks por frame (1..10)
-    estrategia_wave = body.get("estrategia_wave", "por_pedido")
+    estrategia_wave = body.get("estrategia_wave", "por_cercania")
 
     if escenario is None:
         return jsonify({"error": "Falta la clave 'escenario' en el cuerpo."}), 400
