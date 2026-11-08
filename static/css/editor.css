@@ -1333,8 +1333,8 @@ select.sel-value option {
     font-size: .82rem;
     font-weight: 700;
     color: #4f9cf9;
-    min-width: 28px;
-    text-align: right;
+    min-width: 26px;
+    text-align: center;
 }
 
 .order-items-count {

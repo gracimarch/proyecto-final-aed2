@@ -960,7 +960,7 @@ button:disabled {
     height: 6px;
 }
 .wave-compare-table__body::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.2);
 }
 .wave-compare-table__body::-webkit-scrollbar-thumb {
     background: var(--color-border, #444);

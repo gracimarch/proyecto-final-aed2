@@ -92,13 +92,13 @@
                     <h2 class="panel__title">Pickers</h2>
                     <span class="panel__count" id="wh-pickers" title="Pickers en el escenario">—</span>
                     <button class="btn btn--icon btn--xs btn--ghost pickers-toggle" id="btn-pickers-list-toggle"
-                        aria-expanded="true" aria-controls="pickers-list" title="Ocultar lista de pickers">
-                        <span class="icon icon--sm pickers-toggle__chevron open" aria-hidden="true">expand_more</span>
+                        aria-expanded="false" aria-controls="pickers-list" title="Mostrar lista de pickers">
+                        <span class="icon icon--sm pickers-toggle__chevron" aria-hidden="true">expand_more</span>
                     </button>
                 </div>
                 <div class="panel__body">
                     <!-- Tabla compacta y editable: una fila por picker -->
-                    <div id="pickers-list" class="pickers-table">
+                    <div id="pickers-list" class="pickers-table pickers-table--collapsed">
                         <p class="empty-msg">Sin pickers asignados.</p>
                     </div>
                     <div class="pickers-add-row">
@@ -304,10 +304,9 @@
                     <div class="field-group">
                         <label class="field-label" for="select-onda">Modo de armado de waves</label>
                         <select class="select" id="select-onda">
-                            <option value="por_pedido">Por pedido (agrupar pedidos enteros)</option>
-                            <option value="por_cercania">Por cercanía (juntar ítems cercanos de distintos pedidos)
-                            </option>
-                            <option value="solo_cercania">Solo cercanía (ignora la prioridad de los pedidos)</option>
+                            <option value="por_pedido">Pedidos completos</option>
+                            <option value="por_cercania" selected>Cercanía entre pedidos</option>
+                            <option value="solo_cercania">Cercanía sin prioridad</option>
                         </select>
                     </div>
 
@@ -376,6 +375,10 @@
                         <div class="metric-card">
                             <span class="metric-card__label">Tiempo de ejec.</span>
                             <span class="metric-card__value" id="metric-time">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-card__label">Ticks</span>
+                            <span class="metric-card__value" id="metric-ticks">—</span>
                         </div>
                     </div>
 

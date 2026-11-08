@@ -83,6 +83,55 @@ class TestSimulation(unittest.TestCase):
                         f"Swap ilegal entre {p_a} y {p_b} entre ticks {f_actual['tick']} y {f_sig['tick']}",
                     )
 
+    def test_paradas_pendientes_se_actualizan_al_recoger(self):
+        """
+        El backend debe avisar qué paradas siguen pendientes.
+
+        Regresión: PK_02 recoge la Impresora Láser en (12, 8) y más tarde su
+        recorrido vuelve a pasar por esa celda como tránsito. El frontend
+        conservaba la parada vieja y dibujaba el círculo otra vez.
+        """
+        sim = Simulation(self.wh, self.wm, estrategia="cercania", buscador="bfs")
+        frames = sim.run()
+        self.assertIsNone(sim.error)
+
+        pendientes = {}
+        recogio_p006 = False
+        volvio_a_pasar = False
+
+        for frame in frames:
+            for evento in frame["eventos"]:
+                picker_id = evento.get("picker")
+                if evento["tipo"] == "ruta":
+                    self.assertIn("paradas", evento)
+                    pendientes[picker_id] = {
+                        tuple(parada["celda"]) for parada in evento["paradas"]
+                    }
+                elif evento["tipo"] == "parada_recogida":
+                    self.assertIn("paradas", evento)
+                    celda = tuple(evento["celda"])
+                    pendientes[picker_id] = {
+                        tuple(parada["celda"]) for parada in evento["paradas"]
+                    }
+                    # La parada consumida no puede seguir anunciada.
+                    self.assertNotIn(celda, pendientes[picker_id])
+                    if (picker_id, celda) == ("PK_02", (12, 8)):
+                        recogio_p006 = True
+
+            picker = next(p for p in frame["pickers"] if p["id"] == "PK_02")
+            if (picker["x"], picker["y"]) == (12, 8) and frame["tick"] > 9:
+                volvio_a_pasar = True
+            if recogio_p006:
+                self.assertNotIn(
+                    (12, 8),
+                    pendientes.get("PK_02", set()),
+                    f"PK_02 vuelve a pasar por (12, 8) en el tick "
+                    f"{frame['tick']} y todavía figura como parada pendiente",
+                )
+
+        self.assertTrue(recogio_p006)
+        self.assertTrue(volvio_a_pasar)
+
     def test_picker_unit_operations(self):
         p = Picker("PK_TEST", (1, 1), 50.0)
         self.assertEqual(p.status, PickerStatus.LIBRE)

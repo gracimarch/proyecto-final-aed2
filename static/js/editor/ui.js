@@ -761,6 +761,87 @@ function _updateStockBadge() {
     if (qtyInput) { qtyInput.max = stock > 0 ? stock : 1; }
 }
 
+/** Extrae el número de producto del id (PRD001 → 1) para poder ordenar. */
+function _numProducto(product) {
+    const id = String(product.id || '');
+    const m = /(\d+)\s*$/.exec(id);
+    if (m) return parseInt(m[1], 10);
+    const m2 = /(\d+)/.exec(id);
+    return m2 ? parseInt(m2[1], 10) : Number.MAX_SAFE_INTEGER;
+}
+
+/** Devuelve una copia de los productos ordenada por número de producto. */
+function _productosOrdenadosPorNumero(products) {
+    return [...products].sort((a, b) => {
+        const na = _numProducto(a);
+        const nb = _numProducto(b);
+        if (na !== nb) return na - nb;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+}
+
+/** Habilita/deshabilita el botón de agregar según el producto seleccionado. */
+function _syncOrderAddButton() {
+    const sel = DOM.selectOrderProduct();
+    const btn = document.getElementById('btn-order-add-item');
+    if (!sel || !btn) return;
+    const opt = sel.options[sel.selectedIndex];
+    btn.disabled = !opt || opt.disabled;
+}
+
+/**
+ * Repuebla el select de productos para agregar al pedido, ordenado por
+ * número de producto y deshabilitando los que no tienen stock libre.
+ * Conserva la selección actual si sigue siendo válida.
+ */
+function _refreshOrderProductOptions() {
+    const sc = _activeScenario();
+    const sel = DOM.selectOrderProduct();
+    if (!sc || !sel) return;
+
+    const allProducts = _productosOrdenadosPorNumero(sc.getAllProducts());
+    const noMsg = DOM.orderNoProductsMsg();
+    const addSection = document.querySelector('.order-add-product-section');
+    const prev = sel.value;
+
+    sel.innerHTML = '';
+
+    if (allProducts.length === 0) {
+        if (noMsg) noMsg.style.display = '';
+        if (addSection) addSection.style.opacity = '.5';
+        _updateStockBadge();
+        _syncOrderAddButton();
+        return;
+    }
+
+    if (noMsg) noMsg.style.display = 'none';
+    if (addSection) addSection.style.opacity = '1';
+
+    for (const p of allProducts) {
+        const stockLibre = _stockDisponible(p.id);
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (${p.sku}) — Rack ${p.rackId} — Stock libre: ${stockLibre}`;
+        if (stockLibre === 0) {
+            opt.disabled = true;
+            opt.textContent += ' — AGOTADO';
+        }
+        sel.appendChild(opt);
+    }
+
+    // Conservar la selección previa si sigue habilitada; si no, la primera válida.
+    let elegida = prev ? [...sel.options].find(o => o.value === prev && !o.disabled) : null;
+    if (!elegida) elegida = [...sel.options].find(o => !o.disabled);
+    if (elegida) {
+        sel.value = elegida.value;
+    } else {
+        sel.selectedIndex = -1;
+    }
+
+    _updateStockBadge();
+    _syncOrderAddButton();
+}
+
 
 /**
  * Abre el modal de pedido.
@@ -809,46 +890,15 @@ function openModalOrder(orderIdToEdit = null) {
     // Renderizar items del draft
     _renderOrderDraftItems();
 
-    // Poblar select de productos con stock disponible real
-    const allProducts = sc.getAllProducts();
-    const sel   = DOM.selectOrderProduct();
-    const noMsg = DOM.orderNoProductsMsg();
-    sel.innerHTML = '';
-
-    const addSection = document.querySelector('.order-add-product-section');
-
-    if (allProducts.length === 0) {
-        noMsg.style.display = '';
-        if (addSection) addSection.style.opacity = '.5';
-    } else {
-        noMsg.style.display = 'none';
-        if (addSection) addSection.style.opacity = '1';
-        for (const p of allProducts) {
-            const stockTotal = _stockDisponible(p.id);
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = `${p.name} (${p.sku}) — Rack ${p.rackId} — Stock libre: ${stockTotal}`;
-            if (stockTotal === 0) {
-                // Permitir seleccionarlo si ya esta en el draft (para poder quitar)
-                const enDraft = _orderDraftItems.some(it => it.productoId === p.id);
-                opt.disabled = !enDraft;
-                if (!enDraft) opt.textContent += ' — ⚠️ AGOTADO';
-            }
-            sel.appendChild(opt);
-        }
-        // Si el primer item seleccionado esta deshabilitado, buscar el primero habilitado
-        if (sel.options.length > 0 && sel.options[sel.selectedIndex]?.disabled) {
-            for (const opt of sel.options) {
-                if (!opt.disabled) { opt.selected = true; break; }
-            }
-        }
-    }
+    // Poblar select de productos (ordenado por número, sin stock deshabilitado)
+    _refreshOrderProductOptions();
 
     DOM.inputOrderItemQty().value = '1';
 
     // Conectar eventos internos del modal
     DOM.selectOrderProduct().onchange = () => {
         _updateStockBadge();
+        _syncOrderAddButton();
         DOM.inputOrderItemQty().value = '1';
     };
 
@@ -901,7 +951,7 @@ function _orderAddItemFromUI() {
 
     _renderOrderDraftItems();
     DOM.inputOrderItemQty().value = '1';
-    _updateStockBadge();   // actualizar stock restante
+    _refreshOrderProductOptions();   // actualizar stock restante y opciones
 }
 
 /** Renderiza la lista de items del draft en el modal. */
@@ -926,14 +976,25 @@ function _renderOrderDraftItems() {
         const nombre = prod ? prod.name : it.productoId;
         const sku    = prod ? prod.sku  : '';
         const stock  = prod ? prod.quantity : '?';
+        const libre  = _stockDisponible(it.productoId);
+        const puedeSumar  = libre > 0;
+        const puedeRestar = it.cantidad > 1;
         return `
         <div class="order-item-row" data-order-item-idx="${idx}">
             <div class="order-item-info">
                 <span class="order-item-name">${nombre}</span>
-                <span class="order-item-meta">${sku} · Stock total: ${stock}</span>
+                <span class="order-item-meta">${sku} · Stock total: ${stock} · Libre: ${libre}</span>
             </div>
             <div class="order-item-controls">
+                <button class="btn btn--icon btn--xs order-item-dec" data-order-item-idx="${idx}"
+                    title="Restar una unidad" ${puedeRestar ? '' : 'disabled'}>
+                    <span class="icon icon--sm" aria-hidden="true">remove</span>
+                </button>
                 <span class="order-item-qty">×${it.cantidad}</span>
+                <button class="btn btn--icon btn--xs order-item-inc" data-order-item-idx="${idx}"
+                    title="Sumar una unidad" ${puedeSumar ? '' : 'disabled'}>
+                    <span class="icon icon--sm" aria-hidden="true">add</span>
+                </button>
                 <button class="btn btn--icon btn--xs btn--danger order-item-remove" data-order-item-idx="${idx}" title="Quitar">
                     <span class="icon icon--sm" aria-hidden="true">close</span>
                 </button>
@@ -942,12 +1003,40 @@ function _renderOrderDraftItems() {
     }).join('');
 
     container.innerHTML = rows;
+
+    // Sumar / restar una unidad de un producto ya agregado al pedido.
+    container.querySelectorAll('.order-item-inc').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const i = parseInt(btn.dataset.orderItemIdx);
+            const item = _orderDraftItems[i];
+            if (!item) return;
+            if (_stockDisponible(item.productoId) <= 0) {
+                showToast('No hay stock libre de este producto.', 'warning');
+                return;
+            }
+            item.cantidad += 1;
+            _renderOrderDraftItems();
+            _refreshOrderProductOptions();
+        });
+    });
+
+    container.querySelectorAll('.order-item-dec').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const i = parseInt(btn.dataset.orderItemIdx);
+            const item = _orderDraftItems[i];
+            if (!item || item.cantidad <= 1) return;
+            item.cantidad -= 1;
+            _renderOrderDraftItems();
+            _refreshOrderProductOptions();
+        });
+    });
+
     container.querySelectorAll('.order-item-remove').forEach(btn => {
         btn.addEventListener('click', () => {
             const i = parseInt(btn.dataset.orderItemIdx);
             _orderDraftItems.splice(i, 1);
             _renderOrderDraftItems();
-            _updateStockBadge();
+            _refreshOrderProductOptions();
         });
     });
 }

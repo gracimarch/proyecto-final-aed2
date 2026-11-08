@@ -25,8 +25,9 @@
        tick:    3,
        pickers: [{ id, x, y, estado, wave, carga_kg, paso }, ...],
        zonas:   { ZONA_A: 12.5, ... },
-       eventos: [{ tipo: "ruta" | "inicio_wave" | "recoge" | "descarga"
-                         | "espera" | "desvio" | "fin_wave", picker, ... }]
+       eventos: [{ tipo: "ruta" | "inicio_wave" | "recoge" | "parada_recogida"
+                         | "descarga" | "espera" | "desvio" | "fin_wave",
+                  picker, ... }]
      }
    Para mostrar un frame solo hay que poner cada picker en su (x, y)
    y aplicar sus eventos (cambiar el estado de una wave, agregar
@@ -190,7 +191,7 @@ function _getBuscadorValue() {
 }
 
 function _getOndaValue() {
-    return _dom('select-onda')?.value || 'por_pedido';
+    return _dom('select-onda')?.value || 'por_cercania';
 }
 
 function _getSpeedValue() {
@@ -621,6 +622,14 @@ function _applyEvent(evento) {
     } else if (evento.tipo === 'recoge') {
         _applyCollectedStock(evento);
         _addCollectedProducts(evento.productos, evento.wave);
+    } else if (evento.tipo === 'parada_recogida') {
+        // El backend envía la lista autoritativa de paradas que todavía
+        // faltan. Reemplazarla evita que una celda ya recogida siga
+        // dibujándose si el camino vuelve a pasar por ella como tránsito.
+        const ruta = _routes[evento.picker];
+        if (ruta && Array.isArray(evento.paradas)) {
+            ruta.paradas = evento.paradas;
+        }
     } else if (evento.tipo === 'fin_wave') {
         if (wave) wave.status = 'COMPLETADA';
         delete _routes[evento.picker];
@@ -707,13 +716,12 @@ function _pushRoutesToRenderer(frame) {
             stepParaRenderer = 1; // solo el punto actual está "hecho"
         }
 
-        // ── Filtrar paradas: solo las que están en el camino pendiente ──
-        // Las paradas ya recogidas no deben mostrarse (ya no están en caminoPendiente).
-        const caminoPendienteSet = new Set(caminoPendiente.map(([cx, cy]) => `${cx},${cy}`));
-        const paradasPendientes = (ruta.paradas || []).filter(parada => {
-            const [cx, cy] = parada.celda;
-            return caminoPendienteSet.has(`${cx},${cy}`);
-        });
+        // ── Paradas: el backend ya envía solo las que siguen pendientes ──
+        // No se filtran por el camino actual: una parada puede no estar en
+        // este tramo (por ejemplo, mientras se va a descargar por capacidad)
+        // y aun así seguir pendiente. Filtrarlas por geometría era lo que
+        // hacía reaparecer el círculo en celdas de simple tránsito.
+        const paradasPendientes = ruta.paradas || [];
 
         rutas.push({
             path: pathParaRenderer,
@@ -905,9 +913,6 @@ async function simCompare() {
     const btn = _dom('btn-compare');
     if (btn) btn.disabled = true;
 
-    const compareWavesResult = _dom('compare-waves-result');
-    if (compareWavesResult) compareWavesResult.innerHTML = '';
-
     try {
         const comparacion = await apiCompareStrategies(sc.toJSON(), _selectedWaveId);
         _renderComparison(comparacion, { waveId: _selectedWaveId });
@@ -931,9 +936,6 @@ async function simCompareAll() {
 
     const btn = _dom('btn-compare-all');
     if (btn) btn.disabled = true;
-
-    const compareWavesResult = _dom('compare-waves-result');
-    if (compareWavesResult) compareWavesResult.innerHTML = '';
 
     try {
         showToast('Ejecutando simulación de todas las waves en simultáneo...', 'info');
@@ -959,9 +961,6 @@ async function simCompareWaves() {
     const btn = _dom('btn-compare-waves');
     if (btn) btn.disabled = true;
 
-    const compareResult = _dom('compare-result');
-    if (compareResult) compareResult.innerHTML = '';
-
     try {
         showToast('Generando waves con los tres modos...', 'info');
         const datos = await apiCompareWaves(sc.toJSON());
@@ -981,6 +980,7 @@ async function simCompareWaves() {
 
 function _renderMetrics(m) {
     const set = (id, val) => { const el = _dom(id); if (el) el.textContent = val; };
+    set('metric-ticks', m.ticks);
     set('metric-distance', m.distancia_total + ' celdas');
     set('metric-nodes', m.nodos_visitados);
     set('metric-edges', m.aristas_recorridas);
@@ -989,7 +989,7 @@ function _renderMetrics(m) {
 }
 
 function _clearMetrics() {
-    ['metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
+    ['metric-ticks', 'metric-distance', 'metric-nodes', 'metric-edges', 'metric-expanded', 'metric-time'].forEach(id => {
         const el = _dom(id);
         if (el) el.textContent = '—';
     });
@@ -1128,12 +1128,15 @@ function _renderComparison(datos, options = {}) {
         astar: 'A*'
     };
 
+    const tieneTicks = lista.some(r => r.ticks !== undefined && r.ticks !== null);
+
     const filas = lista.map(r => {
         const estLabel = strategyLabels[r.estrategia] || r.estrategia;
         const algLabel = buscadorLabels[r.buscador] || (r.buscador ? r.buscador.toUpperCase() : '—');
         const distancia = (r.distancia_total !== undefined && r.distancia_total !== null) ? `${r.distancia_total} celdas` : '—';
         const nodosVis = (r.nodos_visitados !== undefined && r.nodos_visitados !== null) ? r.nodos_visitados : '—';
         const nodosExp = (r.nodos_expandidos !== undefined && r.nodos_expandidos !== null) ? r.nodos_expandidos : '—';
+        const ticks = (r.ticks !== undefined && r.ticks !== null) ? r.ticks : '—';
         const tiempo = (r.tiempo_ms !== undefined && r.tiempo_ms !== null) ? `${Number(r.tiempo_ms).toFixed(2)} ms` : '—';
 
         return `
@@ -1143,6 +1146,7 @@ function _renderComparison(datos, options = {}) {
             <td class="text-right">${distancia}</td>
             <td class="text-right">${nodosVis}</td>
             <td class="text-right">${nodosExp}</td>
+            ${tieneTicks ? `<td class="text-right">${ticks}</td>` : ''}
             <td class="text-right">${tiempo}</td>
         </tr>`;
     }).join('');
@@ -1157,6 +1161,7 @@ function _renderComparison(datos, options = {}) {
                     <th class="text-right">Distancia total</th>
                     <th class="text-right">Nodos visitados</th>
                     <th class="text-right">Nodos expandidos</th>
+                    ${tieneTicks ? '<th class="text-right">Ticks</th>' : ''}
                     <th class="text-right">Tiempo</th>
                 </tr>
             </thead>
@@ -1169,7 +1174,7 @@ function _renderComparison(datos, options = {}) {
  * por_cercania y solo_cercania) como una tabla por modo en #compare-waves-result.
  *
  * @param {Object} datos Respuesta de /api/waves/compare:
- *   { comparacion: [{estrategia, total_waves, total_unidades,
+ *   { comparacion: [{estrategia, total_waves, total_ticks, total_unidades,
  *     total_peso_kg, distancia_estimada_total, promedio_unidades_por_wave,
  *     waves: [{wave_id, pedidos, unidades, peso_kg, distancia_estimada, picker_ids}]}],
  *     mismo_resultado }
@@ -1192,9 +1197,9 @@ function _renderWaveComparison(datos) {
 
     const tablas = comparacion.map(c => {
         const TITULOS = {
-            por_pedido:    'Por pedido',
-            por_cercania:  'Por cercanía (con prioridad)',
-            solo_cercania: 'Solo cercanía (sin prioridad)',
+            por_pedido:    'Pedidos completos',
+            por_cercania:  'Cercanía entre pedidos',
+            solo_cercania: 'Cercanía sin prioridad',
         };
         const titulo = TITULOS[c.estrategia] || c.estrategia;
         const filas = (c.waves || []).map(w => `
@@ -1210,9 +1215,10 @@ function _renderWaveComparison(datos) {
 
         const totales = [
             `${c.total_waves} wave${c.total_waves !== 1 ? 's' : ''}`,
-            `${c.total_unidades} ud`,
-            `${Number(c.total_peso_kg || 0).toFixed(2)} kg`,
         ];
+        if (c.total_ticks !== undefined && c.total_ticks !== null) {
+            totales.push(`${c.total_ticks} ticks`);
+        }
         if (c.distancia_estimada_total !== undefined) {
             totales.push(`${c.distancia_estimada_total} celdas est.`);
         }
