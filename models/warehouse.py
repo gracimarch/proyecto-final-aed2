@@ -271,6 +271,28 @@ class Aisle:
         dentro_en_y = self.y <= cy < self.y + self.alto
         return dentro_en_x and dentro_en_y
 
+    def progress(self, celda: tuple[int, int]) -> int:
+        """
+        Progreso de una celda en el sentido de circulación del pasillo:
+        cuanto mayor, más adelante está en el recorrido permitido.
+
+        Sirve para ordenar paradas dentro de un mismo pasillo de sentido
+        único: si una celda tiene menos progreso que otra, quedó "atrás" y
+        no se puede volver a ella sin salir del pasillo y entrar de nuevo.
+
+        Para "AMBOS" devuelve 0: no impone ningún orden.
+        """
+        x, y = celda
+        if self.sentido == "N":
+            return y
+        if self.sentido == "S":
+            return -y
+        if self.sentido == "E":
+            return x
+        if self.sentido == "O":
+            return -x
+        return 0
+
     def to_dict(self) -> dict:
         return {
             "id": self.aisle_id,
@@ -499,6 +521,13 @@ class Warehouse:
     # ------------------------------------------------------------------
     # Pasillos
     # ------------------------------------------------------------------
+
+    def aisle_at(self, celda: tuple[int, int]) -> "Aisle | None":
+        """
+        Pasillo declarado que contiene la celda, o None si la celda no está
+        en ningún pasillo declarado (en ese caso circula en ambos sentidos).
+        """
+        return self._aisle_cells.get(tuple(celda))
 
     def add_aisle(self, aisle: Aisle) -> None:
         """

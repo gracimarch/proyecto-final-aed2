@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 
@@ -188,6 +189,35 @@ class TestRouting(unittest.TestCase):
         m = res.metrics()
         self.assertEqual(m["tiempo_recogida"], esperado)
         self.assertEqual(m["tiempo_estimado"], m["distancia_total"] + esperado)
+
+    def test_cercania_no_deja_atras_una_parada_en_pasillo_de_un_sentido(self):
+        """
+        Con un solo picker, P005 (10,9) y P006 (12,8) quedan en el mismo
+        pasillo de sentido N. El vecino más cercano elegía P005 por 1 paso
+        (10 contra 11) y después no podía volver a P006 sin dar la vuelta
+        completa (21 pasos). La regla de no dejar paradas atrás debe visitar
+        P006 primero y bajar el recorrido de 64 a 48 pasos.
+        """
+        data = copy.deepcopy(self.data)
+        data["pickers"] = [p for p in data["pickers"] if p["id"] == "PK_01"]
+
+        wh = Warehouse.from_dict(data)
+        wm = WaveManager.from_dict(data, wh)
+        wm.generate_waves(estrategia_wave="por_cercania")
+        wm.assign_pickers()
+        wave = wm.get_waves()[0]
+
+        res = plan_route(wave, wh, wm.graph, "cercania", "bfs", inicio=(1, 3))
+        productos = [p_id for _, p_ids in res.paradas for p_id in p_ids]
+
+        self.assertLess(productos.index("P006"), productos.index("P005"))
+        self.assertEqual(res.distancia_total, 48)
+
+    def test_orden_no_aplica_la_regla_de_pasillo(self):
+        # La estrategia "orden" mantiene el orden de los pedidos: no se toca.
+        res = plan_route(self.wave, self.wh, self.graph, "orden", "bfs", inicio=(1, 3))
+        self.assertEqual(res.estrategia, "orden")
+        self.assertGreater(res.distancia_total, 0)
 
 
 if __name__ == "__main__":
