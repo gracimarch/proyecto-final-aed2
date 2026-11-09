@@ -35,7 +35,6 @@ from flask import Flask, render_template, request, jsonify
 from models.warehouse import Warehouse
 from models.wave_manager import WaveManager
 from models.generator import generate_scenario
-from algorithms.graph_builder import generate_graph
 from algorithms.routing import plan_route, compare_all_combinations
 from models.simulation import Simulation
 from models.persistence import validate_scenario
@@ -329,7 +328,7 @@ def api_waves_compare():
             total_unidades = 0
             total_peso = 0.0
             distancia_estimada = 0
-            graph = generate_graph(warehouse)
+            graph = manager.graph
             for wave in manager.get_waves():
                 picker_ids = [p.picker_id for p in wave.pickers]
                 pedidos_ids = [entry.order.order_id for entry in wave.entries]
@@ -446,7 +445,7 @@ def api_routes_plan():
         return jsonify({"error": f"No existe la wave '{wave_id}'."}), 400
 
     try:
-        graph     = generate_graph(warehouse)
+        graph     = manager.graph
         resultado = plan_route(wave, warehouse, graph, estrategia, buscador,
                                inicio=_picker_start(wave))
     except (ValueError, KeyError) as e:
@@ -536,7 +535,7 @@ def api_routes_compare():
         return jsonify({"error": f"No existe la wave '{wave_id}'."}), 400
 
     try:
-        graph  = generate_graph(warehouse)
+        graph  = manager.graph
         inicio = _picker_start(wave)
         combinaciones = compare_all_combinations(wave, warehouse, graph, inicio=inicio)
         return jsonify({

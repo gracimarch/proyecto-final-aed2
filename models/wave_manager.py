@@ -82,7 +82,11 @@ from models.picker import Picker
 from models.warehouse import Warehouse
 from models.wave import Wave, WaveStatus
 from algorithms.graph import Graph, bfs_distances
-from algorithms.graph_builder import generate_graph
+from algorithms.graph_builder import (
+    generate_navigation_graph,
+    live_circulation_cells,
+    restrict_to_live_circulation,
+)
 from algorithms.pathfinding import pickup_cells
 from algorithms.routing import validate_reachability, dispatch_access_cells
 
@@ -168,8 +172,15 @@ class WaveManager:
             raise ValueError("max_productos debe ser mayor a 0.")
 
         self.graph = graph
-        if self.graph is None and warehouse is not None:
-            self.graph = generate_graph(warehouse)
+        if warehouse is not None:
+            # La navegación se limita a la circulación desde la que se puede
+            # volver al núcleo de los pickers. Los pasillos de sentido único
+            # que terminan en un callejón sin salida quedan afuera antes de
+            # generar waves y de simular.
+            if self.graph is None:
+                self.graph = generate_navigation_graph(warehouse)
+            else:
+                self.graph = restrict_to_live_circulation(self.graph, warehouse)
 
         # Antes de armar waves, cada producto tiene que poder buscarse
         # y traerse a la zona de despacho respetando los sentidos.
@@ -179,6 +190,10 @@ class WaveManager:
         # Guardamos las celdas de recogida de cada producto para no
         # recalcularlas en cada wave: {product_id: set de celdas}.
         self._pickup_cache = {}
+
+        # Celdas de la circulación viva. Se calculan la primera vez que hacen
+        # falta y no cambian mientras no cambie el grafo.
+        self._live_cells_cache = None
 
         # Tabla de distancias: {celda del rack (x, y): {celda: distancia}}.
         # Se llena de a una fila, la primera vez que se pide cada rack.
@@ -285,13 +300,127 @@ class WaveManager:
                     self.pickers.append(p)
         return self.pickers
 
-    def _max_capacity(self, pickers: list[Picker]) -> float:
-        """Capacidad del picker más grande (0 si no hay pickers)."""
-        mayor = 0.0
+    def _live_cells(self) -> set[tuple[int, int]]:
+        """
+        Celdas de la circulación viva, calculadas una sola vez.
+
+        Son las celdas desde las que un picker puede volver al núcleo. Si no
+        hay warehouse o grafo no se puede decidir y se devuelve un conjunto
+        vacío.
+        """
+        if self._live_cells_cache is None:
+            if self.warehouse is None or self.graph is None:
+                self._live_cells_cache = set()
+            else:
+                self._live_cells_cache = live_circulation_cells(
+                    self.warehouse, self.graph
+                )
+        return self._live_cells_cache
+
+    def _operational_pickers(self, pickers: list[Picker]) -> list[Picker]:
+        """
+        Pickers que pueden participar de la circulación viva.
+
+        Un picker en un callejón sin retorno o en una isla desconectada no es
+        operativo: no puede ir a buscar pedidos ni volver al núcleo, así que
+        no debe contar ni para dimensionar waves ni para asignarlas.
+        """
+        if self.warehouse is None or self.graph is None:
+            return list(pickers)
+
+        vivo = self._live_cells()
+        operativos = []
         for p in pickers:
+            if tuple(p.posicion_actual) in vivo:
+                operativos.append(p)
+        return operativos
+
+    def _max_capacity(self, pickers: list[Picker]) -> float:
+        """
+        Capacidad del picker operativo más grande (0 si no hay ninguno).
+
+        Solo cuentan los pickers operativos: usar la capacidad de uno aislado
+        haría que se armen waves que después nadie puede cargar.
+        """
+        mayor = 0.0
+        for p in self._operational_pickers(pickers):
             if p.capacidad_carga_kg > mayor:
                 mayor = p.capacidad_carga_kg
         return mayor
+
+    def isolated_pickers(self) -> list[Picker]:
+        """Pickers que están fuera de la circulación viva (no operativos)."""
+        if self.warehouse is None or self.graph is None:
+            return []
+
+        vivo = self._live_cells()
+        aislados = []
+        for p in self.pickers:
+            if tuple(p.posicion_actual) not in vivo:
+                aislados.append(p)
+        return aislados
+
+    def infeasible_waves(self) -> list[Wave]:
+        """
+        Waves en cola que ningún picker operativo puede cargar por peso.
+
+        No mira si los pickers están ocupados: la capacidad no cambia, así
+        que si nadie puede cargarla ahora tampoco podrá al liberarse.
+        """
+        tope = self._max_capacity(self.pickers)
+        pesadas = []
+        for wave in self.queue:
+            if wave.total_weight() > tope:
+                pesadas.append(wave)
+        return pesadas
+
+    def infeasibility_message(self) -> str | None:
+        """
+        Motivo por el que la cola no se va a poder vaciar, o None si todavía
+        es asignable.
+
+        Permite cortar la simulación con un error concreto en vez de esperar
+        a max_ticks y reportar un falso bloqueo entre pickers.
+        """
+        if self.warehouse is None or self.graph is None:
+            return None
+        if len(self.queue) == 0:
+            return None
+
+        operativos = self._operational_pickers(self.pickers)
+        if len(self.pickers) > 0 and len(operativos) == 0:
+            detalle = ", ".join(
+                f"{p.picker_id} en {tuple(p.posicion_actual)}"
+                for p in self.pickers
+            )
+            return (
+                "No hay pickers operativos: todos están en regiones sin "
+                f"retorno a la circulación principal ({detalle})."
+            )
+
+        pesadas = self.infeasible_waves()
+        if len(pesadas) == 0:
+            return None
+
+        tope = self._max_capacity(self.pickers)
+        wave = pesadas[0]
+        mensaje = (
+            f"La wave {wave.wave_id} pesa {wave.total_weight():.2f} kg y el "
+            f"picker operativo más capaz puede cargar {tope:.2f} kg."
+        )
+        if len(pesadas) > 1:
+            otros = ", ".join(w.wave_id for w in pesadas[1:])
+            mensaje = mensaje + f" También quedan sin picker: {otros}."
+
+        aislados = self.isolated_pickers()
+        if len(aislados) > 0:
+            detalle = ", ".join(
+                f"{p.picker_id} ({p.capacidad_carga_kg:.2f} kg) en "
+                f"{tuple(p.posicion_actual)}"
+                for p in aislados
+            )
+            mensaje = mensaje + f" Pickers fuera de la circulación: {detalle}."
+        return mensaje
 
     def _validate_item_feasibility(
         self,
@@ -488,6 +617,15 @@ class WaveManager:
         todos_los_pickers = self._register_pickers(pickers)
         max_peso = self._max_capacity(todos_los_pickers)
         if max_peso <= 0:
+            # Distinguir "no hay pickers" de "hay pickers pero ninguno puede
+            # operar": en el segundo caso el escenario es inviable y conviene
+            # avisar en vez de devolver una lista vacía en silencio.
+            if len(todos_los_pickers) > 0 and len(self.get_pending_orders()) > 0:
+                raise ValueError(
+                    "Hay pickers configurados, pero ninguno puede operar: "
+                    "todos están en regiones sin retorno a la circulación "
+                    "principal."
+                )
             return []
 
         # 1. Ítems posibles de cada pedido. Los imposibles se informan y no se usan.

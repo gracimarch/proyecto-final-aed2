@@ -129,6 +129,16 @@ class Simulation:
         try:
             self._start_assigned_waves()
             self._save_frame()
+
+            # Si quedan waves en cola que ningún picker operativo puede
+            # cargar, la simulación no puede terminar. Cortar acá con el
+            # motivo real evita esperar max_ticks y culpar a un bloqueo.
+            problema = self.manager.infeasibility_message()
+            if problema is not None:
+                self.error = problema
+                self.tiempo_ms = (time.perf_counter() - inicio) * 1000
+                return self.frames
+
             while not self._finished() and self.tick < self.max_ticks:
                 # Procesar speed_multiplier ticks internos por frame guardado.
                 # Con speed_multiplier=10 la simulación avanza 10 veces más

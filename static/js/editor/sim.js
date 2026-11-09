@@ -149,14 +149,51 @@ function _tickDelayMs() {
 // Mapa de posiciones iniciales de pickers: pickerId -> { x, y }
 const _initialPickerPositions = new Map();
 
+/**
+ * Fija la posición actual de cada picker como su posición inicial.
+ *
+ * Se llama al generar waves: la wave se arma con los pickers en las celdas
+ * donde están en ese momento, y esas celdas quedan como base para simular y
+ * reiniciar. Si después se mueve un picker hay que volver a generar las
+ * waves para que la simulación use la nueva posición.
+ */
 function _saveInitialPickerPositions() {
     const sc = _getScenario();
     if (!sc) return;
+    _initialPickerPositions.clear();
     for (const picker of sc.pickers) {
-        if (!_initialPickerPositions.has(picker.id)) {
-            _initialPickerPositions.set(picker.id, { x: picker.x, y: picker.y });
-        }
+        _initialPickerPositions.set(picker.id, { x: picker.x, y: picker.y });
     }
+}
+
+/**
+ * True si algún picker se movió, agregó o eliminó desde que se generaron
+ * las waves. En ese caso la simulación no puede usar las waves actuales:
+ * hay que regenerarlas con las posiciones nuevas.
+ */
+function _pickerPositionsChanged() {
+    const sc = _getScenario();
+    if (!sc) return false;
+    if (_initialPickerPositions.size !== sc.pickers.length) return true;
+    for (const picker of sc.pickers) {
+        const base = _initialPickerPositions.get(picker.id);
+        if (!base || base.x !== picker.x || base.y !== picker.y) return true;
+    }
+    return false;
+}
+
+/**
+ * True si la celda no está ocupada por un artefacto (rack, puerta o zona).
+ * Los pickers no se tienen en cuenta: sus celdas base son únicas y se
+ * reasignan todas juntas al restaurar.
+ */
+function _isPickerBaseFree(x, y) {
+    const sc = _getScenario();
+    if (!sc || !sc.isInBounds(x, y)) return false;
+    if (sc.getRackAt(x, y)) return false;
+    if (sc.getDispatchZoneAt(x, y)) return false;
+    if (sc.getDoorAt(x, y)) return false;
+    return true;
 }
 
 function _restorePickerPositions() {
@@ -164,11 +201,15 @@ function _restorePickerPositions() {
     if (!sc) return;
     for (const [id, pos] of _initialPickerPositions) {
         const picker = sc.pickers.find(p => p.id === id);
-        if (picker) {
+        if (!picker) continue;
+        // Si la celda base quedó ocupada por un artefacto colocado después
+        // de generar las waves, no se teletransporta al picker allí: queda
+        // donde está y _pickerPositionsChanged() obligará a regenerar.
+        if (_isPickerBaseFree(pos.x, pos.y)) {
             picker.x = pos.x;
             picker.y = pos.y;
-            picker.isWalking = false;
         }
+        picker.isWalking = false;
     }
 }
 
@@ -246,8 +287,12 @@ async function simGenerateWaves() {
     if (btn) btn.disabled = true;
 
     const estrategiaWave = _getOndaValue();
+    // El escenario se envía con la posición actual de los pickers y esas
+    // posiciones pasan a ser las iniciales para la simulación y el reinicio.
+    const escenario = sc.toJSON();
+    _saveInitialPickerPositions();
     try {
-        _waves = await apiGenerateWaves(sc.toJSON(), estrategiaWave);
+        _waves = await apiGenerateWaves(escenario, estrategiaWave);
         _initialWavesSnapshot = JSON.parse(JSON.stringify(_waves));
         _wavesOnda = estrategiaWave;
         _simulation = null;     // las waves cambiaron: hay que volver a simular
@@ -497,6 +542,18 @@ async function _loadSimulation() {
         return false;
     }
 
+    // Las waves se generaron con los pickers en celdas concretas. Si
+    // después se movió, agregó o eliminó un picker, las waves ya no
+    // corresponden: hay que regenerarlas antes de simular.
+    if (_initialPickerPositions.size === 0) {
+        // Sin base registrada (p. ej. waves restauradas de un archivo):
+        // se toman las posiciones actuales como base.
+        _saveInitialPickerPositions();
+    } else if (_pickerPositionsChanged()) {
+        showToast('Moviste pickers después de generar las waves. Regenerá las waves para simular desde la nueva posición.', 'warning', 6000);
+        return false;
+    }
+
     const btn = _dom('btn-play-pause');
     if (btn) btn.disabled = true;
     showToast('Calculando la simulación en el servidor...', 'info');
@@ -508,8 +565,6 @@ async function _loadSimulation() {
         velocidad: _getSpeedValue(),
     };
     try {
-        _restorePickerPositions();
-        _saveInitialPickerPositions();
         _simulation = await apiSimulate(
             sc.toJSON(),
             params.estrategia,
