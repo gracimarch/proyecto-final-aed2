@@ -18,6 +18,9 @@ Estrategias implementadas (qué parada se visita después):
                      vecino más cercano). Un BFS hacia TODAS las paradas
                      pendientes a la vez la encuentra en una sola búsqueda,
                      porque el primer destino que toca BFS es el más cercano.
+                     Para no dejar paradas atrás en un pasillo de sentido
+                     único, antes se descartan las celdas de recogida que
+                     obligarían a un rodeo (ver _pickup_cells_sin_dejar_atras).
     "orden"    (B) : las paradas en el orden en que aparecen los pedidos.
 
 Métricas de cada recorrido:
@@ -272,19 +275,88 @@ def _search(
     return astar_to_any(graph, source, targets, manhattan, stats)
 
 
-def _next_targets(pendientes: list[_Stop], estrategia: str) -> set[tuple[int, int]]:
+def _pickup_cells_sin_dejar_atras(
+    pendientes: list[_Stop],
+    warehouse: Warehouse,
+) -> set[tuple[int, int]]:
+    """
+    Celdas de recogida que se pueden visitar sin dejar atrás una parada
+    pendiente en un pasillo de sentido único.
+
+    Una celda `c` queda bloqueada si hay otra parada pendiente que SOLO se
+    puede recoger desde celdas más atrás que `c` en el mismo pasillo. Elegir
+    `c` obligaría a salir del pasillo y volver a entrar (el rodeo largo),
+    así que primero se sirve esa otra parada.
+
+    Las celdas que no están en un pasillo declarado, o en uno de sentido
+    AMBOS, nunca se bloquean: se puede volver a ellas sin dar la vuelta.
+
+    Costo: O(m²) por paso, con m = celdas de recogida de las paradas
+    pendientes (normalmente 1 o 2 por parada). Es despreciable frente al
+    BFS de cada tramo, que recorre todo el grafo.
+    """
+    permitidas = set()
+
+    for parada in pendientes:
+        for celda in parada.pickup:
+            pasillo = warehouse.aisle_at(celda)
+            if pasillo is None or pasillo.sentido == "AMBOS":
+                permitidas.add(celda)
+                continue
+
+            progreso = pasillo.progress(celda)
+            bloqueada = False
+
+            for otra in pendientes:
+                if otra is parada:
+                    continue
+
+                atras = False
+                adelante = False
+                for otra_celda in otra.pickup:
+                    otro_pasillo = warehouse.aisle_at(otra_celda)
+                    if otro_pasillo is None or otro_pasillo.aisle_id != pasillo.aisle_id:
+                        continue
+                    otro_progreso = pasillo.progress(otra_celda)
+                    if otro_progreso < progreso:
+                        atras = True
+                    elif otro_progreso > progreso:
+                        adelante = True
+
+                # Solo bloquea si esa parada no tiene ninguna celda más
+                # adelante: si la tiene, se puede recoger después sin volver.
+                if atras and not adelante:
+                    bloqueada = True
+                    break
+
+            if not bloqueada:
+                permitidas.add(celda)
+
+    return permitidas
+
+
+def _next_targets(
+    pendientes: list[_Stop],
+    estrategia: str,
+    warehouse: Warehouse,
+) -> set[tuple[int, int]]:
     """
     Celdas a las que puede ir el picker en el próximo tramo.
         "orden"    : solo las de la primera parada pendiente.
-        "cercania" : las de todas las paradas pendientes.
+        "cercania" : las de todas las paradas pendientes, salvo las que
+                     dejarían atrás otra parada en un pasillo de un solo
+                     sentido.
     """
     if estrategia == "orden":
         return pendientes[0].pickup
 
-    destinos = set()
-    for parada in pendientes:
-        for celda in parada.pickup:
-            destinos.add(celda)
+    destinos = _pickup_cells_sin_dejar_atras(pendientes, warehouse)
+    if len(destinos) == 0:
+        # Red de seguridad: siempre hay al menos una celda sin bloquear
+        # (la de menor progreso de cada pasillo), pero si algo raro pasa
+        # preferimos no quedarnos sin destinos.
+        for parada in pendientes:
+            destinos.update(parada.pickup)
     return destinos
 
 
@@ -494,7 +566,7 @@ def plan_route(
 
     # Ida: un tramo por parada hasta que no quede ninguna pendiente.
     while len(pendientes) > 0:
-        destinos = _next_targets(pendientes, estrategia)
+        destinos = _next_targets(pendientes, estrategia, warehouse)
         tramo, distancia, llegada = _search(graph, actual, destinos, buscador, stats)
 
         if llegada is None:
